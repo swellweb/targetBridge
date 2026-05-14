@@ -1,0 +1,46 @@
+name: TargetBridge
+options:
+  bundleIdPrefix: com.targetbridge
+  deploymentTarget:
+    macOS: "14.0"
+
+targets:
+  TBDisplaySender:
+    type: application
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: TBDisplaySender
+        excludes:
+          - "**/*.md"
+      - path: TBDisplayShared
+        excludes:
+          - "**/*.md"
+      - path: TargetBridgeSupport/Assets.xcassets
+    settings:
+      base:
+        PRODUCT_NAME: "TargetBridge"
+        PRODUCT_BUNDLE_IDENTIFIER: com.targetbridge.sender
+        INFOPLIST_KEY_CFBundleDisplayName: "TargetBridge"
+        INFOPLIST_KEY_NSHumanReadableCopyright: "TargetBridge - Free & Open Source"
+        INFOPLIST_KEY_NSScreenCaptureUsageDescription: "TargetBridge richiede il permesso di registrazione schermo per catturare il desktop duplicato destinato all'iMac."
+        MARKETING_VERSION: "0.1.0-rc1"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_VERSION: "6.0"
+        ENABLE_HARDENED_RUNTIME: YES
+        SWIFT_STRICT_CONCURRENCY: minimal
+        SWIFT_OBJC_BRIDGING_HEADER: TargetBridgeSupport/TargetBridge-Bridging-Header.h
+        GENERATE_INFOPLIST_FILE: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    preBuildScripts:
+      - name: Stamp Sender Build Info
+        script: |
+          set -euo pipefail
+          STAMP="$(date +%Y%m%d%H%M%S)"
+          cat > "${SRCROOT}/TBDisplaySender/TBDisplaySenderBuildInfo.swift" <<EOI
+          enum TBDisplaySenderBuildInfo {
+              static let marketingVersion = "0.1.0-rc1"
+              static let buildNumber = "${STAMP}"
+              static let versionDisplay = "\\(marketingVersion) (\\(buildNumber))"
+          }
+          EOI

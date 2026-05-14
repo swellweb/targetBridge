@@ -1,0 +1,381 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		198725EB3B2C7662DBB0B8D0 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 1819A55F8D993D9347F0E407 /* Assets.xcassets */; };
+		337BD561622AA19F43D3B95B /* ReceiverBackedVirtualDisplaySession.swift in Sources */ = {isa = PBXBuildFile; fileRef = C242540F9DE94E1364F106F4 /* ReceiverBackedVirtualDisplaySession.swift */; };
+		4290B6572B8CA96E01C56425 /* TBDisplaySenderBuildInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEB4DF6C72B5C50C29AE6E45 /* TBDisplaySenderBuildInfo.swift */; };
+		5C0CB53005B6D67362F14719 /* TBDisplaySenderContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 186812C77BFF98DBE0118100 /* TBDisplaySenderContentView.swift */; };
+		6A54029FE56DEECA996A07B4 /* TBDisplaySenderService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B483A658326FE85720BCBE2 /* TBDisplaySenderService.swift */; };
+		B9FA5989F04108E9FBFA8D3B /* TBDisplaySenderApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD235429FA67D231F565C93E /* TBDisplaySenderApp.swift */; };
+		BBFD76A352FEDC54029B2158 /* TBDisplaySenderLocalization.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D063CAADA68CC48C54157FB /* TBDisplaySenderLocalization.swift */; };
+		C2CCAB017BC3CAB1DCFA5CCC /* TBMonitorProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA01317B43B46B1B323A7008 /* TBMonitorProtocol.swift */; };
+		E9F7A263085592067562F768 /* TBDisplaySenderStatusItemController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6AC1AF99431D4889F947CE1B /* TBDisplaySenderStatusItemController.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		0B483A658326FE85720BCBE2 /* TBDisplaySenderService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBDisplaySenderService.swift; sourceTree = "<group>"; };
+		17FD38CAA4E2CF350CC210D2 /* TBDisplaySender.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TBDisplaySender.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		1819A55F8D993D9347F0E407 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		186812C77BFF98DBE0118100 /* TBDisplaySenderContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBDisplaySenderContentView.swift; sourceTree = "<group>"; };
+		6AC1AF99431D4889F947CE1B /* TBDisplaySenderStatusItemController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBDisplaySenderStatusItemController.swift; sourceTree = "<group>"; };
+		9D063CAADA68CC48C54157FB /* TBDisplaySenderLocalization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBDisplaySenderLocalization.swift; sourceTree = "<group>"; };
+		C242540F9DE94E1364F106F4 /* ReceiverBackedVirtualDisplaySession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiverBackedVirtualDisplaySession.swift; sourceTree = "<group>"; };
+		CD235429FA67D231F565C93E /* TBDisplaySenderApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBDisplaySenderApp.swift; sourceTree = "<group>"; };
+		CEB4DF6C72B5C50C29AE6E45 /* TBDisplaySenderBuildInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBDisplaySenderBuildInfo.swift; sourceTree = "<group>"; };
+		DA01317B43B46B1B323A7008 /* TBMonitorProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBMonitorProtocol.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		08A7C67DCAA583BD6D8B0603 /* TBDisplaySender */ = {
+			isa = PBXGroup;
+			children = (
+				C242540F9DE94E1364F106F4 /* ReceiverBackedVirtualDisplaySession.swift */,
+				CD235429FA67D231F565C93E /* TBDisplaySenderApp.swift */,
+				CEB4DF6C72B5C50C29AE6E45 /* TBDisplaySenderBuildInfo.swift */,
+				186812C77BFF98DBE0118100 /* TBDisplaySenderContentView.swift */,
+				9D063CAADA68CC48C54157FB /* TBDisplaySenderLocalization.swift */,
+				0B483A658326FE85720BCBE2 /* TBDisplaySenderService.swift */,
+				6AC1AF99431D4889F947CE1B /* TBDisplaySenderStatusItemController.swift */,
+			);
+			path = TBDisplaySender;
+			sourceTree = "<group>";
+		};
+		67A9FD97DC6A4925CB987EB9 /* TBDisplayShared */ = {
+			isa = PBXGroup;
+			children = (
+				DA01317B43B46B1B323A7008 /* TBMonitorProtocol.swift */,
+			);
+			path = TBDisplayShared;
+			sourceTree = "<group>";
+		};
+		7703C219B31BE7C47F726BA2 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				17FD38CAA4E2CF350CC210D2 /* TBDisplaySender.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		87C33F2A84553825E9CA67A4 = {
+			isa = PBXGroup;
+			children = (
+				B4FD562D7D8645AB2EE6621C /* TargetBridgeSupport */,
+				08A7C67DCAA583BD6D8B0603 /* TBDisplaySender */,
+				67A9FD97DC6A4925CB987EB9 /* TBDisplayShared */,
+				7703C219B31BE7C47F726BA2 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		B4FD562D7D8645AB2EE6621C /* TargetBridgeSupport */ = {
+			isa = PBXGroup;
+			children = (
+				1819A55F8D993D9347F0E407 /* Assets.xcassets */,
+			);
+			path = TargetBridgeSupport;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		F472012D8B21AAC5A144C3A6 /* TBDisplaySender */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 2BBAEA859D7D9F128EE14417 /* Build configuration list for PBXNativeTarget "TBDisplaySender" */;
+			buildPhases = (
+				29FD82A748B2D76878E6C2F5 /* Stamp Sender Build Info */,
+				5A5AEAA1457A961B01CAF2C8 /* Sources */,
+				8731A5BCBB5DE8B4C7200D84 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = TBDisplaySender;
+			packageProductDependencies = (
+			);
+			productName = TBDisplaySender;
+			productReference = 17FD38CAA4E2CF350CC210D2 /* TBDisplaySender.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		378AC1A4A812118F1A10D05E /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+				};
+			};
+			buildConfigurationList = 2DE9D7DD5AC87BAB17FB4948 /* Build configuration list for PBXProject "TargetBridge" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 87C33F2A84553825E9CA67A4;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 7703C219B31BE7C47F726BA2 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				F472012D8B21AAC5A144C3A6 /* TBDisplaySender */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		8731A5BCBB5DE8B4C7200D84 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				198725EB3B2C7662DBB0B8D0 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		29FD82A748B2D76878E6C2F5 /* Stamp Sender Build Info */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Stamp Sender Build Info";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\nSTAMP=\"$(date +%Y%m%d%H%M%S)\"\ncat > \"${SRCROOT}/TBDisplaySender/TBDisplaySenderBuildInfo.swift\" <<EOI\nenum TBDisplaySenderBuildInfo {\n    static let marketingVersion = \"0.1.0-rc1\"\n    static let buildNumber = \"${STAMP}\"\n    static let versionDisplay = \"\\\\(marketingVersion) (\\\\(buildNumber))\"\n}\nEOI\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		5A5AEAA1457A961B01CAF2C8 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				337BD561622AA19F43D3B95B /* ReceiverBackedVirtualDisplaySession.swift in Sources */,
+				B9FA5989F04108E9FBFA8D3B /* TBDisplaySenderApp.swift in Sources */,
+				4290B6572B8CA96E01C56425 /* TBDisplaySenderBuildInfo.swift in Sources */,
+				5C0CB53005B6D67362F14719 /* TBDisplaySenderContentView.swift in Sources */,
+				BBFD76A352FEDC54029B2158 /* TBDisplaySenderLocalization.swift in Sources */,
+				6A54029FE56DEECA996A07B4 /* TBDisplaySenderService.swift in Sources */,
+				E9F7A263085592067562F768 /* TBDisplaySenderStatusItemController.swift in Sources */,
+				C2CCAB017BC3CAB1DCFA5CCC /* TBMonitorProtocol.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		3324300638A25CFE4B431234 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = TargetBridge;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "TargetBridge - Free & Open Source";
+				INFOPLIST_KEY_NSScreenCaptureUsageDescription = "TargetBridge richiede il permesso di registrazione schermo per catturare il desktop duplicato destinato all'iMac.";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = "0.1.0-rc1";
+				PRODUCT_BUNDLE_IDENTIFIER = com.targetbridge.sender;
+				PRODUCT_NAME = TargetBridge;
+				SDKROOT = macosx;
+				SWIFT_OBJC_BRIDGING_HEADER = "TargetBridgeSupport/TargetBridge-Bridging-Header.h";
+				SWIFT_STRICT_CONCURRENCY = minimal;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		3A051A1998E8E1671CE0E012 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = TargetBridge;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "TargetBridge - Free & Open Source";
+				INFOPLIST_KEY_NSScreenCaptureUsageDescription = "TargetBridge richiede il permesso di registrazione schermo per catturare il desktop duplicato destinato all'iMac.";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = "0.1.0-rc1";
+				PRODUCT_BUNDLE_IDENTIFIER = com.targetbridge.sender;
+				PRODUCT_NAME = TargetBridge;
+				SDKROOT = macosx;
+				SWIFT_OBJC_BRIDGING_HEADER = "TargetBridgeSupport/TargetBridge-Bridging-Header.h";
+				SWIFT_STRICT_CONCURRENCY = minimal;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		9AC2A7DAA262FB9F7282A255 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		B8A682D4A10103F0490BB3C4 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		2BBAEA859D7D9F128EE14417 /* Build configuration list for PBXNativeTarget "TBDisplaySender" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				3324300638A25CFE4B431234 /* Debug */,
+				3A051A1998E8E1671CE0E012 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		2DE9D7DD5AC87BAB17FB4948 /* Build configuration list for PBXProject "TargetBridge" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B8A682D4A10103F0490BB3C4 /* Debug */,
+				9AC2A7DAA262FB9F7282A255 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 378AC1A4A812118F1A10D05E /* Project object */;
+}
