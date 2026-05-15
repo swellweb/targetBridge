@@ -172,6 +172,7 @@ final class TBDisplaySenderService: NSObject, ObservableObject, @unchecked Senda
     private var firstFrameTimer: Timer?
     private var heartbeatSequence: UInt64 = 0
     private var statusState: TBDisplaySenderStatusState = .ready
+    private var streamingActivity: NSObjectProtocol?
 
     private final class CaptureDelegate: NSObject, SCStreamOutput, SCStreamDelegate {
         var onFrame: ((CMSampleBuffer) -> Void)?
@@ -293,6 +294,10 @@ final class TBDisplaySenderService: NSObject, ObservableObject, @unchecked Senda
         scStream?.stopCapture(completionHandler: nil)
         scStream = nil
         captureDelegate = nil
+        if let activity = streamingActivity {
+            ProcessInfo.processInfo.endActivity(activity)
+            streamingActivity = nil
+        }
         if let encoder = vtEncoder { VTCompressionSessionInvalidate(encoder) }
         vtEncoder = nil
         vtEncoderRef?.release()
@@ -469,6 +474,10 @@ final class TBDisplaySenderService: NSObject, ObservableObject, @unchecked Senda
             try await stream.startCapture()
             scStream = stream
             isStreaming = true
+            streamingActivity = ProcessInfo.processInfo.beginActivity(
+                options: .userInitiatedAllowingIdleSystemSleep,
+                reason: "TargetBridge streaming active"
+            )
             startFPSTimer()
             return true
         } catch {
