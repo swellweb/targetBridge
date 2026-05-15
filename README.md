@@ -17,6 +17,15 @@ Apple removed Target Display Mode on Apple Silicon. TargetBridge brings it back 
 **Receiver (Intel iMac) — waiting for sender:**
 ![TargetBridge Receiver](screenshots/receiver.png)
 
+## Download
+
+**[→ Download latest release (pre-built apps, no Xcode needed)](https://github.com/swellweb/targetBridge/releases/latest)**
+
+- `TargetBridge.app.zip` — Sender for MacBook Apple Silicon
+- `TargetBridge-Receiver.app.zip` — Receiver for Intel iMac
+
+Unzip and double-click. On first launch, grant Screen Recording to the sender.
+
 ## Requirements
 
 - MacBook Apple Silicon (M1 or later) — sender
