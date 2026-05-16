@@ -4,6 +4,8 @@
 
 Use an Intel iMac as an external display for an Apple Silicon MacBook — free, no dongle, via Thunderbolt Bridge.
 
+If TargetBridge is useful to you, a ⭐ on GitHub helps others find it.
+
 Apple removed Target Display Mode on Apple Silicon. TargetBridge brings it back via software, streaming your MacBook screen to the iMac at up to 5K over a direct Thunderbolt cable.
 
 ## Screenshots
