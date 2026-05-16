@@ -18,6 +18,15 @@ App prodotta:
 
 ## Build del receiver
 
+Prima di buildare, installa le dipendenze necessarie sull'iMac:
+
+```bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+brew install ffmpeg sdl2 pkg-config
+```
+
+Poi builda:
+
 ```bash
 cd TargetBridge-Receiver
 ./scripts/build_tbreceiver_c_app.sh

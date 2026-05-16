@@ -28,6 +28,8 @@ Unzip and double-click. On first launch, grant Screen Recording to the sender.
 
 > **iMac on Ventura or older?** The pre-built receiver requires macOS 14. Build it directly on your iMac instead — takes ~2 minutes, see the [Quick Start guide](TargetBridge-QuickStart-EN.md).
 
+> **Pre-built receiver crashing?** It requires `ffmpeg` and `sdl2` installed via Homebrew: `brew install ffmpeg sdl2`
+
 ## Requirements
 
 - MacBook Apple Silicon (M1 or later) — sender
