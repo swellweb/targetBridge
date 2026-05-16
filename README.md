@@ -19,6 +19,9 @@ Apple removed Target Display Mode on Apple Silicon. TargetBridge brings it back 
 **Receiver (Intel iMac) — waiting for sender:**
 ![TargetBridge Receiver](screenshots/receiver.png)
 
+**iMac connected at native resolution via Thunderbolt:**
+![TargetBridge native resolution](screenshots/resolution_linked_thunderbolt.png)
+
 ## Download
 
 **[→ Download latest release (pre-built apps, no Xcode needed)](https://github.com/swellweb/targetBridge/releases/latest)**
