@@ -84,7 +84,12 @@ cat > "$APP_DIR/Contents/Info.plist" <<EOF
 EOF
 
 printf 'APPL????' > "$APP_DIR/Contents/PkgInfo"
+# Sign each bundled dylib first, then the app
+find "$APP_DIR/Contents/Frameworks" -name "*.dylib" | while read dylib; do
+  codesign --force --sign - "$dylib" >/dev/null 2>&1 || true
+done
 codesign --force --deep --sign - "$APP_DIR" >/dev/null 2>&1 || true
+xattr -cr "$APP_DIR" >/dev/null 2>&1 || true
 rm -rf "$ICONSET_DIR"
 
 echo "${APP_NAME} built: $APP_DIR"
