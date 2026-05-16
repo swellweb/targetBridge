@@ -27,6 +27,8 @@ brew install ffmpeg sdl2 pkg-config
 
 Then build:
 
+Note: the build script automatically bundles ffmpeg and SDL2 inside the `.app` — no Homebrew needed at runtime.
+
 ```bash
 cd TargetBridge-Receiver
 ./scripts/build_tbreceiver_c_app.sh

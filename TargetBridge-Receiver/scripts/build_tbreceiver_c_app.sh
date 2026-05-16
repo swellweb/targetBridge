@@ -23,6 +23,18 @@ mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 cp "$ROOT/TBReceiverC/tbreceiver" "$APP_DIR/Contents/MacOS/$BIN_NAME"
 chmod +x "$APP_DIR/Contents/MacOS/$BIN_NAME"
 
+# Bundle dylib dependencies (ffmpeg, SDL2) inside the .app
+mkdir -p "$APP_DIR/Contents/Frameworks"
+if ! command -v dylibbundler &>/dev/null; then
+  echo "Installing dylibbundler..."
+  brew install dylibbundler
+fi
+dylibbundler -od -b \
+  -x "$APP_DIR/Contents/MacOS/$BIN_NAME" \
+  -d "$APP_DIR/Contents/Frameworks/" \
+  -p @executable_path/../Frameworks/ \
+  >/dev/null 2>&1
+
 if [[ -f "$ICON_FILE" ]]; then
   mkdir -p "${ICONSET_DIR}/TargetBridgeReceiver.iconset"
   sips -z 16 16     "$ICON_FILE" --out "${ICONSET_DIR}/TargetBridgeReceiver.iconset/icon_16x16.png" >/dev/null
