@@ -500,8 +500,13 @@ final class TBDisplaySenderService: NSObject, ObservableObject, @unchecked Senda
             directDisplayStream.stop()
             self.directDisplayStream = nil
         }
-        scStream?.stopCapture(completionHandler: nil)
-        scStream = nil
+        if let stream = scStream {
+            if let delegate = captureDelegate {
+                try? stream.removeStreamOutput(delegate, type: .screen)
+            }
+            stream.stopCapture(completionHandler: nil)
+            scStream = nil
+        }
         captureDelegate = nil
         if let activity = streamingActivity {
             ProcessInfo.processInfo.endActivity(activity)
