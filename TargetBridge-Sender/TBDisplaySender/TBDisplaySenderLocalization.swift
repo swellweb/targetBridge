@@ -250,6 +250,10 @@ enum TBDisplaySenderL10n {
         language == .italian ? "Mostra icona nella topbar" : "Show icon in top bar"
     }
 
+    static func largeCursor(_ language: TBDisplaySenderLanguage) -> String {
+        language == .italian ? "Cursore ingrandito sul receiver" : "Large cursor on receiver"
+    }
+
     static func showMainWindow(_ language: TBDisplaySenderLanguage) -> String {
         language == .italian ? "Mostra finestra principale" : "Show main window"
     }

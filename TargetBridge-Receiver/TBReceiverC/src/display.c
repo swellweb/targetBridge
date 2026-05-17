@@ -36,6 +36,7 @@ struct tb_display {
     int           cursor_x, cursor_y;
     int           cursor_source_w, cursor_source_h;
     int           cursor_visible;
+    double        cursor_scale;
 
     char          last_ip[64];
     char          last_status[128];
@@ -291,6 +292,7 @@ struct tb_display *tb_disp_create(int fullscreen) {
     d->cursor_source_w = 1;
     d->cursor_source_h = 1;
     d->cursor_visible = 0;
+    d->cursor_scale = 1.0;
 
     tb_disp_refresh_window_mode(d);
     SDL_ShowWindow(d->win);
@@ -398,7 +400,7 @@ static void tb_disp_draw_cursor(struct tb_display *d) {
     const double sy = (double)out_h / (double)d->cursor_source_h;
     const int x = (int)((double)d->cursor_x * sx);
     const int y = (int)((double)d->cursor_y * sy);
-    const int size = out_w >= 5000 ? 58 : 44;
+    const int size = (int)((out_w >= 5000 ? 58 : 44) * d->cursor_scale + 0.5);
     SDL_BlendMode old_blend = SDL_BLENDMODE_NONE;
     (void)SDL_GetRenderDrawBlendMode(d->ren, &old_blend);
 
@@ -471,13 +473,15 @@ void tb_disp_render_nv12(struct tb_display *d,
 void tb_disp_set_cursor(struct tb_display *d,
                         int x, int y,
                         int source_w, int source_h,
-                        int visible) {
+                        int visible,
+                        double scale) {
     if (!d) return;
     d->cursor_x = x;
     d->cursor_y = y;
     d->cursor_source_w = source_w > 0 ? source_w : 1;
     d->cursor_source_h = source_h > 0 ? source_h : 1;
     d->cursor_visible = visible;
+    d->cursor_scale = scale > 0.0 ? scale : 1.0;
     if (d->is_connected && d->tex) {
         tb_disp_render_current(d);
     }

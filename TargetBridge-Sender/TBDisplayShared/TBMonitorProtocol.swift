@@ -51,6 +51,7 @@ struct TBMonitorCursor: Codable {
     var width: Int
     var height: Int
     var visible: Bool
+    var scale: Double
 }
 
 enum TBMonitorProtocol {
