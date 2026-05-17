@@ -29,7 +29,7 @@ Apple dropped Target Display Mode in 2014 with the 5K iMac — and it never came
 - `TargetBridge.app.zip` — Sender for MacBook Apple Silicon
 - `TargetBridge-Receiver.app.zip` — Receiver for Intel iMac (**requires macOS 14 Sonoma**)
 
-Unzip and double-click. On first launch, grant Screen Recording to the sender.
+Unzip and double-click. On first launch, grant Screen Recording permission to the sender.
 
 > **iMac on Ventura or older?** The pre-built receiver requires macOS 14. Build it directly on your iMac instead — takes ~2 minutes, see the [Quick Start guide](TargetBridge-QuickStart-EN.md).
 

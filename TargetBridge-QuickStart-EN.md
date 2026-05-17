@@ -27,7 +27,7 @@ brew install ffmpeg sdl2 pkg-config
 
 Then build:
 
-Note: the build script automatically bundles ffmpeg and SDL2 inside the `.app` — no Homebrew needed at runtime.
+Note: The build script automatically bundles FFmpeg and SDL2 inside the `.app` — no Homebrew is needed at runtime.
 
 ```bash
 cd TargetBridge-Receiver
@@ -40,7 +40,7 @@ Produced app:
 
 Note:
 
-- on an Intel iMac, build the receiver directly on that iMac so the resulting binary is `x86_64`
+- On an Intel iMac, build the receiver directly on that iMac so the resulting binary is `x86_64`.
 
 ## Launch
 
@@ -52,7 +52,7 @@ Open:
 
 On first launch, grant:
 
-- `Screen Recording`
+- `Screen Recording` permission.
 
 ### iMac
 
@@ -64,25 +64,25 @@ Write down the IP address shown in the startup window.
 
 ## Connect
 
-1. Start `TargetBridge Receiver` on the iMac first
-2. Read the Thunderbolt Bridge IP shown by the receiver
-3. Open `TargetBridge` on the MacBook
-4. Enter that IP in the `Receiver IP` field
-5. Press `Connect`
+1. Start `TargetBridge Receiver` on the iMac first.
+2. Read the Thunderbolt Bridge IP shown by the receiver.
+3. Open `TargetBridge` on the MacBook.
+4. Enter that IP in the `Receiver IP` field.
+5. Press `Connect`.
 
 When the first frame arrives, the receiver switches to fullscreen automatically.
 
 ## Stream profiles
 
 - `Standard · 2560 × 1440`
-  - lower latency
-  - higher stability
-  - less sharp than native 5K
+  - Lower latency.
+  - Higher stability.
+  - Less sharp than native 5K.
 
 - `5K · 5120 × 2880`
-  - sharper image
-  - uses `HEVC`
-  - more load and slightly higher latency
+  - Sharper image.
+  - Uses `HEVC`.
+  - More load and slightly higher latency.
 
 ## Auto-start the receiver
 
@@ -102,7 +102,7 @@ cd TargetBridge-Receiver
 
 ## Practical notes
 
-- the receiver should be started before the sender
-- the sender can show or hide its top bar icon
-- if 5K is not responsive enough, switch back to the `Standard` profile
-- the sender build script uses a local DerivedData folder at `TargetBridge-Sender/.build/DerivedData`
+- The receiver should be started before the sender.
+- The sender can show or hide its top bar icon.
+- If 5K is not responsive enough, switch back to the `Standard` profile.
+- The sender build script uses a local DerivedData folder at `TargetBridge-Sender/.build/DerivedData`.
