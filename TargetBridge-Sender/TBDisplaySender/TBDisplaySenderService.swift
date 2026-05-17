@@ -245,7 +245,7 @@ private final class TBDirectDisplayStreamCapture {
         self.queue = queue
     }
 
-    func start(displayID: CGDirectDisplayID, preset: TBDisplayCapturePreset, showCursor: Bool = false) -> Bool {
+    func start(displayID: CGDirectDisplayID, preset: TBDisplayCapturePreset, showCursor: Bool) -> Bool {
         let properties: NSDictionary = [
             CGDisplayStream.showCursor: showCursor,
             CGDisplayStream.queueDepth: preset.queueDepth,
@@ -313,7 +313,6 @@ final class TBDisplaySenderService: NSObject, ObservableObject, @unchecked Senda
     @Published var largeCursor: Bool = UserDefaults.standard.bool(forKey: "fd.tbdisplaysender.largeCursor") {
         didSet {
             UserDefaults.standard.set(largeCursor, forKey: "fd.tbdisplaysender.largeCursor")
-            sendCursorUpdateIfNeeded(force: true)
         }
     }
     @Published var capturePreset: TBDisplayCapturePreset = .standard1440p {
@@ -1091,14 +1090,12 @@ final class TBDisplaySenderService: NSObject, ObservableObject, @unchecked Senda
 
         let scaledX = Int((max(0, min(bounds.width, localX)) / bounds.width) * Double(capturePreset.width))
         let scaledY = Int((max(0, min(bounds.height, localY)) / bounds.height) * Double(capturePreset.height))
-        let cursorScale = largeCursor ? 1.5 : 1.0
         let cursor = TBMonitorCursor(
             x: scaledX,
             y: scaledY,
             width: capturePreset.width,
             height: capturePreset.height,
-            visible: visible,
-            scale: cursorScale
+            visible: visible
         )
 
         if !force, let previous = lastCursorPacket {
@@ -1106,8 +1103,7 @@ final class TBDisplaySenderService: NSObject, ObservableObject, @unchecked Senda
             if movement < 2,
                previous.visible == cursor.visible,
                previous.width == cursor.width,
-               previous.height == cursor.height,
-               previous.scale == cursor.scale {
+               previous.height == cursor.height {
                 return
             }
         }

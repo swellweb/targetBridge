@@ -35,8 +35,7 @@ void tb_disp_render_nv12(struct tb_display *d,
 void tb_disp_set_cursor(struct tb_display *d,
                         int x, int y,
                         int source_w, int source_h,
-                        int visible,
-                        double scale);
+                        int visible);
 
 /* Returns 1 if user requested quit (ESC or window close). */
 int  tb_disp_poll_quit(struct tb_display *d);

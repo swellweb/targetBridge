@@ -136,26 +136,6 @@ static int extract_json_bool_field(const uint8_t *payload,
     return extract_json_int_field(payload, len, key, out_value);
 }
 
-static int extract_json_double_field(const uint8_t *payload,
-                                     size_t len,
-                                     const char *key,
-                                     double *out_value) {
-    if (!payload || !key || !out_value) return 0;
-    const char *text = (const char *)payload;
-    const char *pos = strstr(text, key);
-    if (!pos) return 0;
-    pos = strchr(pos, ':');
-    if (!pos) return 0;
-    pos++;
-    while ((size_t)(pos - text) < len && (*pos == ' ' || *pos == '\t')) pos++;
-    if ((size_t)(pos - text) >= len) return 0;
-    char *end = NULL;
-    double v = strtod(pos, &end);
-    if (end == pos) return 0;
-    *out_value = v;
-    return 1;
-}
-
 /* ---- Callbacks: decoder → display ------------------------------------ */
 
 static void on_frame(const uint8_t *y, int y_stride,
@@ -223,14 +203,12 @@ static void on_packet(uint8_t type, const uint8_t *payload, size_t len, void *ud
             int w = 0;
             int h = 0;
             int visible = 0;
-            double scale = 1.0;
             (void)extract_json_int_field(payload, len, "\"x\"", &x);
             (void)extract_json_int_field(payload, len, "\"y\"", &y);
             (void)extract_json_int_field(payload, len, "\"width\"", &w);
             (void)extract_json_int_field(payload, len, "\"height\"", &h);
             (void)extract_json_bool_field(payload, len, "\"visible\"", &visible);
-            (void)extract_json_double_field(payload, len, "\"scale\"", &scale);
-            tb_disp_set_cursor(a->disp, x, y, w, h, visible, scale);
+            tb_disp_set_cursor(a->disp, x, y, w, h, visible);
         }
         break;
     case TB_PKT_HEARTBEAT:
@@ -356,7 +334,7 @@ static void close_client(struct app *a) {
     a->close_requested = 0;
     a->have_video_frame = 0;
     tb_disp_set_connection_state(a->disp, 0);
-    tb_disp_set_cursor(a->disp, 0, 0, 1, 1, 0, 1.0);
+    tb_disp_set_cursor(a->disp, 0, 0, 1, 1, 0);
     snprintf(a->status_text, sizeof(a->status_text), "%s", "waiting for sender");
     snprintf(a->sender_text, sizeof(a->sender_text), "%s", "waiting");
     tb_parser_free(&a->parser);
