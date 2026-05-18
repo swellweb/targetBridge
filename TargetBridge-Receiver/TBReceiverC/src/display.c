@@ -174,12 +174,12 @@ static void tb_disp_rebuild_status_texture(struct tb_display *d,
 
     tb_disp_fill_rect(ctx, 0, 0, (CGFloat)drawable_w, (CGFloat)drawable_h, 0.06, 0.07, 0.09, 1.0);
     tb_disp_fill_rect(ctx, 48, 52, (CGFloat)drawable_w - 96, (CGFloat)drawable_h - 104, 0.12, 0.13, 0.16, 1.0);
-    tb_disp_fill_rect(ctx, 48, (CGFloat)drawable_h - 110, (CGFloat)drawable_w - 96, 2, 0.23, 0.25, 0.30, 1.0);
+    tb_disp_fill_rect(ctx, 48, (CGFloat)drawable_h - 152, (CGFloat)drawable_w - 96, 2, 0.23, 0.25, 0.30, 1.0);
 
-    tb_disp_draw_text(ctx, "TARGETBRIDGE RECEIVER", "Helvetica-Bold", 30, 72, (CGFloat)drawable_h - 90, 0.95, 0.97, 1.0);
-    tb_disp_draw_text(ctx, "5K / HiDPI receiver ready for sender", "Helvetica", 18, 72, (CGFloat)drawable_h - 122, 0.72, 0.76, 0.84);
-    tb_disp_draw_text(ctx, TB_RECEIVER_VERSION, "Menlo-Bold", 18, (CGFloat)drawable_w - 220, (CGFloat)drawable_h - 92, 0.64, 0.69, 0.78);
-    tb_disp_draw_text(ctx, TB_RECEIVER_BUILD, "Menlo", 14, (CGFloat)drawable_w - 220, (CGFloat)drawable_h - 118, 0.53, 0.57, 0.66);
+    tb_disp_draw_text(ctx, "TARGETBRIDGE RECEIVER", "Helvetica-Bold", 30, 72, (CGFloat)drawable_h - 76, 0.95, 0.97, 1.0);
+    tb_disp_draw_text(ctx, "5K / HiDPI receiver ready for sender", "Helvetica", 18, 72, (CGFloat)drawable_h - 118, 0.72, 0.76, 0.84);
+    tb_disp_draw_text(ctx, TB_RECEIVER_VERSION, "Menlo-Bold", 18, (CGFloat)drawable_w - 220, (CGFloat)drawable_h - 78, 0.64, 0.69, 0.78);
+    tb_disp_draw_text(ctx, TB_RECEIVER_BUILD, "Menlo", 14, (CGFloat)drawable_w - 220, (CGFloat)drawable_h - 120, 0.53, 0.57, 0.66);
 
     tb_disp_draw_text(ctx, "IP THUNDERBOLT BRIDGE", "Helvetica-Bold", 16, 72, (CGFloat)drawable_h - 190, 0.54, 0.62, 0.76);
     tb_disp_draw_text(ctx, ip, "Menlo-Bold", 36, 72, (CGFloat)drawable_h - 235, 0.43, 0.93, 0.60);
@@ -196,9 +196,9 @@ static void tb_disp_rebuild_status_texture(struct tb_display *d,
     tb_disp_draw_text(ctx, "STREAM PROFILE", "Helvetica-Bold", 16, 72, (CGFloat)drawable_h - 596, 0.54, 0.62, 0.76);
     tb_disp_draw_text(ctx, mode, "Menlo", 22, 72, (CGFloat)drawable_h - 632, 0.94, 0.96, 0.99);
 
-    tb_disp_draw_text(ctx, "Start the sender on your MacBook and enter this IP address.", "Helvetica", 18, 72, 92, 0.76, 0.80, 0.88);
-    tb_disp_draw_text(ctx, "When the first frame arrives, the receiver switches to fullscreen automatically.", "Helvetica", 18, 72, 62, 0.76, 0.80, 0.88);
-    tb_disp_draw_text(ctx, "If the sender stops, the receiver returns here ready for a new session.", "Helvetica", 18, 72, 32, 0.76, 0.80, 0.88);
+    tb_disp_draw_text(ctx, "Start the sender on your MacBook and enter this IP address.", "Helvetica", 18, 72, 146, 0.76, 0.80, 0.88);
+    tb_disp_draw_text(ctx, "When the first frame arrives, the receiver switches to fullscreen automatically.", "Helvetica", 18, 72, 116, 0.76, 0.80, 0.88);
+    tb_disp_draw_text(ctx, "If the sender stops, the receiver returns here ready for a new session.", "Helvetica", 18, 72, 86, 0.76, 0.80, 0.88);
 
     CGContextRelease(ctx);
 
