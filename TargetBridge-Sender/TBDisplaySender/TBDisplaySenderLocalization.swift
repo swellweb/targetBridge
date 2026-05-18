@@ -50,6 +50,7 @@ enum TBDisplaySenderStatusState {
     case noShareableDisplay(String)
     case hevcNoFrames
     case noFirstFrame
+    case testingCable
 
     func text(_ language: TBDisplaySenderLanguage) -> String {
         switch (self, language) {
@@ -60,6 +61,10 @@ enum TBDisplaySenderStatusState {
         case let (.connecting(ip), .italian): return "Connessione a \(ip)…"
         case let (.connecting(ip), .english): return "Connecting to \(ip)…"
         case let (.connecting(ip), .german): return "Verbinden mit \(ip)…"
+
+        case (.testingCable, .italian): return "Test del cavo in corso…"
+        case (.testingCable, .english): return "Testing cable performance…"
+        case (.testingCable, .german): return "Kabel-Performance wird getestet…"
 
         case (.waitingDisplayProfile, .italian): return "Receiver connesso, attendo profilo display…"
         case (.waitingDisplayProfile, .english): return "Receiver connected, waiting for display profile…"
@@ -148,6 +153,46 @@ enum TBDisplaySenderL10n {
             return "Creates an iMac virtual display on macOS and sends its contents to the 5K receiver."
         case .german:
             return "Erstellt ein virtuelles iMac-Display auf macOS und sendet dessen Inhalt an den 5K-Empfänger."
+        }
+    }
+
+    static func cableTestGroup(_ language: TBDisplaySenderLanguage) -> String {
+        switch language {
+        case .italian: return "Test Cavo"
+        case .english: return "Cable Test"
+        case .german: return "Kabeltest"
+        }
+    }
+
+    static func cableTestButton(_ language: TBDisplaySenderLanguage) -> String {
+        switch language {
+        case .italian: return "Esegui Test Cavo"
+        case .english: return "Run Cable Test"
+        case .german: return "Kabeltest ausführen"
+        }
+    }
+
+    static func testingButton(_ language: TBDisplaySenderLanguage) -> String {
+        switch language {
+        case .italian: return "Test in corso…"
+        case .english: return "Testing…"
+        case .german: return "Test läuft…"
+        }
+    }
+
+    static func transferRateLabel(_ language: TBDisplaySenderLanguage) -> String {
+        switch language {
+        case .italian: return "Velocità:"
+        case .english: return "Transfer Rate:"
+        case .german: return "Übertragungsrate:"
+        }
+    }
+
+    static func noTestResult(_ language: TBDisplaySenderLanguage) -> String {
+        switch language {
+        case .italian: return "Nessun test eseguito"
+        case .english: return "No test run yet"
+        case .german: return "Noch kein Test ausgeführt"
         }
     }
 

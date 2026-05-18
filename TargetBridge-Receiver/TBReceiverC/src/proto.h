@@ -33,6 +33,7 @@
 #define TB_PKT_HEARTBEAT        0x30
 #define TB_PKT_TEARDOWN         0x31
 #define TB_PKT_CURSOR           0x32
+#define TB_PKT_TEST_DATA        0x40
 
 #define TB_HDR_BYTES        5   /* 4 length + 1 type */
 

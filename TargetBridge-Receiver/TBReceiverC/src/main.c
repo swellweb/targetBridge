@@ -218,6 +218,9 @@ static void on_packet(uint8_t type, const uint8_t *payload, size_t len, void *ud
         break;
     case TB_PKT_HEARTBEAT:
         break;
+    case TB_PKT_TEST_DATA:
+        /* Performance test data; discard */
+        break;
     case TB_PKT_TEARDOWN:
         fprintf(stderr, "[main] teardown requested by sender\n");
         snprintf(a->status_text, sizeof(a->status_text), "%s", "session closed by sender");

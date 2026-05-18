@@ -8,11 +8,12 @@ struct TBDisplaySenderApp: App {
     var body: some Scene {
         WindowGroup("TargetBridge", id: "main") {
             TBDisplaySenderContentView(service: service)
+                .frame(minWidth: 540)
                 .task {
                     statusItemController.activate()
                 }
         }
-        .defaultSize(width: 460, height: 420)
+        .defaultSize(width: 540, height: 620)
         .windowResizability(.contentSize)
     }
 }
