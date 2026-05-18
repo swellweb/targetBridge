@@ -1,3 +1,5 @@
+![TargetBridge Overview](screenshots/connection-diagram.svg)
+
 # TargetBridge
 
 [![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-pink?logo=github)](https://github.com/sponsors/swellweb)

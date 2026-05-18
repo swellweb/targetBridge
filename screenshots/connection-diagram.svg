@@ -1,0 +1,367 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1500 720" width="100%" height="100%">
+  <defs>
+    <!-- Background Gradient -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0B0914" />
+      <stop offset="50%" stop-color="#1B1233" />
+      <stop offset="100%" stop-color="#050308" />
+    </linearGradient>
+
+    <!-- Halftone Pop Art Pattern -->
+    <pattern id="halftone" x="0" y="0" width="12" height="12" patternUnits="userSpaceOnUse">
+      <circle cx="6" cy="6" r="1.5" fill="#4B3A75" opacity="0.35" />
+    </pattern>
+
+    <!-- Screen Wallpaper Gradient -->
+    <linearGradient id="screenWallpaper" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#FF3366" />
+      <stop offset="45%" stop-color="#8E2DE2" />
+      <stop offset="100%" stop-color="#4A00E0" />
+    </linearGradient>
+
+    <!-- Comic Yellow/Orange Text Gradient -->
+    <linearGradient id="comicYellow" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFF000" />
+      <stop offset="100%" stop-color="#FF9F0A" />
+    </linearGradient>
+
+    <!-- Aluminum Metallic Gradients -->
+    <linearGradient id="metalSilver" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" />
+      <stop offset="30%" stop-color="#E4E7EC" />
+      <stop offset="100%" stop-color="#98A2B3" />
+    </linearGradient>
+    <linearGradient id="metalSilverDark" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#B0B5C0" />
+      <stop offset="100%" stop-color="#667085" />
+    </linearGradient>
+
+    <!-- Cable Glow Filter -->
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="5" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+
+    <!-- Comic Pop-out Drop Shadow -->
+    <filter id="comicShadow" x="-5%" y="-5%" width="115%" height="115%">
+      <feOffset dx="6" dy="6" in="SourceAlpha" result="offset" />
+      <feGaussianBlur stdDeviation="0" result="blur" />
+      <feComponentTransfer>
+        <feFuncA type="linear" slope="1" />
+      </feComponentTransfer>
+      <feMerge>
+        <feMergeNode />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- BACKGROUND -->
+  <rect width="1500" height="720" fill="url(#bgGrad)" />
+
+  <!-- Comic Sunburst/Rays -->
+  <g opacity="0.12">
+    <polygon points="750,360 0,0 150,0" fill="#8E2DE2" />
+    <polygon points="750,360 300,0 450,0" fill="#8E2DE2" />
+    <polygon points="750,360 600,0 750,0" fill="#8E2DE2" />
+    <polygon points="750,360 900,0 1050,0" fill="#8E2DE2" />
+    <polygon points="750,360 1200,0 1350,0" fill="#8E2DE2" />
+    <polygon points="750,360 1450,0 1500,0 1500,100" fill="#8E2DE2" />
+    <polygon points="750,360 1500,200 1500,320" fill="#8E2DE2" />
+    <polygon points="750,360 1500,420 1500,540" fill="#8E2DE2" />
+    <polygon points="750,360 1500,600 1400,720" fill="#8E2DE2" />
+    <polygon points="750,360 1200,720 1050,720" fill="#8E2DE2" />
+    <polygon points="750,360 900,720 750,720" fill="#8E2DE2" />
+    <polygon points="750,360 600,720 450,720" fill="#8E2DE2" />
+    <polygon points="750,360 300,720 150,720" fill="#8E2DE2" />
+    <polygon points="750,360 50,720 0,720 0,550" fill="#8E2DE2" />
+    <polygon points="750,360 0,400 0,280" fill="#8E2DE2" />
+    <polygon points="750,360 0,160 0,40" fill="#8E2DE2" />
+  </g>
+
+  <!-- Halftone Dots overlay -->
+  <rect width="1500" height="720" fill="url(#halftone)" pointer-events="none" />
+
+  <!-- ==================== MAIN HEADER & RIBBON (MOVED HIGHER FOR EXTRA HEADROOM) ==================== -->
+  <!-- ==================== MAIN HEADER ==================== -->
+  <g filter="url(#comicShadow)">
+    <text x="750" y="70" text-anchor="middle" font-family="'Arial Black', 'Impact', sans-serif" font-size="52" font-weight="900" fill="#101216" stroke="#101216" stroke-width="10" stroke-linejoin="round" letter-spacing="4">TargetBridge</text>
+    <text x="750" y="70" text-anchor="middle" font-family="'Arial Black', 'Impact', sans-serif" font-size="52" font-weight="900" fill="url(#comicYellow)" stroke="#101216" stroke-width="2" letter-spacing="4">TargetBridge</text>
+  </g>
+
+  <!-- Subtitle Ribbon -->
+  <g filter="url(#comicShadow)">
+    <polygon points="530,95 970,95 960,130 540,130" fill="#FF2A6D" stroke="#101216" stroke-width="4" stroke-linejoin="round" />
+    <text x="750" y="118" text-anchor="middle" font-family="'Arial Black', sans-serif" font-size="13" font-weight="bold" fill="#FFFFFF" letter-spacing="2">TARGET DISPLAY MODE IS BACK!</text>
+  </g>
+
+  <!-- ==================== VERTICAL SHIFT CONTAINER (OFFSETS COMPOSITION BY 50PX DOWN) ==================== -->
+  <g transform="translate(0, 50)">
+    <!-- Action/Speed Lines around margins -->
+    <g stroke="#8E2DE2" stroke-width="1.5" opacity="0.3" stroke-linecap="round">
+      <line x1="50" y1="50" x2="180" y2="120" />
+      <line x1="1450" y1="50" x2="1320" y2="120" />
+      <line x1="50" y1="600" x2="180" y2="530" />
+      <line x1="1450" y1="600" x2="1320" y2="530" />
+      <line x1="750" y1="30" x2="750" y2="70" />
+    </g>
+
+
+    <!-- ==================== LEFT: APPLE MACBOOK (RECTANGULAR PROFILE - SHIFTED LEFT) ==================== -->
+    <g transform="translate(200, 0)">
+      <!-- Base Shadow -->
+      <ellipse cx="198" cy="482" rx="110" ry="6" fill="#050308" opacity="0.75" />
+
+      <!-- Lid / Outer Screen Shell (Rectangular rounded top corners - Sleek Widescreen) -->
+      <path d="M 96 440 L 300 440 L 300 305 A 5 5 0 0 0 295 300 L 101 300 A 5 5 0 0 0 96 305 Z" fill="url(#metalSilverDark)" stroke="#101216" stroke-width="4" stroke-linejoin="round" />
+
+      <!-- Screen Bezel -->
+      <rect x="100" y="304" width="196" height="134" rx="3" fill="#101216" stroke="#101216" stroke-width="1.5" />
+
+      <!-- Display Wallpaper Screen -->
+      <rect x="104" y="308" width="188" height="128" fill="url(#screenWallpaper)" />
+
+      <!-- Glass Reflection Layer -->
+      <path d="M 104 436 L 164 436 L 225 308 L 165 308 Z" fill="#FFFFFF" opacity="0.12" />
+
+      <!-- MacBook Top Camera Notch -->
+      <path d="M 190 308 L 206 308 L 204 313 L 192 313 Z" fill="#101216" />
+      <circle cx="198" cy="310.5" r="0.7" fill="#00F0FF" />
+
+      <!-- TargetBridge Sender App Window (UI - Centered inside Widescreen) -->
+      <g transform="translate(142, 329.5)" filter="url(#comicShadow)">
+        <rect x="0" y="0" width="112" height="85" rx="5" fill="#1E1E2F" fill-opacity="0.95" stroke="#101216" stroke-width="2.5" />
+        
+        <!-- Window Controls -->
+        <circle cx="8" cy="8" r="2.5" fill="#FF5F56" />
+        <circle cx="15" cy="8" r="2.5" fill="#FFBD2E" />
+        <circle cx="22" cy="8" r="2.5" fill="#27C93F" />
+
+        <!-- Window Title -->
+        <text x="58" y="11" text-anchor="middle" font-family="sans-serif" font-size="6" font-weight="bold" fill="#A5A6C5">TargetBridge Sender</text>
+
+        <rect x="8" y="20" width="96" height="1.5" fill="#5E4E8C" opacity="0.5" />
+        
+        <text x="10" y="32" font-family="sans-serif" font-size="7.5" font-weight="bold" fill="#00F0FF">Active Stream: 5K HEVC</text>
+        <text x="10" y="42" font-family="sans-serif" font-size="6.5" fill="#FFFFFF" opacity="0.8">Profile: 5120 × 2880 @ 60 FPS</text>
+        <text x="10" y="52" font-family="sans-serif" font-size="6.5" fill="#FFFFFF" opacity="0.8">Receiver IP: 192.168.2.2</text>
+
+        <!-- Connected Green Badge -->
+        <rect x="8" y="60" width="46" height="12" rx="2" fill="#155724" stroke="#28A745" stroke-width="0.75" />
+        <circle cx="13" cy="66" r="2" fill="#39FF14" />
+        <text x="19" y="68.5" font-family="sans-serif" font-weight="bold" font-size="6.5" fill="#39FF14">CONNECTED</text>
+
+        <!-- Stop Button -->
+        <rect x="58" y="60" width="45" height="12" rx="2" fill="#C82333" stroke="#DC3545" stroke-width="0.75" />
+        <text x="80.5" y="68" text-anchor="middle" font-family="sans-serif" font-weight="bold" font-size="6" fill="#FFFFFF">DISCONNECT</text>
+      </g>
+
+      <!-- Keyboard Base (Rectangular Flat Aluminum Case) -->
+      <path d="M 98 440 L 298 440 L 298 472 L 98 472 Z" fill="url(#metalSilver)" stroke="#101216" stroke-width="4.5" stroke-linejoin="round" />
+
+      <!-- Front Casing Aluminum Lip -->
+      <path d="M 98 472 L 298 472 L 298 475 L 98 475 Z" fill="url(#metalSilver)" stroke="#101216" stroke-width="3" stroke-linejoin="round" />
+
+      <!-- Left side horizontal Thunderbolt Port slot recesses -->
+      <rect x="94" y="448" width="4" height="1.6" rx="0.5" fill="#101216" />
+      <rect x="94" y="456" width="4" height="1.6" rx="0.5" fill="#101216" />
+
+      <!-- Keyboard Key Area Recess -->
+      <rect x="120" y="443" width="158" height="18" rx="2" fill="#1A1A1A" stroke="#101216" stroke-width="1.5" />
+
+      <!-- Keyboard Key Rows -->
+      <g fill="#101216" opacity="0.95">
+        <rect x="122" y="445" width="154" height="2" />
+        <rect x="122" y="449" width="154" height="2" />
+        <rect x="122" y="453" width="154" height="2" />
+        <rect x="122" y="457" width="154" height="2" />
+      </g>
+
+      <!-- Trackpad -->
+      <rect x="166" y="464" width="66" height="6" rx="1" fill="url(#metalSilver)" stroke="#98A2B3" stroke-width="0.75" />
+    </g>
+
+
+    <!-- ==================== CABLE: THUNDERBOLT ==================== -->
+    <g>
+      <!-- Outer Cable black casing -->
+      <path d="M 298 456 C 160 456, 210 560, 450 560 C 750 560, 1050 450, 1200 450 C 1280 450, 1368 440, 1368 405" fill="none" stroke="#101216" stroke-width="15" stroke-linecap="round" />
+
+      <!-- Inner glowing cable sleeve -->
+      <path d="M 298 456 C 160 456, 210 560, 450 560 C 750 560, 1050 450, 1200 450 C 1280 450, 1368 440, 1368 405" fill="none" stroke="#00F0FF" stroke-width="9" stroke-linecap="round" filter="url(#glow)" />
+
+      <!-- High-speed core line -->
+      <path d="M 298 456 C 160 456, 210 560, 450 560 C 750 560, 1050 450, 1200 450 C 1280 450, 1368 440, 1368 405" fill="none" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" />
+
+      <!-- Connector Plug: Left MacBook Port Connection -->
+      <g transform="translate(298, 456) rotate(90)">
+        <rect x="-4" y="-8" width="10" height="16" rx="1.5" fill="#101216" stroke="#101216" stroke-width="2" />
+        <rect x="-1" y="-12" width="3" height="4" fill="#B0B5C0" />
+        <circle cx="1" cy="1" r="1.2" fill="#00F0FF" filter="url(#glow)" />
+      </g>
+
+      <!-- Connector Plug: Right iMac Rear Port Connection -->
+      <g transform="translate(1368, 405)">
+        <rect x="-4" y="-8" width="9" height="15" rx="1.5" fill="#101216" stroke="#00F0FF" stroke-width="1.5" stroke-dasharray="2,2" opacity="0.8" />
+        <rect x="-1" y="-12" width="2" height="4" fill="#B0B5C0" opacity="0.8" />
+        <circle cx="0.5" cy="0" r="8" fill="#00F0FF" filter="url(#glow)" opacity="0.6" />
+        <circle cx="0.5" cy="0" r="3" fill="#FFFFFF" />
+      </g>
+    </g>
+
+
+    <!-- ==================== COMIC SPEED & ENERGY EFFECTS (RENDERED BEHIND IMAC STAND) ==================== -->
+    <g fill="#00F0FF" filter="url(#glow)">
+      <circle cx="190" cy="510" r="5" />
+      <circle cx="340" cy="550" r="7" />
+      <circle cx="600" cy="560" r="4" />
+      <circle cx="900" cy="490" r="6" />
+      <circle cx="1180" cy="452" r="5" />
+      <circle cx="1368" cy="425" r="4.5" />
+    </g>
+    <g fill="#FF2A6D" filter="url(#glow)">
+      <circle cx="230" cy="540" r="4" />
+      <circle cx="460" cy="560" r="5" />
+      <circle cx="750" cy="530" r="6" />
+      <circle cx="1040" cy="465" r="4" />
+      <circle cx="1368" cy="445" r="4.5" />
+    </g>
+
+    <!-- Little Sparkle Stars (RENDERED BEHIND IMAC STAND) -->
+    <g fill="#FFE600">
+      <!-- Star 1 (MacBook Side) -->
+      <path d="M 0,-8 L 2,-2 L 8,0 L 2,2 L 0,8 L -2,2 L -8,0 L -2,-2 Z" transform="translate(220, 495)" />
+      <!-- Star 2 (Cable Scoop) -->
+      <path d="M 0,-8 L 2,-2 L 8,0 L 2,2 L 0,8 L -2,2 L -8,0 L -2,-2 Z" transform="translate(510, 540) scale(0.8)" />
+      <!-- Star 3 (iMac Side) -->
+      <path d="M 0,-8 L 2,-2 L 8,0 L 2,2 L 0,8 L -2,2 L -8,0 L -2,-2 Z" transform="translate(990, 440)" />
+    </g>
+
+
+    <!-- ==================== RIGHT: IMAC 27" (WIDESCREEN 16:9 - RENDERS ON TOP OF CABLE) ==================== -->
+    <g transform="translate(0, 40)">
+      <!-- Base Shadow -->
+      <ellipse cx="1200" cy="485" rx="70" ry="8" fill="#050308" opacity="0.75" />
+
+      <!-- Stand (Curved Aluminum Neck - LOWERED & PARALLEL/UNIFORM) -->
+      <path d="M 1144 470 L 1256 470 L 1258 484 L 1142 484 Z" fill="#B0B5C0" stroke="#101216" stroke-width="4.5" stroke-linejoin="round" />
+      <path d="M 1150 378 L 1250 378 L 1256 470 L 1144 470 Z" fill="#D0D5DD" stroke="#101216" stroke-width="4.5" stroke-linejoin="round" />
+      <path d="M 1153 383 L 1247 383 L 1252 465 L 1148 465 Z" fill="#E4E7EC" opacity="0.5" />
+
+      <!-- Screen Bezel Outer Shell -->
+      <rect x="960" y="110" width="480" height="270" rx="12" ry="12" fill="#E4E7EC" stroke="#101216" stroke-width="4.5" stroke-linejoin="round" />
+
+      <!-- Front Black Glass Frame -->
+      <rect x="968" y="118" width="464" height="254" rx="6" fill="#101216" stroke="#101216" stroke-width="2" />
+
+      <!-- Display Screen Content (Designed with modern ultra-thin bezels of only 6px) -->
+      <rect x="976" y="126" width="448" height="238" fill="url(#screenWallpaper)" />
+
+      <!-- iMac Screen Glass Reflection Layer -->
+      <path d="M 976 364 L 1100 364 L 1220 126 L 1096 126 Z" fill="#FFFFFF" opacity="0.1" />
+
+      <!-- iMac Display Mirror Content (Matching Receiver App UI) -->
+      <g transform="translate(1085, 180)" filter="url(#comicShadow)">
+        <rect x="0" y="0" width="230" height="115" rx="6" fill="#1E1E2F" fill-opacity="0.95" stroke="#101216" stroke-width="2.5" />
+        
+        <!-- Window Controls -->
+        <circle cx="12" cy="12" r="3.5" fill="#FF5F56" />
+        <circle cx="22" cy="12" r="3.5" fill="#FFBD2E" />
+        <circle cx="32" cy="12" r="3.5" fill="#27C93F" />
+
+        <!-- Window Title -->
+        <text x="115" y="16" text-anchor="middle" font-family="sans-serif" font-size="9" font-weight="bold" fill="#A5A6C5">TargetBridge Receiver</text>
+
+        <rect x="10" y="27" width="210" height="2" fill="#5E4E8C" opacity="0.5" />
+        
+        <!-- App Text Details -->
+        <text x="15" y="46" font-family="sans-serif" font-size="11.5" font-weight="bold" fill="#00F0FF">Active Stream: 5K HEVC</text>
+        <text x="15" y="62" font-family="sans-serif" font-size="10.5" font-weight="bold" fill="#FFFFFF">Source: MacBook</text>
+        <text x="15" y="78" font-family="sans-serif" font-size="10" fill="#FFFFFF" opacity="0.8">Mode: 5120 × 2880 (Native 5K)</text>
+
+        <!-- Connected Green Badge -->
+        <rect x="15" y="88" width="85" height="18" rx="3" fill="#155724" stroke="#28A745" stroke-width="1" />
+        <circle cx="25" cy="97" r="3.5" fill="#39FF14" filter="url(#glow)" />
+        <text x="35" y="100.5" font-family="sans-serif" font-weight="bold" font-size="10" fill="#39FF14">CONNECTED</text>
+
+        <!-- Full Screen Toggle Button -->
+        <rect x="120" y="88" width="95" height="18" rx="3" fill="#2D2B55" stroke="#5E4E8C" stroke-width="1" />
+        <text x="167.5" y="100" text-anchor="middle" font-family="sans-serif" font-weight="bold" font-size="9.5" fill="#FFFFFF">FULL SCREEN</text>
+      </g>
+
+      <!-- Aluminum Lower Chin (Exact 1/6th Height Proportion) -->
+      <path d="M 968 372 L 1432 372 L 1432 376 A 4 4 0 0 1 1428 380 L 972 380 A 4 4 0 0 1 968 376 Z" fill="#D0D5DD" stroke="#101216" stroke-width="4" stroke-linejoin="round" />
+
+      <!-- Apple Logo on Chin -->
+      <circle cx="1200" cy="376" r="3.5" fill="#101216" />
+    </g>
+
+
+    <!-- ==================== COMIC SPEECH / INFO BUBBLES ==================== -->
+    
+    <!-- MacBook Bubble (Left - Shifted Right with MacBook) -->
+    <g filter="url(#comicShadow)">
+      <path d="M 220 120 
+               h 250 
+               a 15 15 0 0 1 15 15 
+               v 75 
+               a 15 15 0 0 1 -15 15 
+               h -57 
+               l -15 75 
+               l -15 -75 
+               h -148 
+               a 15 15 0 0 1 -15 -15 
+               v -75 
+               a 15 15 0 0 1 15 -15 Z" 
+            fill="#FFFFFF" stroke="#101216" stroke-width="4" stroke-linejoin="round" />
+      
+      <text x="345" y="150" text-anchor="middle" font-family="'Arial Black', 'Impact', sans-serif" font-size="16" fill="#FF2A6D" letter-spacing="1">Apple MacBook</text>
+      <text x="345" y="175" text-anchor="middle" font-family="sans-serif" font-size="12.5" font-weight="900" fill="#101216">Sender: runs TargetBridge.app</text>
+      <text x="345" y="195" text-anchor="middle" font-family="sans-serif" font-size="11.5" font-weight="bold" fill="#4B3A75">Captures &amp; encodes screen to 5K</text>
+    </g>
+
+    <!-- iMac Bubble (Right - Apple iMac) -->
+    <g filter="url(#comicShadow)">
+      <path d="M 1080 10 
+               h 250 
+               a 15 15 0 0 1 15 15 
+               v 75 
+               a 15 15 0 0 1 -15 15 
+               h -175 
+               l -15 35 
+               l -15 -35 
+               h -45 
+               a 15 15 0 0 1 -15 -15 
+               v -75 
+               a 15 15 0 0 1 15 -15 Z" 
+            fill="#FFFFFF" stroke="#101216" stroke-width="4" stroke-linejoin="round" />
+      
+      <text x="1205" y="40" text-anchor="middle" font-family="'Arial Black', 'Impact', sans-serif" font-size="17" fill="#00B0FF" letter-spacing="1">Apple iMac</text>
+      <text x="1205" y="65" text-anchor="middle" font-family="sans-serif" font-size="12.5" font-weight="900" fill="#101216">Receiver: runs TargetBridge Receiver.app</text>
+      <text x="1205" y="85" text-anchor="middle" font-family="sans-serif" font-size="11.5" font-weight="bold" fill="#4B3A75">Decodes &amp; displays at native 5K</text>
+    </g>
+
+
+    <!-- ==================== CABLE BUBBLE (PERFECTLY HORIZONTAL & CENTERED) ==================== -->
+    <g filter="url(#comicShadow)" transform="translate(590, 485)">
+      <rect x="0" y="0" width="320" height="60" rx="10" fill="#FFC90E" stroke="#101216" stroke-width="4.5" stroke-linejoin="round" />
+      
+      <!-- Left lightning bolt vector icon -->
+      <polygon points="45,13 53,13 47,21 54,21 42,32 45,23 39,23" fill="#FFF000" stroke="#101216" stroke-width="1.8" stroke-linejoin="round" />
+      
+      <text x="160" y="24" text-anchor="middle" font-family="'Arial Black', 'Impact', sans-serif" font-size="14.5" fill="#101216" letter-spacing="1">ThunderBolt Cable</text>
+      
+      <!-- Right lightning bolt vector icon -->
+      <polygon points="275,13 283,13 277,21 284,21 272,32 275,23 269,23" fill="#FFF000" stroke="#101216" stroke-width="1.8" stroke-linejoin="round" />
+      
+      <text x="160" y="43" text-anchor="middle" font-family="'Arial Black', sans-serif" font-size="10.5" font-weight="900" fill="#FF2A6D" letter-spacing="0.5">IP connection via TB</text>
+    </g>
+  </g>
+
+  <!-- Comic Style Splash Frame Borders -->
+  <rect x="10" y="10" width="1480" height="700" fill="none" stroke="#101216" stroke-width="8" rx="8" />
+  <rect x="18" y="18" width="1464" height="684" fill="none" stroke="#FFFFFF" stroke-width="3" rx="4" />
+</svg>
