@@ -238,11 +238,11 @@ enum TBDisplaySenderL10n {
     static func streamHint1(_ language: TBDisplaySenderLanguage) -> String {
         switch language {
         case .italian:
-            return "`Desktop esteso` usa il monitor virtuale. `Duplica MacBook` cattura il display principale."
+            return "`Duplica Desktop` usa il monitor virtuale. `Desktop Esteso` cattura il display principale."
         case .english:
-            return "`Extended display` uses the virtual monitor. `Mirror MacBook` captures the main display."
+            return "`Duplicate Desktop` uses the virtual monitor. `Extended Desktop` captures the main display."
         case .german:
-            return "`Erweiterter Desktop` nutzt das virtuelle Display. `MacBook spiegeln` erfasst das Hauptdisplay."
+            return "`Desktop duplizieren` nutzt das virtuelle Display. `Erweiterter Desktop` erfasst das Hauptdisplay."
         }
     }
 
@@ -335,9 +335,9 @@ enum TBDisplaySenderL10n {
 
     static func modeLine5(_ language: TBDisplaySenderLanguage) -> String {
         switch language {
-        case .italian: return "Scegli desktop esteso o mirror, poi bilancia fluidità e nitidezza col profilo stream."
-        case .english: return "Choose extended display or mirror, then balance motion and clarity with the stream profile."
-        case .german: return "Erweitertes Display oder Mirror wählen, dann Bewegungsfluss und Schärfe mit dem Stream-Profil abstimmen."
+        case .italian: return "Scegli la sorgente, poi bilancia fluidità e nitidezza col profilo stream."
+        case .english: return "Choose the source, then balance motion and clarity with the stream profile."
+        case .german: return "Quelle wählen, dann Bewegungsfluss und Schärfe mit dem Stream-Profil abstimmen."
         }
     }
 

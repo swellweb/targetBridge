@@ -236,19 +236,19 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
 }
 
 enum TBDisplayCaptureSource: String, CaseIterable, Identifiable {
-    case extendedVirtualDisplay
-    case mainDisplayMirror
+    case desktopMirror
+    case extendedDesktop
 
     var id: String { rawValue }
 
     func title(_ language: TBDisplaySenderLanguage) -> String {
         switch (self, language) {
-        case (.extendedVirtualDisplay, .italian): return "Desktop esteso"
-        case (.extendedVirtualDisplay, .english): return "Extended display"
-        case (.extendedVirtualDisplay, .german): return "Erweiterter Desktop"
-        case (.mainDisplayMirror, .italian): return "Duplica MacBook"
-        case (.mainDisplayMirror, .english): return "Mirror MacBook"
-        case (.mainDisplayMirror, .german): return "MacBook spiegeln"
+        case (.desktopMirror, .italian): return "Duplica Desktop"
+        case (.desktopMirror, .english): return "Duplicate Desktop"
+        case (.desktopMirror, .german): return "Desktop duplizieren"
+        case (.extendedDesktop, .italian): return "Desktop Esteso"
+        case (.extendedDesktop, .english): return "Extended Desktop"
+        case (.extendedDesktop, .german): return "Erweiterter Desktop"
         }
     }
 }
@@ -340,14 +340,14 @@ final class TBDisplaySenderService: NSObject, ObservableObject, @unchecked Senda
             }
         }
     }
-    @Published var captureSource: TBDisplayCaptureSource = .extendedVirtualDisplay {
+    @Published var captureSource: TBDisplayCaptureSource = .desktopMirror {
         didSet {
             if !isStreaming {
                 streamResolutionText = TBDisplaySenderL10n.streamSummary(preset: capturePreset, source: captureSource, language: language)
             }
         }
     }
-    @Published var streamResolutionText = TBDisplaySenderL10n.streamSummary(preset: .standard1440p, source: .extendedVirtualDisplay, language: TBDisplaySenderLanguage.load())
+    @Published var streamResolutionText = TBDisplaySenderL10n.streamSummary(preset: .standard1440p, source: .desktopMirror, language: TBDisplaySenderLanguage.load())
 
     private var connection: NWConnection?
     private let connectionQueue = DispatchQueue(label: "fd.tbmonitor.sender.connection", qos: .userInteractive)
@@ -651,13 +651,19 @@ final class TBDisplaySenderService: NSObject, ObservableObject, @unchecked Senda
         receiverPanelText = TBDisplaySenderL10n.receiverSummary(profile, language: language)
 
         Task { @MainActor in
-            if self.captureSource == .extendedVirtualDisplay {
+            if self.captureSource == .desktopMirror {
                 self.setStatus(.creatingVirtualDisplay)
                 self.baselineDisplayIDs = await self.fetchShareableDisplayIDs()
                 guard self.session.create(from: profile, refreshRate: self.capturePreset.virtualDisplayRefreshRate) else {
                     self.setStatus(.virtualDisplayCreationFailed)
                     self.stop(resetStatusTo: nil)
                     return
+                }
+                // Force extended desktop mode — prevent macOS from defaulting to mirror
+                var displayConfig: CGDisplayConfigRef?
+                if CGBeginDisplayConfiguration(&displayConfig) == .success, let cfg = displayConfig {
+                    CGConfigureDisplayMirrorOfDisplay(cfg, self.session.displayID, kCGNullDirectDisplay)
+                    CGCompleteDisplayConfiguration(cfg, .forSession)
                 }
                 self.virtualDisplayText = TBDisplaySenderL10n.virtualDisplaySummary(
                     name: self.session.displayName,
@@ -778,12 +784,12 @@ final class TBDisplaySenderService: NSObject, ObservableObject, @unchecked Senda
 
     private func waitForCaptureDisplay() async throws -> SCDisplay {
         switch captureSource {
-        case .extendedVirtualDisplay:
+        case .desktopMirror:
             return try await waitForVirtualDisplay(
                 matching: session.displayID,
                 baselineDisplayIDs: baselineDisplayIDs
             )
-        case .mainDisplayMirror:
+        case .extendedDesktop:
             return try await waitForMirrorDisplay()
         }
     }
