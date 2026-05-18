@@ -649,21 +649,23 @@ final class TBDisplaySenderService: NSObject, ObservableObject, @unchecked Senda
 
         activeProfile = profile
         receiverPanelText = TBDisplaySenderL10n.receiverSummary(profile, language: language)
-        setStatus(.creatingVirtualDisplay)
 
         Task { @MainActor in
-            self.baselineDisplayIDs = await self.fetchShareableDisplayIDs()
-            guard self.session.create(from: profile, refreshRate: self.capturePreset.virtualDisplayRefreshRate) else {
-                self.setStatus(.virtualDisplayCreationFailed)
-                self.stop(resetStatusTo: nil)
-                return
+            if self.captureSource == .extendedVirtualDisplay {
+                self.setStatus(.creatingVirtualDisplay)
+                self.baselineDisplayIDs = await self.fetchShareableDisplayIDs()
+                guard self.session.create(from: profile, refreshRate: self.capturePreset.virtualDisplayRefreshRate) else {
+                    self.setStatus(.virtualDisplayCreationFailed)
+                    self.stop(resetStatusTo: nil)
+                    return
+                }
+                self.virtualDisplayText = TBDisplaySenderL10n.virtualDisplaySummary(
+                    name: self.session.displayName,
+                    id: self.session.displayID,
+                    language: self.language
+                )
             }
 
-            self.virtualDisplayText = TBDisplaySenderL10n.virtualDisplaySummary(
-                name: self.session.displayName,
-                id: self.session.displayID,
-                language: self.language
-            )
             self.setStatus(.startingCapture(self.capturePreset.description, self.captureSource))
             let started = await self.startCapture(for: profile)
             guard started else {
@@ -782,7 +784,7 @@ final class TBDisplaySenderService: NSObject, ObservableObject, @unchecked Senda
                 baselineDisplayIDs: baselineDisplayIDs
             )
         case .mainDisplayMirror:
-            return try await waitForMirrorDisplay(excluding: session.displayID)
+            return try await waitForMirrorDisplay()
         }
     }
 
@@ -839,7 +841,7 @@ final class TBDisplaySenderService: NSObject, ObservableObject, @unchecked Senda
         )
     }
 
-    private func waitForMirrorDisplay(excluding sessionDisplayID: CGDirectDisplayID) async throws -> SCDisplay {
+    private func waitForMirrorDisplay() async throws -> SCDisplay {
         enum DisplayLookupError: LocalizedError {
             case notFound(details: String)
 
@@ -854,12 +856,7 @@ final class TBDisplaySenderService: NSObject, ObservableObject, @unchecked Senda
         for _ in 0..<12 {
             let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
             let mainDisplayID = CGMainDisplayID()
-            if mainDisplayID != sessionDisplayID,
-               let display = content.displays.first(where: { $0.displayID == mainDisplayID }) {
-                return display
-            }
-
-            if let display = content.displays.first(where: { $0.displayID != sessionDisplayID }) {
+            if let display = content.displays.first(where: { $0.displayID == mainDisplayID }) {
                 return display
             }
             try await Task.sleep(nanoseconds: 250_000_000)
@@ -868,7 +865,7 @@ final class TBDisplaySenderService: NSObject, ObservableObject, @unchecked Senda
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
         let availableIDs = content.displays.map { String($0.displayID) }.sorted().joined(separator: ", ")
         throw DisplayLookupError.notFound(
-            details: "nessun SCDisplay mirror disponibile (main=\(CGMainDisplayID()), virtual=\(sessionDisplayID), disponibili=[\(availableIDs)])"
+            details: "nessun SCDisplay mirror disponibile (main=\(CGMainDisplayID()), disponibili=[\(availableIDs)])"
         )
     }
 
