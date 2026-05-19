@@ -329,7 +329,11 @@ final class TBDisplaySenderService: NSObject, ObservableObject, @unchecked Senda
     @Published var cableTestResult: Double? = nil
     private var isCableTestConnection = false
     @Published var myTBIP: String? = nil
-    @Published var receiverIP = ""
+    @Published var receiverIP: String = UserDefaults.standard.string(forKey: "fd.tbdisplaysender.receiverIP") ?? "" {
+        didSet {
+            UserDefaults.standard.set(receiverIP, forKey: "fd.tbdisplaysender.receiverIP")
+        }
+    }
     @Published var senderFPS = 0
     @Published var receiverPanelText = TBDisplaySenderL10n.waitingReceiverProfile(TBDisplaySenderLanguage.load())
     @Published var virtualDisplayText = TBDisplaySenderL10n.virtualDisplayNotCreated(TBDisplaySenderLanguage.load())
