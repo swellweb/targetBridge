@@ -49,7 +49,7 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          brew install ffmpeg sdl2 pkg-config dylibbundler
+          brew install ffmpeg sdl2 dylibbundler
 
       - name: Ensure Desktop Directory Exists
         run: mkdir -p ~/Desktop
