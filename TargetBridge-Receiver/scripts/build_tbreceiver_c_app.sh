@@ -3,7 +3,9 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-APP_DIR="${HOME}/Desktop/TargetBridge Receiver.app"
+REPO_ROOT="$(cd "$ROOT/.." && pwd)"
+BUILD_DIR="${REPO_ROOT}/build"
+APP_DIR="${BUILD_DIR}/TargetBridge Receiver.app"
 BIN_NAME="TargetBridgeReceiver"
 APP_NAME="TargetBridge Receiver"
 APP_VERSION="0.1.0-rc1"
@@ -17,6 +19,7 @@ cd "$ROOT/TBReceiverC"
 make clean
 make APP_VERSION="${APP_VERSION}" APP_BUILD="$STAMP"
 
+mkdir -p "$BUILD_DIR"
 rm -rf "$APP_DIR"
 mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 
@@ -76,7 +79,7 @@ cat > "$APP_DIR/Contents/Info.plist" <<EOF
     <key>CFBundleVersion</key>
     <string>$STAMP</string>
     <key>LSMinimumSystemVersion</key>
-    <string>13.0</string>
+    <string>11.0</string>
     <key>NSHighResolutionCapable</key>
     <true/>
 </dict>
@@ -93,5 +96,5 @@ xattr -cr "$APP_DIR" >/dev/null 2>&1 || true
 rm -rf "$ICONSET_DIR"
 
 echo "${APP_NAME} built: $APP_DIR"
-echo "Versione: ${APP_VERSION} ($STAMP)"
-echo "Architettura build: $ARCH"
+echo "Version: ${APP_VERSION} ($STAMP)"
+echo "Build architecture: $ARCH"

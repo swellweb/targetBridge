@@ -320,6 +320,12 @@ private final class TBDirectDisplayStreamCapture {
 @MainActor
 final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @unchecked Sendable {
     private static let receiverIPDefaultsKey = "fd.tbdisplaysender.receiverIP"
+    private struct SavedExtendedDisplayArrangement {
+        let x: Int32
+        let y: Int32
+    }
+
+    private static let extendedArrangementDefaultsPrefix = "com.targetbridge.sender.extended-arrangement"
     let id = UUID()
 
     init(language: TBDisplaySenderLanguage, largeCursor: Bool) {
@@ -656,6 +662,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     }
 
     private func stop(resetStatusTo status: TBDisplaySenderStatusState?) {
+        persistExtendedDisplayArrangementIfNeeded()
         sendTeardown(reason: "sender_stop")
         heartbeatTimer?.invalidate()
         heartbeatTimer = nil
@@ -713,6 +720,37 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         lastCursorPacket = nil
         captureDisplayText = "Capture display: n/a"
         displayStateText = "Display state: n/a"
+    }
+
+    private func extendedArrangementDefaultsKey(for profile: TBMonitorDisplayProfile) -> String {
+        "\(Self.extendedArrangementDefaultsPrefix).\(profile.receiverName).\(profile.panelWidth)x\(profile.panelHeight)"
+    }
+
+    private func loadSavedExtendedDisplayArrangement(for profile: TBMonitorDisplayProfile) -> SavedExtendedDisplayArrangement? {
+        let key = extendedArrangementDefaultsKey(for: profile)
+        guard let stored = UserDefaults.standard.dictionary(forKey: key),
+              let x = stored["x"] as? Int,
+              let y = stored["y"] as? Int
+        else {
+            return nil
+        }
+        return SavedExtendedDisplayArrangement(x: Int32(x), y: Int32(y))
+    }
+
+    private func persistExtendedDisplayArrangementIfNeeded() {
+        guard captureSource == .extendedDesktop,
+              let profile = activeProfile,
+              session.displayID != kCGNullDirectDisplay,
+              CGDisplayIsInMirrorSet(session.displayID) == 0
+        else { return }
+
+        let bounds = CGDisplayBounds(session.displayID)
+        let key = extendedArrangementDefaultsKey(for: profile)
+        let payload: [String: Int] = [
+            "x": Int(bounds.origin.x.rounded()),
+            "y": Int(bounds.origin.y.rounded())
+        ]
+        UserDefaults.standard.set(payload, forKey: key)
     }
 
     private func sendHello() {
@@ -1105,15 +1143,18 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
             }
 
             let mainOriginResult = CGConfigureDisplayOrigin(cfg, mainDisplayID, 0, 0)
-            let targetX = Int32(mainBounds.maxX.rounded())
-            let targetY = Int32(mainBounds.origin.y.rounded())
+            let savedArrangement = activeProfile.flatMap { loadSavedExtendedDisplayArrangement(for: $0) }
+            let targetX = savedArrangement?.x ?? Int32(mainBounds.maxX.rounded())
+            let targetY = savedArrangement?.y ?? Int32(mainBounds.origin.y.rounded())
             let originResult = CGConfigureDisplayOrigin(cfg, virtualDisplayID, targetX, targetY)
             if mainOriginResult != .success || originResult != .success {
                 CGCancelDisplayConfiguration(cfg)
                 NSLog(
-                    "TargetBridge: failed to position displays for extended desktop (main=%d virtual=%u result=%d)",
+                    "TargetBridge: failed to position displays for extended desktop (main=%d virtual=%u targetX=%d targetY=%d result=%d)",
                     mainOriginResult.rawValue,
                     virtualDisplayID,
+                    targetX,
+                    targetY,
                     originResult.rawValue
                 )
                 RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.1))

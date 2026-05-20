@@ -3,6 +3,7 @@
 # Local build outputs
 .build/
 DerivedData/
+build/
 
 # Xcode user data
 xcuserdata/
@@ -10,6 +11,7 @@ xcuserdata/
 
 # macOS app bundles produced locally
 *.app
+*.zip
 
 # C build outputs
 *.o

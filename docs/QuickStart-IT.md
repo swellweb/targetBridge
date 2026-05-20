@@ -14,7 +14,7 @@ cd TargetBridge-Sender
 
 App prodotta:
 
-- `~/Desktop/TargetBridge.app`
+- `build/TargetBridge.app`
 
 ## Build del receiver
 
@@ -22,7 +22,7 @@ Prima di buildare, installa le dipendenze necessarie sull'iMac:
 
 ```bash
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-brew install ffmpeg sdl2 pkg-config
+brew install ffmpeg sdl2 pkgconf
 ```
 
 Poi builda:
@@ -36,7 +36,7 @@ cd TargetBridge-Receiver
 
 App prodotta:
 
-- `~/Desktop/TargetBridge Receiver.app`
+- `build/TargetBridge Receiver.app`
 
 Nota:
 
@@ -48,7 +48,7 @@ Nota:
 
 Apri:
 
-- `TargetBridge.app`
+- `build/TargetBridge.app`
 
 Alla prima esecuzione concedi:
 
@@ -58,7 +58,7 @@ Alla prima esecuzione concedi:
 
 Apri:
 
-- `TargetBridge Receiver.app`
+- `build/TargetBridge Receiver.app`
 
 Annota l'IP mostrato nella finestra iniziale.
 

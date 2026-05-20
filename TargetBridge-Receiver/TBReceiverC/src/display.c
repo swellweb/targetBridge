@@ -36,6 +36,7 @@ struct tb_display {
     int           cursor_x, cursor_y;
     int           cursor_source_w, cursor_source_h;
     int           cursor_visible;
+    uint32_t      last_video_frame_time;
 
     char          last_ip[64];
     char          last_status[128];
@@ -295,6 +296,7 @@ struct tb_display *tb_disp_create(int fullscreen) {
     d->cursor_source_w = 1;
     d->cursor_source_h = 1;
     d->cursor_visible = 0;
+    d->last_video_frame_time = 0;
 
     tb_disp_refresh_window_mode(d);
     SDL_ShowWindow(d->win);
@@ -470,6 +472,7 @@ void tb_disp_render_nv12(struct tb_display *d,
         fprintf(stderr, "[disp] UpdateNVTexture: %s\n", SDL_GetError());
         return;
     }
+    d->last_video_frame_time = SDL_GetTicks();
     tb_disp_render_current(d);
 }
 
@@ -483,8 +486,12 @@ void tb_disp_set_cursor(struct tb_display *d,
     d->cursor_source_w = source_w > 0 ? source_w : 1;
     d->cursor_source_h = source_h > 0 ? source_h : 1;
     d->cursor_visible = visible;
-    if (d->is_connected && d->tex) {
-        tb_disp_render_current(d);
+
+    uint32_t now = SDL_GetTicks();
+    if (now - d->last_video_frame_time > 40) {
+        if (d->is_connected && d->tex) {
+            tb_disp_render_current(d);
+        }
     }
 }
 

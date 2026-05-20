@@ -118,18 +118,14 @@ final class ReceiverBackedVirtualDisplaySession {
         }
         let modes = modesCF as? [CGDisplayMode] ?? []
 
-        let exactMatch = modes.first { mode in
-            mode.width == profile.modeWidth
-                && mode.height == profile.modeHeight
-                && abs(mode.refreshRate - refreshRate) < 0.5
-        }
-        if let exactMatch {
+        let matchingModes = modes.filter { mode in
+            mode.width == profile.modeWidth && mode.height == profile.modeHeight
+        }.sorted { $0.refreshRate > $1.refreshRate }
+
+        if let exactMatch = matchingModes.first(where: { abs($0.refreshRate - refreshRate) < 0.5 }) {
             return exactMatch
         }
 
-        return modes.first { mode in
-            mode.width == profile.modeWidth
-                && mode.height == profile.modeHeight
-        }
+        return matchingModes.first
     }
 }

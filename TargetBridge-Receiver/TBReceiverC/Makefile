@@ -2,7 +2,7 @@
 #
 # Prerequisites on the iMac (Intel) running OCLP macOS 14:
 #   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-#   brew install ffmpeg sdl2 pkg-config
+#   brew install ffmpeg sdl2 pkgconf
 #
 # Build:
 #   make
@@ -11,15 +11,15 @@
 #   ./tbreceiver              # fullscreen
 #   ./tbreceiver --windowed   # debug windowed
 #
-# Linux target (later): identical sources, swap LDFLAGS to pkg-config on
+# Linux target (later): identical sources, swap LDFLAGS to pkgconf on
 #   libavcodec libavutil sdl2 ; drop -framework lines.
 
 CC       ?= clang
-PKG       = pkg-config
+PKG      ?= pkgconf
 APP_VERSION ?= 0.1.0-rc1
 APP_BUILD   ?= dev
 
-MACOSX_DEPLOYMENT_TARGET ?= 13.0
+MACOSX_DEPLOYMENT_TARGET ?= 11.0
 export MACOSX_DEPLOYMENT_TARGET
 
 CFLAGS   += -O2 -g -Wall -Wextra -Wno-unused-parameter -std=c11

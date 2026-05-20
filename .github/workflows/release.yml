@@ -20,9 +20,6 @@ jobs:
         run: |
           brew install xcodegen
 
-      - name: Ensure Desktop Directory Exists
-        run: mkdir -p ~/Desktop
-
       - name: Build Sender App
         run: |
           cd TargetBridge-Sender
@@ -30,14 +27,14 @@ jobs:
 
       - name: Zip App Bundle
         run: |
-          cd ~/Desktop
+          cd build
           zip -r TargetBridge.app.zip TargetBridge.app
 
       - name: Upload Sender Artifact
         uses: actions/upload-artifact@v4
         with:
           name: TargetBridge.app.zip
-          path: ~/Desktop/TargetBridge.app.zip
+          path: build/TargetBridge.app.zip
           retention-days: 1
 
   build-receiver:
@@ -49,10 +46,7 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          brew install ffmpeg sdl2 dylibbundler
-
-      - name: Ensure Desktop Directory Exists
-        run: mkdir -p ~/Desktop
+          brew install ffmpeg sdl2 pkgconf dylibbundler
 
       - name: Build Receiver App
         run: |
@@ -61,14 +55,14 @@ jobs:
 
       - name: Zip App Bundle
         run: |
-          cd ~/Desktop
+          cd build
           zip -r TargetBridge-Receiver.app.zip "TargetBridge Receiver.app"
 
       - name: Upload Receiver Artifact
         uses: actions/upload-artifact@v4
         with:
           name: TargetBridge-Receiver.app.zip
-          path: ~/Desktop/TargetBridge-Receiver.app.zip
+          path: build/TargetBridge-Receiver.app.zip
           retention-days: 1
 
   publish-release:

@@ -1,7 +1,10 @@
 #!/bin/zsh
 set -euo pipefail
 
-APP_PATH="${1:-${HOME}/Desktop/TargetBridge Receiver.app}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+REPO_ROOT="$(cd "$ROOT/.." && pwd)"
+APP_PATH="${1:-${REPO_ROOT}/build/TargetBridge Receiver.app}"
 PLIST_DIR="${HOME}/Library/LaunchAgents"
 PLIST_PATH="${PLIST_DIR}/com.targetbridge.receiver.plist"
 LOG_DIR="${HOME}/Library/Logs"
@@ -9,8 +12,8 @@ STDOUT_LOG="${LOG_DIR}/TargetBridgeReceiver.launchd.out.log"
 STDERR_LOG="${LOG_DIR}/TargetBridgeReceiver.launchd.err.log"
 
 if [[ ! -d "${APP_PATH}" ]]; then
-  echo "Receiver app non trovata: ${APP_PATH}" >&2
-  echo "Builda prima TargetBridge Receiver.app oppure passa il path corretto come primo argomento." >&2
+  echo "Receiver app not found: ${APP_PATH}" >&2
+  echo "Build TargetBridge Receiver.app first, or pass the correct path as the first argument." >&2
   exit 1
 fi
 
@@ -49,6 +52,6 @@ launchctl bootout "gui/$(id -u)" "${PLIST_PATH}" >/dev/null 2>&1 || true
 launchctl bootstrap "gui/$(id -u)" "${PLIST_PATH}"
 launchctl enable "gui/$(id -u)/com.targetbridge.receiver" >/dev/null 2>&1 || true
 
-echo "LaunchAgent installato: ${PLIST_PATH}"
-echo "TargetBridge Receiver configurato per avviarsi automaticamente al login."
-echo "App target: ${APP_PATH}"
+echo "LaunchAgent installed: ${PLIST_PATH}"
+echo "TargetBridge Receiver is now configured to start automatically at login."
+echo "Target app: ${APP_PATH}"
