@@ -323,6 +323,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     private struct SavedExtendedDisplayArrangement {
         let x: Int32
         let y: Int32
+        let isRelativeToMainDisplay: Bool
     }
 
     private static let extendedArrangementDefaultsPrefix = "com.targetbridge.sender.extended-arrangement"
@@ -748,7 +749,11 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
 
         if let dx = stored["dx"] as? Int,
            let dy = stored["dy"] as? Int {
-            return SavedExtendedDisplayArrangement(x: Int32(dx), y: Int32(dy))
+            return SavedExtendedDisplayArrangement(
+                x: Int32(dx),
+                y: Int32(dy),
+                isRelativeToMainDisplay: true
+            )
         }
 
         guard let x = stored["x"] as? Int,
@@ -756,7 +761,11 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         else {
             return nil
         }
-        return SavedExtendedDisplayArrangement(x: Int32(x), y: Int32(y))
+        return SavedExtendedDisplayArrangement(
+            x: Int32(x),
+            y: Int32(y),
+            isRelativeToMainDisplay: false
+        )
     }
 
     private func persistExtendedDisplayArrangementIfNeeded() {
@@ -1169,8 +1178,21 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
 
             let mainOriginResult = CGConfigureDisplayOrigin(cfg, mainDisplayID, 0, 0)
             let savedArrangement = activeProfile.flatMap { loadSavedExtendedDisplayArrangement(for: $0) }
-            let targetX = savedArrangement?.x ?? Int32((mainBounds.maxX - mainBounds.origin.x).rounded())
-            let targetY = savedArrangement?.y ?? 0
+            let defaultTargetX = Int32((mainBounds.maxX - mainBounds.origin.x).rounded())
+            let targetX: Int32
+            let targetY: Int32
+            if let savedArrangement {
+                if savedArrangement.isRelativeToMainDisplay {
+                    targetX = Int32(mainBounds.origin.x.rounded()) + savedArrangement.x
+                    targetY = Int32(mainBounds.origin.y.rounded()) + savedArrangement.y
+                } else {
+                    targetX = savedArrangement.x
+                    targetY = savedArrangement.y
+                }
+            } else {
+                targetX = defaultTargetX
+                targetY = 0
+            }
             let originResult = CGConfigureDisplayOrigin(cfg, virtualDisplayID, targetX, targetY)
             if mainOriginResult != .success || originResult != .success {
                 CGCancelDisplayConfiguration(cfg)
