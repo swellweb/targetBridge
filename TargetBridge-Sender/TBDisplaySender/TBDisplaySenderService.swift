@@ -742,8 +742,16 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
 
     private func loadSavedExtendedDisplayArrangement(for profile: TBMonitorDisplayProfile) -> SavedExtendedDisplayArrangement? {
         let key = extendedArrangementDefaultsKey(for: profile)
-        guard let stored = UserDefaults.standard.dictionary(forKey: key),
-              let x = stored["x"] as? Int,
+        guard let stored = UserDefaults.standard.dictionary(forKey: key) else {
+            return nil
+        }
+
+        if let dx = stored["dx"] as? Int,
+           let dy = stored["dy"] as? Int {
+            return SavedExtendedDisplayArrangement(x: Int32(dx), y: Int32(dy))
+        }
+
+        guard let x = stored["x"] as? Int,
               let y = stored["y"] as? Int
         else {
             return nil
@@ -759,8 +767,11 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         else { return }
 
         let bounds = CGDisplayBounds(session.displayID)
+        let mainBounds = CGDisplayBounds(CGMainDisplayID())
         let key = extendedArrangementDefaultsKey(for: profile)
         let payload: [String: Int] = [
+            "dx": Int((bounds.origin.x - mainBounds.origin.x).rounded()),
+            "dy": Int((bounds.origin.y - mainBounds.origin.y).rounded()),
             "x": Int(bounds.origin.x.rounded()),
             "y": Int(bounds.origin.y.rounded())
         ]
@@ -1158,8 +1169,8 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
 
             let mainOriginResult = CGConfigureDisplayOrigin(cfg, mainDisplayID, 0, 0)
             let savedArrangement = activeProfile.flatMap { loadSavedExtendedDisplayArrangement(for: $0) }
-            let targetX = savedArrangement?.x ?? Int32(mainBounds.maxX.rounded())
-            let targetY = savedArrangement?.y ?? Int32(mainBounds.origin.y.rounded())
+            let targetX = savedArrangement?.x ?? Int32((mainBounds.maxX - mainBounds.origin.x).rounded())
+            let targetY = savedArrangement?.y ?? 0
             let originResult = CGConfigureDisplayOrigin(cfg, virtualDisplayID, targetX, targetY)
             if mainOriginResult != .success || originResult != .success {
                 CGCancelDisplayConfiguration(cfg)
