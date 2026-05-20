@@ -657,12 +657,18 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         }
     }
 
-    func stop() {
-        stop(resetStatusTo: .stopped)
+    func stop(persistArrangement: Bool = true) {
+        stop(resetStatusTo: .stopped, persistArrangement: persistArrangement)
     }
 
-    private func stop(resetStatusTo status: TBDisplaySenderStatusState?) {
+    func persistExtendedDisplayArrangementSnapshot() {
         persistExtendedDisplayArrangementIfNeeded()
+    }
+
+    private func stop(resetStatusTo status: TBDisplaySenderStatusState?, persistArrangement: Bool = true) {
+        if persistArrangement {
+            persistExtendedDisplayArrangementIfNeeded()
+        }
         sendTeardown(reason: "sender_stop")
         heartbeatTimer?.invalidate()
         heartbeatTimer = nil
@@ -723,7 +729,15 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     }
 
     private func extendedArrangementDefaultsKey(for profile: TBMonitorDisplayProfile) -> String {
-        "\(Self.extendedArrangementDefaultsPrefix).\(profile.receiverName).\(profile.panelWidth)x\(profile.panelHeight)"
+        let receiverIdentity = receiverIP.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? profile.receiverName
+            : receiverIP
+        let normalizedIdentity = receiverIdentity.replacingOccurrences(
+            of: #"[^A-Za-z0-9._-]+"#,
+            with: "-",
+            options: .regularExpression
+        )
+        return "\(Self.extendedArrangementDefaultsPrefix).\(normalizedIdentity).\(profile.panelWidth)x\(profile.panelHeight)"
     }
 
     private func loadSavedExtendedDisplayArrangement(for profile: TBMonitorDisplayProfile) -> SavedExtendedDisplayArrangement? {

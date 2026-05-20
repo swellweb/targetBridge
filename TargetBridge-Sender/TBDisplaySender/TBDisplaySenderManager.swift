@@ -93,7 +93,8 @@ final class TBDisplaySenderService: ObservableObject {
     }
 
     func stopAll() {
-        sessions.forEach { $0.stop() }
+        sessions.forEach { $0.persistExtendedDisplayArrangementSnapshot() }
+        sessions.forEach { $0.stop(persistArrangement: false) }
     }
 
     func refreshBridgeInterfaces() {
