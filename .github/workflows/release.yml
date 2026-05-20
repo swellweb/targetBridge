@@ -31,7 +31,7 @@ jobs:
           zip -r TargetBridge.app.zip TargetBridge.app
 
       - name: Upload Sender Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: TargetBridge.app.zip
           path: build/TargetBridge.app.zip
@@ -59,7 +59,7 @@ jobs:
           zip -r TargetBridge-Receiver.app.zip "TargetBridge Receiver.app"
 
       - name: Upload Receiver Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: TargetBridge-Receiver.app.zip
           path: build/TargetBridge-Receiver.app.zip
@@ -74,13 +74,13 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Download Sender Artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: TargetBridge.app.zip
           path: ./artifacts
 
       - name: Download Receiver Artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: TargetBridge-Receiver.app.zip
           path: ./artifacts
