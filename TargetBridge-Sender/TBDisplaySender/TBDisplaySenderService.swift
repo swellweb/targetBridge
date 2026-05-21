@@ -108,6 +108,9 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
     }
 
     var queueDepth: Int {
+        if let envVal = ProcessInfo.processInfo.environment["QD"], let parsed = Int(envVal) {
+            return parsed
+        }
         return 2
     }
 
@@ -164,6 +167,9 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
     }
 
     var maxPendingVideoPackets: Int {
+        if let envVal = ProcessInfo.processInfo.environment["MPVP"], let parsed = Int(envVal) {
+            return parsed
+        }
         return 3
     }
 
@@ -186,6 +192,9 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
     }
 
     var maxInFlightEncodeFrames: Int {
+        if let envVal = ProcessInfo.processInfo.environment["MIFEF"], let parsed = Int(envVal) {
+            return parsed
+        }
         return 5
     }
 
