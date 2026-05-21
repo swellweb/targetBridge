@@ -95,8 +95,8 @@ final class TBDisplaySenderStatusItemController: NSObject {
         statusItem.isEnabled = false
         menu.addItem(statusItem)
 
-        if !service.bridgeInterfaces.isEmpty {
-            let ipItem = NSMenuItem(title: TBDisplaySenderL10n.topBarIP(service.language, service.bridgeSummaryText), action: nil, keyEquivalent: "")
+        if !service.localInterfaces.isEmpty {
+            let ipItem = NSMenuItem(title: TBDisplaySenderL10n.topBarIP(service.language, service.localInterfaceSummaryText), action: nil, keyEquivalent: "")
             ipItem.isEnabled = false
             menu.addItem(ipItem)
         }

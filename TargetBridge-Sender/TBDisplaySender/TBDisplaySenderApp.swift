@@ -14,5 +14,10 @@ struct TBDisplaySenderApp: App {
                 }
         }
         .defaultSize(width: 860, height: 860)
+
+        Settings {
+            TBDisplaySenderSettingsView(service: service)
+                .frame(minWidth: 560, minHeight: 420)
+        }
     }
 }

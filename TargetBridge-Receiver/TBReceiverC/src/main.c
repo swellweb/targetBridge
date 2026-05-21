@@ -46,6 +46,8 @@ struct app {
     int      have_video_frame;
 
     char     ip_text[64];
+    char     tb_ip_text[64];
+    char     net_ip_text[64];
     char     status_text[128];
     char     sender_text[128];
     char     panel_text[128];
@@ -97,6 +99,12 @@ static void bonjour_update(struct app *a, uint16_t port) {
     TXTRecordCreate(&txt, 0, NULL);
     TXTRecordSetValue(&txt, "name", (uint8_t)strlen(a->bonjour_name), a->bonjour_name);
     TXTRecordSetValue(&txt, "ip", (uint8_t)strlen(a->ip_text), a->ip_text);
+    if (a->tb_ip_text[0] != '\0') {
+        TXTRecordSetValue(&txt, "tbIP", (uint8_t)strlen(a->tb_ip_text), a->tb_ip_text);
+    }
+    if (a->net_ip_text[0] != '\0') {
+        TXTRecordSetValue(&txt, "netIP", (uint8_t)strlen(a->net_ip_text), a->net_ip_text);
+    }
     TXTRecordSetValue(&txt, "panel", (uint8_t)strlen(a->panel_text), a->panel_text);
     TXTRecordSetValue(&txt, "version", (uint8_t)strlen(TB_RECEIVER_VERSION), TB_RECEIVER_VERSION);
 
@@ -435,11 +443,17 @@ int main(int argc, char **argv) {
     signal(SIGTERM, on_sigint);
     signal(SIGPIPE, SIG_IGN);
 
-    char ip[64] = {0};
-    if (tb_net_get_tb_ip(ip, sizeof(ip)) == 0) {
-        printf("TBReceiver: Thunderbolt Bridge IP = %s\n", ip);
+    char tb_ip[64] = {0};
+    char net_ip[64] = {0};
+    if (tb_net_get_tb_ip(tb_ip, sizeof(tb_ip)) == 0) {
+        printf("TBReceiver: Thunderbolt Bridge IP = %s\n", tb_ip);
     } else {
         printf("TBReceiver: warning, no bridge IP detected (169.254.x.x)\n");
+    }
+    if (tb_net_get_lan_ip(net_ip, sizeof(net_ip)) == 0) {
+        printf("TBReceiver: Local network IP = %s\n", net_ip);
+    } else {
+        printf("TBReceiver: warning, no LAN IP detected (RFC1918 IPv4)\n");
     }
     printf("TBReceiver: listening on TCP port %d\n", TB_PORT);
 
@@ -454,7 +468,9 @@ int main(int argc, char **argv) {
         }
         snprintf(a.bonjour_name, sizeof(a.bonjour_name), "TargetBridge %s", host);
     }
-    snprintf(a.ip_text, sizeof(a.ip_text), "%s", ip[0] ? ip : "not detected");
+    snprintf(a.tb_ip_text, sizeof(a.tb_ip_text), "%s", tb_ip);
+    snprintf(a.net_ip_text, sizeof(a.net_ip_text), "%s", net_ip);
+    snprintf(a.ip_text, sizeof(a.ip_text), "%s", tb_ip[0] ? tb_ip : (net_ip[0] ? net_ip : "not detected"));
     snprintf(a.status_text, sizeof(a.status_text), "%s", "waiting for sender");
     snprintf(a.sender_text, sizeof(a.sender_text), "%s", "waiting");
     snprintf(a.mode_text, sizeof(a.mode_text), "%s", "2560 x 1440 HiDPI on 5K display");
@@ -486,13 +502,25 @@ int main(int argc, char **argv) {
         uint64_t t = now_ms();
 
         if (t - a.last_ip_check_ms >= 1000) {
-            char refreshed_ip[64] = {0};
+            char refreshed_tb_ip[64] = {0};
+            char refreshed_net_ip[64] = {0};
             a.last_ip_check_ms = t;
-            if (tb_net_get_tb_ip(refreshed_ip, sizeof(refreshed_ip)) == 0 &&
-                refreshed_ip[0] != '\0' &&
-                strcmp(a.ip_text, refreshed_ip) != 0) {
-                snprintf(a.ip_text, sizeof(a.ip_text), "%s", refreshed_ip);
-                fprintf(stderr, "[main] Thunderbolt Bridge IP = %s\n", refreshed_ip);
+            (void)tb_net_get_tb_ip(refreshed_tb_ip, sizeof(refreshed_tb_ip));
+            (void)tb_net_get_lan_ip(refreshed_net_ip, sizeof(refreshed_net_ip));
+
+            const char *preferred_ip = refreshed_tb_ip[0] ? refreshed_tb_ip : (refreshed_net_ip[0] ? refreshed_net_ip : "not detected");
+            if (strcmp(a.tb_ip_text, refreshed_tb_ip) != 0 ||
+                strcmp(a.net_ip_text, refreshed_net_ip) != 0 ||
+                strcmp(a.ip_text, preferred_ip) != 0) {
+                snprintf(a.tb_ip_text, sizeof(a.tb_ip_text), "%s", refreshed_tb_ip);
+                snprintf(a.net_ip_text, sizeof(a.net_ip_text), "%s", refreshed_net_ip);
+                snprintf(a.ip_text, sizeof(a.ip_text), "%s", preferred_ip);
+                if (refreshed_tb_ip[0] != '\0') {
+                    fprintf(stderr, "[main] Thunderbolt Bridge IP = %s\n", refreshed_tb_ip);
+                }
+                if (refreshed_net_ip[0] != '\0') {
+                    fprintf(stderr, "[main] Local network IP = %s\n", refreshed_net_ip);
+                }
                 bonjour_update(&a, TB_PORT);
             }
         }

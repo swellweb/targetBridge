@@ -204,19 +204,27 @@ enum TBDisplaySenderL10n {
         }
     }
 
-    static func localTBIP(_ language: TBDisplaySenderLanguage) -> String {
+    static func transportKind(_ language: TBDisplaySenderLanguage) -> String {
         switch language {
-        case .italian: return "IP Thunderbolt locale"
-        case .english: return "Local Thunderbolt IP"
-        case .german: return "Lokale Thunderbolt-IP"
+        case .italian: return "Trasporto"
+        case .english: return "Transport"
+        case .german: return "Transport"
         }
     }
 
-    static func availableTBInterfaces(_ language: TBDisplaySenderLanguage) -> String {
+    static func localInterfaceIP(_ language: TBDisplaySenderLanguage) -> String {
         switch language {
-        case .italian: return "Interfacce Thunderbolt"
-        case .english: return "Thunderbolt interfaces"
-        case .german: return "Thunderbolt-Schnittstellen"
+        case .italian: return "IP locale"
+        case .english: return "Local interface IP"
+        case .german: return "Lokale Interface-IP"
+        }
+    }
+
+    static func availableLocalInterfaces(_ language: TBDisplaySenderLanguage) -> String {
+        switch language {
+        case .italian: return "Interfacce locali disponibili"
+        case .english: return "Available local interfaces"
+        case .german: return "Verfügbare lokale Schnittstellen"
         }
     }
 
@@ -353,22 +361,22 @@ enum TBDisplaySenderL10n {
     static func multiSessionHint(_ language: TBDisplaySenderLanguage) -> String {
         switch language {
         case .italian:
-            return "Ogni sessione usa un IP Thunderbolt locale dedicato e uno stream indipendente verso il suo iMac."
+            return "Ogni sessione usa un'interfaccia locale dedicata e uno stream indipendente verso il suo receiver."
         case .english:
-            return "Each session uses its own local Thunderbolt IP and an independent stream to its target iMac."
+            return "Each session uses a dedicated local interface and an independent stream to its target receiver."
         case .german:
-            return "Jede Sitzung verwendet eine eigene lokale Thunderbolt-IP und einen unabhängigen Stream zu ihrem Ziel-iMac."
+            return "Jede Sitzung verwendet eine eigene lokale Schnittstelle und einen unabhängigen Stream zu ihrem Ziel-Empfänger."
         }
     }
 
     static func discoveryHint(_ language: TBDisplaySenderLanguage) -> String {
         switch language {
         case .italian:
-            return "Se selezioni un receiver trovato automaticamente, l'IP viene compilato da solo."
+            return "Se selezioni un receiver trovato automaticamente, viene usato l'indirizzo corretto per il trasporto scelto."
         case .english:
-            return "Selecting a discovered receiver fills in the receiver IP automatically."
+            return "Selecting a discovered receiver fills in the best address for the chosen transport automatically."
         case .german:
-            return "Wenn du einen gefundenen Empfänger auswählst, wird die Empfänger-IP automatisch eingetragen."
+            return "Wenn du einen gefundenen Empfänger auswählst, wird automatisch die passende Adresse für den gewählten Transport eingetragen."
         }
     }
 
@@ -472,6 +480,30 @@ enum TBDisplaySenderL10n {
         }
     }
 
+    static func showSettings(_ language: TBDisplaySenderLanguage) -> String {
+        switch language {
+        case .italian: return "Mostra impostazioni"
+        case .english: return "Show settings"
+        case .german: return "Einstellungen anzeigen"
+        }
+    }
+
+    static func hideSettings(_ language: TBDisplaySenderLanguage) -> String {
+        switch language {
+        case .italian: return "Nascondi impostazioni"
+        case .english: return "Hide settings"
+        case .german: return "Einstellungen ausblenden"
+        }
+    }
+
+    static func settingsHint(_ language: TBDisplaySenderLanguage) -> String {
+        switch language {
+        case .italian: return "Lascia visibili solo i controlli quotidiani e apri qui le preferenze quando devi riconfigurare."
+        case .english: return "Keep daily controls visible and open this section only when you need to reconfigure the app."
+        case .german: return "Lass die täglichen Steuerelemente sichtbar und öffne diesen Bereich nur, wenn du die App neu konfigurieren musst."
+        }
+    }
+
     static func largeCursor(_ language: TBDisplaySenderLanguage) -> String {
         switch language {
         case .italian: return "Cursore ingrandito sul receiver"
@@ -490,9 +522,9 @@ enum TBDisplaySenderL10n {
 
     static func topBarIP(_ language: TBDisplaySenderLanguage, _ ip: String) -> String {
         switch language {
-        case .italian: return "IP TB: \(ip)"
-        case .english: return "TB IP: \(ip)"
-        case .german: return "TB-IP: \(ip)"
+        case .italian: return "Interfacce: \(ip)"
+        case .english: return "Interfaces: \(ip)"
+        case .german: return "Schnittstellen: \(ip)"
         }
     }
 

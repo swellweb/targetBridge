@@ -346,7 +346,8 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     @Published var isConnected = false
     @Published var isStreaming = false
     @Published var statusText: String
-    @Published var localTBIP = ""
+    @Published var transportKind: TBTransportKind = .thunderboltBridge
+    @Published var localInterfaceIP = ""
     @Published var selectedReceiverID = ""
     @Published var isCableTesting = false
     @Published var cableTestResult: Double? = nil
@@ -496,7 +497,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     }
 
     func connect() {
-        guard connection == nil, !receiverIP.isEmpty, !localTBIP.isEmpty else { return }
+        guard connection == nil, !receiverIP.isEmpty, !localInterfaceIP.isEmpty else { return }
         recvBuffer.removeAll(keepingCapacity: false)
         activeProfile = nil
         setStatus(.connecting(receiverIP))
@@ -507,7 +508,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         params.allowLocalEndpointReuse = true
         params.serviceClass = .interactiveVideo
         if let localPort = NWEndpoint.Port(rawValue: 0) {
-            params.requiredLocalEndpoint = .hostPort(host: NWEndpoint.Host(localTBIP), port: localPort)
+            params.requiredLocalEndpoint = .hostPort(host: NWEndpoint.Host(localInterfaceIP), port: localPort)
         }
         let conn = NWConnection(
             host: NWEndpoint.Host(receiverIP),

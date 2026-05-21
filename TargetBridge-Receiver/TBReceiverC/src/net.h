@@ -34,4 +34,8 @@ int  tb_net_accept   (int server_fd);
  * buf size must be at least INET_ADDRSTRLEN (16) bytes. Returns 0 on success. */
 int  tb_net_get_tb_ip(char *buf, size_t bufsz);
 
+/* Returns IP address of a likely local LAN interface (for example en0/eth0, RFC1918 IPv4).
+ * buf size must be at least INET_ADDRSTRLEN (16) bytes. Returns 0 on success. */
+int  tb_net_get_lan_ip(char *buf, size_t bufsz);
+
 #endif

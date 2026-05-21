@@ -130,6 +130,25 @@ int tb_net_accept(int server_fd) {
 
 /* ---- TB Bridge IP discovery ------------------------------------------- */
 
+static int is_likely_lan_interface_name(const char *name) {
+    if (!name) return 0;
+    if (strncmp(name, "lo", 2) == 0) return 0;
+    if (strncmp(name, "utun", 4) == 0) return 0;
+    if (strncmp(name, "awdl", 4) == 0) return 0;
+    if (strncmp(name, "llw", 3) == 0) return 0;
+    return strncmp(name, "en", 2) == 0 || strncmp(name, "eth", 3) == 0;
+}
+
+static int is_rfc1918_ipv4(const char *host) {
+    if (!host) return 0;
+    if (strncmp(host, "10.", 3) == 0) return 1;
+    if (strncmp(host, "192.168.", 8) == 0) return 1;
+
+    unsigned int a = 0, b = 0, c = 0, d = 0;
+    if (sscanf(host, "%u.%u.%u.%u", &a, &b, &c, &d) != 4) return 0;
+    return a == 172 && b >= 16 && b <= 31;
+}
+
 int tb_net_get_tb_ip(char *buf, size_t bufsz) {
     struct ifaddrs *ifap = NULL;
     if (getifaddrs(&ifap) != 0) return -1;
@@ -144,6 +163,30 @@ int tb_net_get_tb_ip(char *buf, size_t bufsz) {
         if (getnameinfo(p->ifa_addr, sizeof(struct sockaddr_in),
                         host, sizeof(host), NULL, 0, NI_NUMERICHOST) == 0) {
             if (strncmp(host, "169.254.", 8) == 0) {
+                snprintf(buf, bufsz, "%s", host);
+                ret = 0;
+                break;
+            }
+        }
+    }
+    freeifaddrs(ifap);
+    return ret;
+}
+
+int tb_net_get_lan_ip(char *buf, size_t bufsz) {
+    struct ifaddrs *ifap = NULL;
+    if (getifaddrs(&ifap) != 0) return -1;
+
+    int ret = -1;
+    for (struct ifaddrs *p = ifap; p; p = p->ifa_next) {
+        if (!p->ifa_addr) continue;
+        if (p->ifa_addr->sa_family != AF_INET) continue;
+        if (!is_likely_lan_interface_name(p->ifa_name)) continue;
+
+        char host[NI_MAXHOST];
+        if (getnameinfo(p->ifa_addr, sizeof(struct sockaddr_in),
+                        host, sizeof(host), NULL, 0, NI_NUMERICHOST) == 0) {
+            if (is_rfc1918_ipv4(host)) {
                 snprintf(buf, bufsz, "%s", host);
                 ret = 0;
                 break;
