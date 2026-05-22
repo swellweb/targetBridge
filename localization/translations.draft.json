@@ -1,0 +1,470 @@
+{
+  "$comment": "Draft localization payload pending the upstream JSON localization schema. Keys mirror existing Swift L10n function names (sender) and C tb_tr() call sites (receiver) for easy cross-reference. Placeholders use {name} syntax — translate to ICU / printf / Swift interpolation as needed when wiring into the real runtime. Generated from branch feat/i18n-chinese-ui; safe to discard the Swift/C edits in that branch and reuse only this file.",
+  "metadata": {
+    "schemaVersion": "draft-0.1",
+    "languages": {
+      "it": "Italiano",
+      "en": "English",
+      "de": "Deutsch",
+      "zh-Hans": "简体中文"
+    },
+    "sourceBranch": "feat/i18n-chinese-ui",
+    "generatedAt": "2026-05-22",
+    "notes": [
+      "Sender entries cover all 4 languages because Italian / English / German already existed upstream; only the 'zh-Hans' values are new in this PR.",
+      "Receiver entries only carry 'en' + 'zh-Hans' because the C receiver was English-only prior to this branch.",
+      "Placeholder convention: {name} (e.g. {ip}, {error}, {width}). For receiver entries derived from printf-style C strings, the 'placeholders' array records the original positional order of %d / %s."
+    ]
+  },
+
+  "sender": {
+    "language.pickerTitle": {
+      "it": "Italiano", "en": "English", "de": "Deutsch", "zh-Hans": "中文"
+    },
+
+    "status.ready": {
+      "it": "Pronto", "en": "Ready", "de": "Bereit", "zh-Hans": "就绪"
+    },
+    "status.connecting": {
+      "placeholders": ["ip"],
+      "it": "Connessione a {ip}…", "en": "Connecting to {ip}…", "de": "Verbinden mit {ip}…", "zh-Hans": "正在连接 {ip}…"
+    },
+    "status.testingCable": {
+      "it": "Test del cavo in corso…", "en": "Testing cable performance…", "de": "Kabel-Performance wird getestet…", "zh-Hans": "正在测试线缆性能…"
+    },
+    "status.waitingDisplayProfile": {
+      "it": "Receiver connesso, attendo profilo display…", "en": "Receiver connected, waiting for display profile…", "de": "Empfänger verbunden, warte auf Display-Profil…", "zh-Hans": "接收端已连接，等待显示配置…"
+    },
+    "status.connectionFailed": {
+      "placeholders": ["error"],
+      "it": "Connessione fallita: {error}", "en": "Connection failed: {error}", "de": "Verbindung fehlgeschlagen: {error}", "zh-Hans": "连接失败：{error}"
+    },
+    "status.stopped": {
+      "it": "Interrotto", "en": "Stopped", "de": "Gestoppt", "zh-Hans": "已停止"
+    },
+    "status.connectionClosed": {
+      "placeholders": ["error"],
+      "it": "Connessione chiusa: {error}", "en": "Connection closed: {error}", "de": "Verbindung geschlossen: {error}", "zh-Hans": "连接已关闭：{error}"
+    },
+    "status.receiverClosedDuringCapture": {
+      "it": "Receiver chiuso durante l'avvio cattura", "en": "Receiver closed while capture was starting", "de": "Empfänger während des Aufnahmestarts geschlossen", "zh-Hans": "捕获启动时接收端已关闭"
+    },
+    "status.receiverClosedConnection": {
+      "it": "Receiver ha chiuso la connessione", "en": "Receiver closed the connection", "de": "Empfänger hat die Verbindung geschlossen", "zh-Hans": "接收端已关闭连接"
+    },
+    "status.receiverTerminatedSession": {
+      "it": "Receiver ha terminato la sessione", "en": "Receiver terminated the session", "de": "Empfänger hat die Sitzung beendet", "zh-Hans": "接收端已终止会话"
+    },
+    "status.creatingVirtualDisplay": {
+      "it": "Creo virtual display…", "en": "Creating virtual display…", "de": "Virtuelles Display wird erstellt…", "zh-Hans": "正在创建虚拟显示器…"
+    },
+    "status.virtualDisplayCreationFailed": {
+      "it": "Creazione virtual display fallita", "en": "Virtual display creation failed", "de": "Virtuelles Display konnte nicht erstellt werden", "zh-Hans": "虚拟显示器创建失败"
+    },
+    "status.startingCapture": {
+      "placeholders": ["source", "resolution"],
+      "comment": "Italian / English lowercase the source name; German / Chinese keep it as-is. Decide on a uniform casing rule when wiring up.",
+      "it": "Avvio {source} ({resolution})…",
+      "en": "Starting {source} capture ({resolution})…",
+      "de": "{source} wird gestartet ({resolution})…",
+      "zh-Hans": "正在启动 {source}（{resolution}）…"
+    },
+    "status.captureStartedWaitingFirstFrame": {
+      "it": "Cattura avviata, attendo il primo frame…", "en": "Capture started, waiting for the first frame…", "de": "Aufnahme gestartet, warte auf ersten Bildinhalt…", "zh-Hans": "捕获已启动，等待首帧…"
+    },
+    "status.captureActive": {
+      "placeholders": ["source", "resolution", "codec"],
+      "it": "{source} attivo ({resolution}, {codec})", "en": "{source} active ({resolution}, {codec})", "de": "{source} aktiv ({resolution}, {codec})", "zh-Hans": "{source} 进行中（{resolution}，{codec}）"
+    },
+    "status.captureError": {
+      "placeholders": ["error"],
+      "it": "Errore capture: {error}", "en": "Capture error: {error}", "de": "Aufnahmefehler: {error}", "zh-Hans": "捕获错误：{error}"
+    },
+    "status.captureDesktopError": {
+      "placeholders": ["error"],
+      "it": "Errore cattura desktop: {error}", "en": "Desktop capture error: {error}", "de": "Desktop-Aufnahmefehler: {error}", "zh-Hans": "桌面捕获错误：{error}"
+    },
+    "status.hevcNoFrames": {
+      "it": "5K avviato ma il path HEVC non sta producendo frame", "en": "5K started but the HEVC path is not producing frames", "de": "5K gestartet, aber der HEVC-Pfad erzeugt keine Bildinhalte", "zh-Hans": "5K 已启动，但 HEVC 通道未输出任何帧"
+    },
+    "status.noFirstFrame": {
+      "it": "Cattura avviata ma non e' arrivato il primo frame", "en": "Capture started but the first frame never arrived", "de": "Aufnahme gestartet, aber der erste Bildinhalt ist nie angekommen", "zh-Hans": "捕获已启动，但始终未收到首帧"
+    },
+
+    "app.name": {
+      "it": "TargetBridge", "en": "TargetBridge", "de": "TargetBridge", "zh-Hans": "TargetBridge"
+    },
+    "app.subtitle": {
+      "it": "Crea un display virtuale iMac su macOS e ne invia il contenuto al receiver 5K.",
+      "en": "Creates an iMac virtual display on macOS and sends its contents to the 5K receiver.",
+      "de": "Erstellt ein virtuelles iMac-Display auf macOS und sendet dessen Inhalt an den 5K-Empfänger.",
+      "zh-Hans": "在 macOS 上创建一个 iMac 虚拟显示器，并将其内容发送到 5K 接收端。"
+    },
+
+    "cableTest.group": {
+      "it": "Test Cavo", "en": "Cable Test", "de": "Kabeltest", "zh-Hans": "线缆测试"
+    },
+    "cableTest.runButton": {
+      "it": "Esegui Test Cavo", "en": "Run Cable Test", "de": "Kabeltest ausführen", "zh-Hans": "运行线缆测试"
+    },
+    "cableTest.testingButton": {
+      "it": "Test in corso…", "en": "Testing…", "de": "Test läuft…", "zh-Hans": "测试中…"
+    },
+    "cableTest.transferRateLabel": {
+      "it": "Velocità:", "en": "Transfer Rate:", "de": "Übertragungsrate:", "zh-Hans": "传输速率："
+    },
+    "cableTest.noResult": {
+      "it": "Nessun test eseguito", "en": "No test run yet", "de": "Noch kein Test ausgeführt", "zh-Hans": "尚未运行测试"
+    },
+
+    "connection.group": {
+      "it": "Connessione", "en": "Connection", "de": "Verbindung", "zh-Hans": "连接"
+    },
+    "connection.localTBIP": {
+      "it": "IP Thunderbolt locale", "en": "Local Thunderbolt IP", "de": "Lokale Thunderbolt-IP", "zh-Hans": "本机 Thunderbolt IP"
+    },
+    "connection.availableTBInterfaces": {
+      "it": "Interfacce Thunderbolt", "en": "Thunderbolt interfaces", "de": "Thunderbolt-Schnittstellen", "zh-Hans": "Thunderbolt 接口"
+    },
+    "connection.notDetected": {
+      "it": "Non rilevato", "en": "Not detected", "de": "Nicht erkannt", "zh-Hans": "未检测到"
+    },
+    "connection.receiverIP": {
+      "it": "IP receiver", "en": "Receiver IP", "de": "Empfänger-IP", "zh-Hans": "接收端 IP"
+    },
+    "connection.discoveredReceiver": {
+      "it": "Receiver trovato", "en": "Discovered receiver", "de": "Gefundener Empfänger", "zh-Hans": "已发现的接收端"
+    },
+    "connection.manualEntry": {
+      "it": "Inserimento manuale", "en": "Manual entry", "de": "Manuelle Eingabe", "zh-Hans": "手动输入"
+    },
+    "connection.connectButton": {
+      "it": "Connetti", "en": "Connect", "de": "Verbinden", "zh-Hans": "连接"
+    },
+    "connection.stopButton": {
+      "it": "Stop", "en": "Stop", "de": "Stop", "zh-Hans": "停止"
+    },
+    "connection.refreshIPButton": {
+      "it": "Aggiorna IP", "en": "Refresh IP", "de": "IP aktualisieren", "zh-Hans": "刷新 IP"
+    },
+    "connection.addSessionButton": {
+      "it": "Aggiungi sessione", "en": "Add session", "de": "Sitzung hinzufügen", "zh-Hans": "新增会话"
+    },
+    "connection.stopAllButton": {
+      "it": "Ferma tutto", "en": "Stop all", "de": "Alle stoppen", "zh-Hans": "全部停止"
+    },
+    "connection.removeSessionButton": {
+      "it": "Rimuovi sessione", "en": "Remove session", "de": "Sitzung entfernen", "zh-Hans": "移除会话"
+    },
+    "connection.discoveryHint": {
+      "it": "Se selezioni un receiver trovato automaticamente, l'IP viene compilato da solo.",
+      "en": "Selecting a discovered receiver fills in the receiver IP automatically.",
+      "de": "Wenn du einen gefundenen Empfänger auswählst, wird die Empfänger-IP automatisch eingetragen.",
+      "zh-Hans": "选择已发现的接收端时，接收端 IP 会自动填入。"
+    },
+    "connection.multiSessionHint": {
+      "it": "Ogni sessione usa un IP Thunderbolt locale dedicato e uno stream indipendente verso il suo iMac.",
+      "en": "Each session uses its own local Thunderbolt IP and an independent stream to its target iMac.",
+      "de": "Jede Sitzung verwendet eine eigene lokale Thunderbolt-IP und einen unabhängigen Stream zu ihrem Ziel-iMac.",
+      "zh-Hans": "每个会话独占一个本机 Thunderbolt IP，向各自的 iMac 推送独立的码流。"
+    },
+
+    "language.group": {
+      "it": "Lingua", "en": "Language", "de": "Sprache", "zh-Hans": "语言"
+    },
+
+    "stream.resolutionGroup": {
+      "it": "Risoluzione stream", "en": "Stream resolution", "de": "Stream-Auflösung", "zh-Hans": "码流分辨率"
+    },
+    "stream.profile": {
+      "it": "Profilo stream", "en": "Stream profile", "de": "Stream-Profil", "zh-Hans": "码流配置"
+    },
+    "stream.captureSource": {
+      "it": "Sorgente", "en": "Source", "de": "Quelle", "zh-Hans": "来源"
+    },
+    "stream.hint1": {
+      "it": "`Duplica Desktop` crea un monitor virtuale e lo mette in mirror col display principale. `Desktop Esteso` crea un monitor virtuale separato visibile nelle impostazioni schermo.",
+      "en": "`Duplicate Desktop` creates a virtual monitor and mirrors the main display onto it. `Extended Desktop` creates a separate virtual monitor visible in Display Settings.",
+      "de": "`Desktop duplizieren` erstellt ein virtuelles Display und spiegelt den Hauptbildschirm darauf. `Erweiterter Desktop` erstellt ein separates virtuelles Display, das in den Anzeigeeinstellungen sichtbar ist.",
+      "zh-Hans": "`镜像桌面` 会创建一个虚拟显示器，并将主屏镜像到上面。`扩展桌面` 会创建一个独立的虚拟显示器，可在「显示器」设置中看到。"
+    },
+    "stream.hint2": {
+      "it": "`Smooth+` privilegia fluidità. `Crisp` aumenta la nitidezza. `5K` massimizza i pixel.",
+      "en": "`Smooth+` prioritizes motion. `Crisp` improves clarity. `5K` maximizes pixels.",
+      "de": "`Smooth+` bevorzugt flüssige Bewegung. `Crisp` verbessert die Schärfe. `5K` maximiert die Pixel.",
+      "zh-Hans": "`Smooth+` 偏向流畅。`Crisp` 提升清晰度。`5K` 像素最高。"
+    },
+
+    "captureSource.desktopMirror": {
+      "it": "Duplica Desktop", "en": "Duplicate Desktop", "de": "Desktop duplizieren", "zh-Hans": "镜像桌面",
+      "comment": "Sender originally had only it/en/de via TBDisplayCaptureSource.title; .chinese added in this branch."
+    },
+    "captureSource.extendedDesktop": {
+      "it": "Desktop Esteso", "en": "Extended Desktop", "de": "Erweiterter Desktop", "zh-Hans": "扩展桌面"
+    },
+
+    "monitor.sessionGroup": {
+      "it": "Sessione monitor", "en": "Monitor session", "de": "Bildschirmsitzung", "zh-Hans": "显示会话"
+    },
+    "monitor.receiverLabel": {
+      "it": "Receiver", "en": "Receiver", "de": "Empfänger", "zh-Hans": "接收端"
+    },
+    "monitor.virtualDisplayLabel": {
+      "it": "Virtual display", "en": "Virtual display", "de": "Virtuelles Display", "zh-Hans": "虚拟显示器"
+    },
+    "monitor.streamLabel": {
+      "it": "Stream", "en": "Stream", "de": "Stream", "zh-Hans": "码流"
+    },
+    "monitor.fpsLabel": {
+      "it": "FPS sender", "en": "Sender FPS", "de": "Sender-FPS", "zh-Hans": "发送端 FPS"
+    },
+
+    "mode.group": {
+      "it": "Modalità v1", "en": "Mode v1", "de": "Modus v1", "zh-Hans": "v1 模式"
+    },
+    "mode.line1": {
+      "it": "Pannello iMac target: 5120 × 2880 (5K)",
+      "en": "Target iMac panel: 5120 × 2880 (5K)",
+      "de": "Ziel-iMac-Bildschirm: 5120 × 2880 (5K)",
+      "zh-Hans": "目标 iMac 面板：5120 × 2880（5K）"
+    },
+    "mode.line2": {
+      "it": "Monitor esposto al MacBook: 2560 × 1440 HiDPI @ 60 Hz",
+      "en": "Display exposed to the MacBook: 2560 × 1440 HiDPI @ 60 Hz",
+      "de": "Dem MacBook bereitgestelltes Display: 2560 × 1440 HiDPI @ 60 Hz",
+      "zh-Hans": "暴露给 MacBook 的显示器：2560 × 1440 HiDPI @ 60 Hz"
+    },
+    "mode.line3": {
+      "it": "Pipeline: virtual display reale (esteso o mirror) → capture diretta → codec hardware → TCP",
+      "en": "Pipeline: real virtual display (extended or mirrored) → direct capture → hardware codec → TCP",
+      "de": "Pipeline: echtes virtuelles Display (erweitert oder gespiegelt) → direkte Aufnahme → Hardware-Codec → TCP",
+      "zh-Hans": "流水线：真实虚拟显示器（扩展或镜像）→ 直接捕获 → 硬件编码 → TCP"
+    },
+    "mode.line4": {
+      "it": "Il receiver va in fullscreen solo quando arriva il primo frame.",
+      "en": "The receiver switches to fullscreen only when the first frame arrives.",
+      "de": "Der Empfänger schaltet erst auf Vollbild um, wenn der erste Bildinhalt ankommt.",
+      "zh-Hans": "接收端仅在收到首帧后才会切换到全屏。"
+    },
+    "mode.line5": {
+      "it": "Scegli la sorgente, poi bilancia fluidità e nitidezza col profilo stream.",
+      "en": "Choose the source, then balance motion and clarity with the stream profile.",
+      "de": "Quelle wählen, dann Bewegungsfluss und Schärfe mit dem Stream-Profil abstimmen.",
+      "zh-Hans": "先选择来源，再用码流配置在流畅度与清晰度之间取舍。"
+    },
+
+    "about.version": {
+      "it": "Versione", "en": "Version", "de": "Version", "zh-Hans": "版本"
+    },
+
+    "toggle.showMenuBarIcon": {
+      "it": "Mostra icona nella topbar", "en": "Show icon in top bar", "de": "Symbol in Menüleiste anzeigen", "zh-Hans": "在菜单栏显示图标"
+    },
+    "toggle.largeCursor": {
+      "it": "Cursore ingrandito sul receiver", "en": "Large cursor on receiver", "de": "Großer Zeiger auf dem Empfänger", "zh-Hans": "在接收端使用大光标"
+    },
+
+    "menu.showMainWindow": {
+      "it": "Mostra finestra principale", "en": "Show main window", "de": "Hauptfenster anzeigen", "zh-Hans": "显示主窗口"
+    },
+    "menu.hideMenuBarIcon": {
+      "it": "Nascondi icona dalla topbar", "en": "Hide top bar icon", "de": "Symbol in Menüleiste ausblenden", "zh-Hans": "隐藏菜单栏图标"
+    },
+    "menu.quitApp": {
+      "it": "Esci da TargetBridge", "en": "Quit TargetBridge", "de": "TargetBridge beenden", "zh-Hans": "退出 TargetBridge"
+    },
+
+    "topBar.ip": {
+      "placeholders": ["ip"],
+      "it": "IP TB: {ip}", "en": "TB IP: {ip}", "de": "TB-IP: {ip}", "zh-Hans": "TB IP：{ip}"
+    },
+    "topBar.toolTip": {
+      "it": "TargetBridge - Monitor target display software",
+      "en": "TargetBridge - Software target display monitor",
+      "de": "TargetBridge - Software Target-Display-Monitor",
+      "zh-Hans": "TargetBridge - 软件目标显示器"
+    },
+
+    "session.title": {
+      "placeholders": ["index"],
+      "it": "Sessione {index}", "en": "Session {index}", "de": "Sitzung {index}", "zh-Hans": "会话 {index}"
+    },
+    "multiSession.summary.connected": {
+      "placeholders": ["active", "total"],
+      "comment": "Note: zh-Hans deliberately reorders 'total' before 'active' for natural Chinese phrasing.",
+      "it": "{active} sessioni collegate su {total}",
+      "en": "{active} connected sessions of {total}",
+      "de": "{active} verbundene Sitzungen von {total}",
+      "zh-Hans": "{total} 个会话中已连接 {active} 个"
+    },
+    "multiSession.summary.streaming": {
+      "placeholders": ["active", "total"],
+      "it": "{active} sessioni attive su {total}",
+      "en": "{active} active sessions of {total}",
+      "de": "{active} aktive Sitzungen von {total}",
+      "zh-Hans": "{total} 个会话中活跃 {active} 个"
+    },
+
+    "service.waitingReceiverProfile": {
+      "it": "In attesa del profilo receiver", "en": "Waiting for receiver profile", "de": "Warte auf Empfänger-Profil", "zh-Hans": "正在等待接收端配置"
+    },
+    "service.virtualDisplayNotCreated": {
+      "it": "Virtual display non creato", "en": "Virtual display not created", "de": "Virtuelles Display nicht erstellt", "zh-Hans": "尚未创建虚拟显示器"
+    },
+    "service.receiverSummary": {
+      "placeholders": ["receiverName", "panelWidth", "panelHeight", "modeWidth", "modeHeight"],
+      "it": "{receiverName}: pannello {panelWidth}×{panelHeight}, modalità {modeWidth}×{modeHeight} HiDPI",
+      "en": "{receiverName}: panel {panelWidth}×{panelHeight}, mode {modeWidth}×{modeHeight} HiDPI",
+      "de": "{receiverName}: Panel {panelWidth}×{panelHeight}, Modus {modeWidth}×{modeHeight} HiDPI",
+      "zh-Hans": "{receiverName}：面板 {panelWidth}×{panelHeight}，模式 {modeWidth}×{modeHeight} HiDPI"
+    },
+    "service.virtualDisplaySummary": {
+      "placeholders": ["name", "id"],
+      "it": "Virtual display: {name} ({id})",
+      "en": "Virtual display: {name} ({id})",
+      "de": "Virtuelles Display: {name} ({id})",
+      "zh-Hans": "虚拟显示器：{name}（{id}）"
+    },
+
+    "permissions.missingScreenRecording": {
+      "it": "TargetBridge non ha il permesso Registrazione Schermo. Verifica Privacy e Sicurezza > Registrazione Schermo.",
+      "en": "TargetBridge does not have Screen Recording permission. Check Privacy & Security > Screen Recording.",
+      "de": "TargetBridge hat keine Berechtigung für die Bildschirmaufnahme. Überprüfen Sie Systemeinstellungen > Datenschutz & Sicherheit > Bildschirmaufnahme.",
+      "zh-Hans": "TargetBridge 没有「屏幕录制」权限。请前往「隐私与安全性 → 屏幕录制」检查。"
+    },
+    "permissions.screenCaptureKitPermissionMismatch": {
+      "placeholders": ["details"],
+      "it": "ScreenCaptureKit ha fallito anche se il permesso Registrazione Schermo risulta concesso. Dettagli: {details}",
+      "en": "ScreenCaptureKit failed even though Screen Recording permission appears granted. Details: {details}",
+      "de": "ScreenCaptureKit fehlgeschlagen, obwohl die Berechtigung zur Bildschirmaufnahme erteilt zu sein scheint. Details: {details}",
+      "zh-Hans": "屏幕录制权限看起来已授予，但 ScreenCaptureKit 仍然失败。详情：{details}"
+    },
+
+    "settings.title": {
+      "comment": "These 'settings.*' keys are new in this PR (gear-button Settings sheet). Discard them if the upstream UI refactor obsoletes the sheet.",
+      "it": "Preferenze", "en": "Settings", "de": "Einstellungen", "zh-Hans": "设置"
+    },
+    "settings.doneButton": {
+      "it": "Fatto", "en": "Done", "de": "Fertig", "zh-Hans": "完成"
+    },
+    "settings.section.language": {
+      "it": "Lingua", "en": "Language", "de": "Sprache", "zh-Hans": "语言"
+    },
+    "settings.section.appearance": {
+      "it": "Aspetto", "en": "Appearance", "de": "Darstellung", "zh-Hans": "外观"
+    },
+    "settings.section.about": {
+      "it": "Informazioni", "en": "About", "de": "Über", "zh-Hans": "关于"
+    },
+    "settings.buttonAccessibility": {
+      "it": "Apri preferenze", "en": "Open settings", "de": "Einstellungen öffnen", "zh-Hans": "打开设置"
+    }
+  },
+
+  "receiver": {
+    "$comment": "Receiver was English-only before this branch; only 'en' + 'zh-Hans' provided. Italian / German / etc. can be derived from the sender wording when the JSON system is wired up.",
+
+    "banner.title": {
+      "en": "TARGETBRIDGE RECEIVER", "zh-Hans": "TARGETBRIDGE 接收端"
+    },
+    "banner.subtitle": {
+      "en": "5K / HiDPI receiver ready for sender", "zh-Hans": "5K / HiDPI 接收端，等待发送端连接"
+    },
+    "banner.section.ipBridge": {
+      "en": "IP THUNDERBOLT BRIDGE", "zh-Hans": "Thunderbolt Bridge IP"
+    },
+    "banner.section.status": {
+      "en": "STATUS", "zh-Hans": "状态"
+    },
+    "banner.section.sender": {
+      "en": "SENDER", "zh-Hans": "发送端"
+    },
+    "banner.section.display": {
+      "en": "DISPLAY", "zh-Hans": "显示器"
+    },
+    "banner.section.streamProfile": {
+      "en": "STREAM PROFILE", "zh-Hans": "码流配置"
+    },
+    "banner.footer.line1": {
+      "en": "Start the sender on your MacBook and enter this IP address.",
+      "zh-Hans": "在 MacBook 上启动发送端，并填入上方的 IP 地址。"
+    },
+    "banner.footer.line2": {
+      "en": "When the first frame arrives, the receiver switches to fullscreen automatically.",
+      "zh-Hans": "收到第一帧画面后，接收端会自动切换到全屏。"
+    },
+    "banner.footer.line3": {
+      "en": "If the sender stops, the receiver returns here ready for a new session.",
+      "zh-Hans": "发送端停止后，接收端会返回此界面，等待下一次会话。"
+    },
+
+    "status.streamActive": {
+      "en": "stream active", "zh-Hans": "码流进行中"
+    },
+    "status.modeReceiving": {
+      "placeholders": ["width", "height"],
+      "comment": "Original C printf: '%d x %d px receiving' (width, height).",
+      "en": "{width} x {height} px receiving",
+      "zh-Hans": "正在接收 {width} x {height} px"
+    },
+    "status.connectedNegotiating": {
+      "en": "sender connected, negotiating", "zh-Hans": "发送端已连接，协商中"
+    },
+    "status.connectedProfileSent": {
+      "en": "sender connected, profile sent", "zh-Hans": "发送端已连接，已发送配置"
+    },
+    "status.sessionAccepted": {
+      "en": "session accepted, waiting for frames", "zh-Hans": "会话已接受，等待画面帧"
+    },
+    "status.sessionClosed": {
+      "en": "session closed by sender", "zh-Hans": "发送端已关闭会话"
+    },
+    "status.waitingForSender": {
+      "en": "waiting for sender", "zh-Hans": "等待发送端"
+    },
+
+    "status.requested.full": {
+      "placeholders": ["width", "height", "extra1", "extra2", "extra3"],
+      "comment": "Original C printf: '%d x %d px requested (%s, %s, %s)'.",
+      "en": "{width} x {height} px requested ({extra1}, {extra2}, {extra3})",
+      "zh-Hans": "请求 {width} x {height} px（{extra1}，{extra2}，{extra3}）"
+    },
+    "status.requested.twoExtras": {
+      "placeholders": ["width", "height", "extra1", "extra2"],
+      "en": "{width} x {height} px requested ({extra1}, {extra2})",
+      "zh-Hans": "请求 {width} x {height} px（{extra1}，{extra2}）"
+    },
+    "status.requested.oneExtra": {
+      "placeholders": ["width", "height", "extra1"],
+      "en": "{width} x {height} px requested ({extra1})",
+      "zh-Hans": "请求 {width} x {height} px（{extra1}）"
+    },
+    "status.requested.bare": {
+      "placeholders": ["width", "height"],
+      "en": "{width} x {height} px requested",
+      "zh-Hans": "请求 {width} x {height} px"
+    },
+
+    "sender.connected": {
+      "en": "sender connected", "zh-Hans": "发送端已连接"
+    },
+    "sender.waiting": {
+      "en": "waiting", "zh-Hans": "等待中"
+    },
+    "sender.identifying": {
+      "en": "identifying", "zh-Hans": "识别中"
+    },
+
+    "ip.notDetected": {
+      "en": "not detected", "zh-Hans": "未检测到"
+    },
+
+    "display.fiveK": {
+      "en": "5K display", "zh-Hans": "5K 显示器"
+    },
+    "mode.standard": {
+      "en": "2560 x 1440 HiDPI on 5K display",
+      "zh-Hans": "2560 x 1440 HiDPI（5K 显示器）"
+    }
+  }
+}
