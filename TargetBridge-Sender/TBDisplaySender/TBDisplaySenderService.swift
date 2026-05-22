@@ -232,9 +232,11 @@ enum TBDisplayCaptureSource: String, CaseIterable, Identifiable {
         case (.desktopMirror, .italian): return "Duplica Desktop"
         case (.desktopMirror, .english): return "Duplicate Desktop"
         case (.desktopMirror, .german): return "Desktop duplizieren"
+        case (.desktopMirror, .chinese): return "镜像桌面"
         case (.extendedDesktop, .italian): return "Desktop Esteso"
         case (.extendedDesktop, .english): return "Extended Desktop"
         case (.extendedDesktop, .german): return "Erweiterter Desktop"
+        case (.extendedDesktop, .chinese): return "扩展桌面"
         }
     }
 

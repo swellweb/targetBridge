@@ -17,6 +17,7 @@
 #include "decoder.h"
 #include "display.h"
 #include "proto.h"
+#include "i18n.h"
 
 #include <SDL.h>
 #include <dns_sd.h>
@@ -91,7 +92,9 @@ static void on_bonjour_register(DNSServiceRef sdRef,
 static void bonjour_update(struct app *a, uint16_t port) {
     bonjour_deinit(a);
 
-    if (a->ip_text[0] == '\0' || strcmp(a->ip_text, "not detected") == 0) return;
+    if (a->ip_text[0] == '\0' ||
+        strcmp(a->ip_text, "not detected") == 0 ||
+        strcmp(a->ip_text, "未检测到") == 0) return;
 
     TXTRecordRef txt;
     TXTRecordCreate(&txt, 0, NULL);
@@ -215,8 +218,9 @@ static void on_frame(const uint8_t *y, int y_stride,
                      int w, int h, void *ud) {
     struct app *a = (struct app *)ud;
     a->have_video_frame = 1;
-    snprintf(a->status_text, sizeof(a->status_text), "%s", "stream active");
-    snprintf(a->mode_text, sizeof(a->mode_text), "%d x %d px receiving", w, h);
+    snprintf(a->status_text, sizeof(a->status_text), "%s", tb_tr("stream active", "码流进行中"));
+    snprintf(a->mode_text, sizeof(a->mode_text),
+             tb_tr("%d x %d px receiving", "正在接收 %d x %d px"), w, h);
     tb_disp_render_nv12(a->disp, y, y_stride, uv, uv_stride, w, h);
     a->frames++;
 }
@@ -229,7 +233,7 @@ static void on_packet(uint8_t type, const uint8_t *payload, size_t len, void *ud
     case TB_PKT_HELLO_RECEIVER:
         extract_json_string_field(payload, len, "\"senderName\"", a->sender_text, sizeof(a->sender_text));
         if (a->sender_text[0] == '\0') {
-            snprintf(a->sender_text, sizeof(a->sender_text), "%s", "sender connected");
+            snprintf(a->sender_text, sizeof(a->sender_text), "%s", tb_tr("sender connected", "发送端已连接"));
         }
         {
             char preset[64];
@@ -247,23 +251,40 @@ static void on_packet(uint8_t type, const uint8_t *payload, size_t len, void *ud
             (void)extract_json_int_field(payload, len, "\"captureHeight\"", &capture_h);
 
             if (capture_w > 0 && capture_h > 0 && source[0] != '\0' && preset[0] != '\0' && codec[0] != '\0') {
-                snprintf(a->mode_text, sizeof(a->mode_text), "%d x %d px requested (%s, %s, %s)", capture_w, capture_h, source, preset, codec);
+                snprintf(a->mode_text, sizeof(a->mode_text),
+                         tb_tr("%d x %d px requested (%s, %s, %s)",
+                               "请求 %d x %d px（%s，%s，%s）"),
+                         capture_w, capture_h, source, preset, codec);
             } else if (capture_w > 0 && capture_h > 0 && preset[0] != '\0' && codec[0] != '\0') {
-                snprintf(a->mode_text, sizeof(a->mode_text), "%d x %d px requested (%s, %s)", capture_w, capture_h, preset, codec);
+                snprintf(a->mode_text, sizeof(a->mode_text),
+                         tb_tr("%d x %d px requested (%s, %s)",
+                               "请求 %d x %d px（%s，%s）"),
+                         capture_w, capture_h, preset, codec);
             } else if (capture_w > 0 && capture_h > 0 && preset[0] != '\0') {
-                snprintf(a->mode_text, sizeof(a->mode_text), "%d x %d px requested (%s)", capture_w, capture_h, preset);
+                snprintf(a->mode_text, sizeof(a->mode_text),
+                         tb_tr("%d x %d px requested (%s)",
+                               "请求 %d x %d px（%s）"),
+                         capture_w, capture_h, preset);
             } else if (capture_w > 0 && capture_h > 0 && codec[0] != '\0') {
-                snprintf(a->mode_text, sizeof(a->mode_text), "%d x %d px requested (%s)", capture_w, capture_h, codec);
+                snprintf(a->mode_text, sizeof(a->mode_text),
+                         tb_tr("%d x %d px requested (%s)",
+                               "请求 %d x %d px（%s）"),
+                         capture_w, capture_h, codec);
             } else if (capture_w > 0 && capture_h > 0) {
-                snprintf(a->mode_text, sizeof(a->mode_text), "%d x %d px requested", capture_w, capture_h);
+                snprintf(a->mode_text, sizeof(a->mode_text),
+                         tb_tr("%d x %d px requested",
+                               "请求 %d x %d px"),
+                         capture_w, capture_h);
             }
         }
         fprintf(stderr, "[main] hello from sender\n");
-        snprintf(a->status_text, sizeof(a->status_text), "%s", "sender connected, profile sent");
+        snprintf(a->status_text, sizeof(a->status_text), "%s",
+                 tb_tr("sender connected, profile sent", "发送端已连接，已发送配置"));
         break;
     case TB_PKT_CREATE_SESSION_ACK:
         fprintf(stderr, "[main] sender session ack: %.*s\n", (int)len, (const char *)payload);
-        snprintf(a->status_text, sizeof(a->status_text), "%s", "session accepted, waiting for frames");
+        snprintf(a->status_text, sizeof(a->status_text), "%s",
+                 tb_tr("session accepted, waiting for frames", "会话已接受，等待画面帧"));
         break;
     case TB_PKT_PARAM_SETS:
         /* tb_dec_set_param_sets is now a no-op if the sets are unchanged,
@@ -297,7 +318,8 @@ static void on_packet(uint8_t type, const uint8_t *payload, size_t len, void *ud
         break;
     case TB_PKT_TEARDOWN:
         fprintf(stderr, "[main] teardown requested by sender\n");
-        snprintf(a->status_text, sizeof(a->status_text), "%s", "session closed by sender");
+        snprintf(a->status_text, sizeof(a->status_text), "%s",
+                 tb_tr("session closed by sender", "发送端已关闭会话"));
         a->close_requested = 1;
         break;
     default:
@@ -417,8 +439,10 @@ static void close_client(struct app *a) {
     a->have_video_frame = 0;
     tb_disp_set_connection_state(a->disp, 0);
     tb_disp_set_cursor(a->disp, 0, 0, 1, 1, 0, 0);
-    snprintf(a->status_text, sizeof(a->status_text), "%s", "waiting for sender");
-    snprintf(a->sender_text, sizeof(a->sender_text), "%s", "waiting");
+    snprintf(a->status_text, sizeof(a->status_text), "%s",
+             tb_tr("waiting for sender", "等待发送端"));
+    snprintf(a->sender_text, sizeof(a->sender_text), "%s",
+             tb_tr("waiting", "等待中"));
     tb_parser_free(&a->parser);
     tb_parser_init(&a->parser, on_packet, a);
     tb_dec_reset(a->dec);   /* fresh decoder for next session */
@@ -456,10 +480,15 @@ int main(int argc, char **argv) {
         }
         snprintf(a.bonjour_name, sizeof(a.bonjour_name), "TargetBridge %s", host);
     }
-    snprintf(a.ip_text, sizeof(a.ip_text), "%s", ip[0] ? ip : "not detected");
-    snprintf(a.status_text, sizeof(a.status_text), "%s", "waiting for sender");
-    snprintf(a.sender_text, sizeof(a.sender_text), "%s", "waiting");
-    snprintf(a.mode_text, sizeof(a.mode_text), "%s", "2560 x 1440 HiDPI on 5K display");
+    snprintf(a.ip_text, sizeof(a.ip_text), "%s",
+             ip[0] ? ip : tb_tr("not detected", "未检测到"));
+    snprintf(a.status_text, sizeof(a.status_text), "%s",
+             tb_tr("waiting for sender", "等待发送端"));
+    snprintf(a.sender_text, sizeof(a.sender_text), "%s",
+             tb_tr("waiting", "等待中"));
+    snprintf(a.mode_text, sizeof(a.mode_text), "%s",
+             tb_tr("2560 x 1440 HiDPI on 5K display",
+                   "2560 x 1440 HiDPI（5K 显示器）"));
 
     a.disp = tb_disp_create(fullscreen);
     if (!a.disp) { fprintf(stderr, "tb_disp_create failed\n"); return 1; }
@@ -469,7 +498,8 @@ int main(int argc, char **argv) {
         snprintf(a.panel_text, sizeof(a.panel_text), "%u x %u px (%s)",
                  boot_info.active_w, boot_info.active_h, boot_info.name);
     } else {
-        snprintf(a.panel_text, sizeof(a.panel_text), "%s", "5K display");
+        snprintf(a.panel_text, sizeof(a.panel_text), "%s",
+                 tb_tr("5K display", "5K 显示器"));
     }
     bonjour_update(&a, TB_PORT);
 
@@ -505,8 +535,10 @@ int main(int argc, char **argv) {
             if (c >= 0) {
                 a.client_fd = c;
                 a.have_video_frame = 0;
-                snprintf(a.status_text, sizeof(a.status_text), "%s", "sender connected, negotiating");
-                snprintf(a.sender_text, sizeof(a.sender_text), "%s", "identifying");
+                snprintf(a.status_text, sizeof(a.status_text), "%s",
+                         tb_tr("sender connected, negotiating", "发送端已连接，协商中"));
+                snprintf(a.sender_text, sizeof(a.sender_text), "%s",
+                         tb_tr("identifying", "识别中"));
                 fprintf(stderr, "[main] client connected\n");
                 send_receiver_info(&a);
             }

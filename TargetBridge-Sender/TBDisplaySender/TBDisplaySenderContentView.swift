@@ -2,21 +2,19 @@ import SwiftUI
 
 struct TBDisplaySenderContentView: View {
     @ObservedObject var service: TBDisplaySenderService
+    @State private var showsSettings = false
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 headerCard
                 connectionCard
-                languageCard
 
                 ForEach(service.sessions) { session in
                     TBDisplaySenderSessionCard(service: service, session: session)
                 }
 
                 modeCard
-
-                settingsCard
 
                 HStack {
                     Spacer()
@@ -31,6 +29,9 @@ struct TBDisplaySenderContentView: View {
         .background(Color.black.opacity(0.02))
         .task {
             service.refreshBridgeInterfaces()
+        }
+        .sheet(isPresented: $showsSettings) {
+            TBDisplaySenderSettingsView(service: service, isPresented: $showsSettings)
         }
     }
 
@@ -66,10 +67,29 @@ struct TBDisplaySenderContentView: View {
                 Spacer(minLength: 16)
 
                 VStack(alignment: .trailing, spacing: 8) {
-                    statusChip(
-                        service.summaryStatusText(),
-                        tint: service.anyStreaming ? .green : .secondary
-                    )
+                    HStack(spacing: 8) {
+                        statusChip(
+                            service.summaryStatusText(),
+                            tint: service.anyStreaming ? .green : .secondary
+                        )
+                        Button {
+                            showsSettings = true
+                        } label: {
+                            Image(systemName: "gearshape.fill")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                                .padding(8)
+                                .background(
+                                    Circle().fill(Color.white.opacity(0.06))
+                                )
+                                .overlay(
+                                    Circle().strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .help(TBDisplaySenderL10n.settingsButtonAccessibility(service.language))
+                        .accessibilityLabel(TBDisplaySenderL10n.settingsButtonAccessibility(service.language))
+                    }
                     Text(service.bridgeSummaryText)
                         .font(.system(.footnote, design: .monospaced))
                         .foregroundStyle(.secondary)
@@ -121,21 +141,6 @@ struct TBDisplaySenderContentView: View {
         }
     }
 
-    private var languageCard: some View {
-        SurfaceCard {
-            VStack(alignment: .leading, spacing: 12) {
-                sectionHeading(TBDisplaySenderL10n.languageGroup(service.language))
-                Picker(TBDisplaySenderL10n.languageGroup(service.language), selection: $service.language) {
-                    ForEach(TBDisplaySenderLanguage.allCases) { language in
-                        Text(language.pickerTitle).tag(language)
-                    }
-                }
-                .labelsHidden()
-                .pickerStyle(.segmented)
-            }
-        }
-    }
-
     private var modeCard: some View {
         SurfaceCard {
             VStack(alignment: .leading, spacing: 10) {
@@ -154,32 +159,11 @@ struct TBDisplaySenderContentView: View {
         }
     }
 
-    private var settingsCard: some View {
-        SurfaceCard {
-            VStack(alignment: .leading, spacing: 12) {
-                sectionHeading(settingsTitle)
-
-                Toggle(TBDisplaySenderL10n.showMenuBarIcon(service.language), isOn: $service.showsMenuBarIcon)
-
-                Toggle(TBDisplaySenderL10n.largeCursor(service.language), isOn: $service.largeCursor)
-                    .disabled(service.anyConnected)
-            }
-        }
-    }
-
     private func sectionHeading(_ title: String) -> some View {
         Text(title.uppercased())
             .font(.system(.caption, design: .rounded, weight: .bold))
             .tracking(1.1)
             .foregroundStyle(.secondary)
-    }
-
-    private var settingsTitle: String {
-        switch service.language {
-        case .italian: return "Preferenze"
-        case .english: return "Settings"
-        case .german: return "Einstellungen"
-        }
     }
 
     private func statusChip(_ text: String, tint: Color) -> some View {
@@ -196,6 +180,89 @@ struct TBDisplaySenderContentView: View {
                 Capsule(style: .continuous)
                     .stroke(tint.opacity(0.28), lineWidth: 1)
             )
+    }
+}
+
+// MARK: - Settings sheet
+
+struct TBDisplaySenderSettingsView: View {
+    @ObservedObject var service: TBDisplaySenderService
+    @Binding var isPresented: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text(TBDisplaySenderL10n.settingsTitle(service.language))
+                    .font(.system(size: 18, weight: .semibold, design: .rounded))
+                Spacer()
+                Button(TBDisplaySenderL10n.settingsDoneButton(service.language)) {
+                    isPresented = false
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 14)
+
+            Divider()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 22) {
+                    languageSection
+                    appearanceSection
+                    aboutSection
+                }
+                .padding(20)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .frame(width: 460, height: 420)
+    }
+
+    private var languageSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionHeading(TBDisplaySenderL10n.settingsLanguageSection(service.language))
+            Picker(TBDisplaySenderL10n.settingsLanguageSection(service.language), selection: $service.language) {
+                ForEach(TBDisplaySenderLanguage.allCases) { language in
+                    Text(language.pickerTitle).tag(language)
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.segmented)
+        }
+    }
+
+    private var appearanceSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionHeading(TBDisplaySenderL10n.settingsAppearanceSection(service.language))
+            Toggle(TBDisplaySenderL10n.showMenuBarIcon(service.language), isOn: $service.showsMenuBarIcon)
+            Toggle(TBDisplaySenderL10n.largeCursor(service.language), isOn: $service.largeCursor)
+                .disabled(service.anyConnected)
+        }
+    }
+
+    private var aboutSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            sectionHeading(TBDisplaySenderL10n.settingsAboutSection(service.language))
+            HStack {
+                Text(TBDisplaySenderL10n.appName(service.language))
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                Text(TBDisplaySenderBuildInfo.versionDisplay)
+                    .font(.system(.subheadline, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+            Text(TBDisplaySenderL10n.appSubtitle(service.language))
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func sectionHeading(_ title: String) -> some View {
+        Text(title.uppercased())
+            .font(.system(.caption, design: .rounded, weight: .bold))
+            .tracking(1.1)
+            .foregroundStyle(.secondary)
     }
 }
 
@@ -414,6 +481,7 @@ private struct TBDisplaySenderSessionCard: View {
         case .italian: return "Instradamento"
         case .english: return "Routing"
         case .german: return "Verbindung"
+        case .chinese: return "路由"
         }
     }
 
@@ -422,6 +490,7 @@ private struct TBDisplaySenderSessionCard: View {
         case .italian: return "Uscita"
         case .english: return "Output"
         case .german: return "Ausgabe"
+        case .chinese: return "输出"
         }
     }
 
@@ -430,6 +499,7 @@ private struct TBDisplaySenderSessionCard: View {
         case .italian: return "Sessione Monitor"
         case .english: return "Session Monitor"
         case .german: return "Monitor-Sitzung"
+        case .chinese: return "会话监视"
         }
     }
 
@@ -438,6 +508,7 @@ private struct TBDisplaySenderSessionCard: View {
         case .italian: return "Attivo"
         case .english: return "Live"
         case .german: return "Aktiv"
+        case .chinese: return "进行中"
         }
     }
 
@@ -446,6 +517,7 @@ private struct TBDisplaySenderSessionCard: View {
         case .italian: return "Connesso"
         case .english: return "Connected"
         case .german: return "Verbunden"
+        case .chinese: return "已连接"
         }
     }
 
@@ -454,6 +526,7 @@ private struct TBDisplaySenderSessionCard: View {
         case .italian: return "In attesa"
         case .english: return "Idle"
         case .german: return "Bereit"
+        case .chinese: return "空闲"
         }
     }
 

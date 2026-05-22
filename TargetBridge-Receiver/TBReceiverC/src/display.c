@@ -6,6 +6,7 @@
  */
 
 #include "display.h"
+#include "i18n.h"
 
 #include <CoreFoundation/CoreFoundation.h>
 #include <CoreGraphics/CoreGraphics.h>
@@ -178,29 +179,56 @@ static void tb_disp_rebuild_status_texture(struct tb_display *d,
     tb_disp_fill_rect(ctx, 48, 52, (CGFloat)drawable_w - 96, (CGFloat)drawable_h - 104, 0.12, 0.13, 0.16, 1.0);
     tb_disp_fill_rect(ctx, 48, (CGFloat)drawable_h - 152, (CGFloat)drawable_w - 96, 2, 0.23, 0.25, 0.30, 1.0);
 
-    tb_disp_draw_text(ctx, "TARGETBRIDGE RECEIVER", "Helvetica-Bold", 30, 72, (CGFloat)drawable_h - 76, 0.95, 0.97, 1.0);
-    tb_disp_draw_text(ctx, "5K / HiDPI receiver ready for sender", "Helvetica", 18, 72, (CGFloat)drawable_h - 118, 0.72, 0.76, 0.84);
-    tb_disp_draw_text(ctx, TB_RECEIVER_VERSION, "Menlo-Bold", 18, (CGFloat)drawable_w - 220, (CGFloat)drawable_h - 78, 0.64, 0.69, 0.78);
-    tb_disp_draw_text(ctx, TB_RECEIVER_BUILD, "Menlo", 14, (CGFloat)drawable_w - 220, (CGFloat)drawable_h - 120, 0.53, 0.57, 0.66);
+    /* Pick fonts based on locale. CoreText cannot render CJK glyphs with
+     * Helvetica / Menlo, so when Chinese is active we fall back to
+     * PingFang SC (Semibold) and PingFang SC (Regular) which ship with
+     * macOS. ASCII fields (IP address, version) keep Menlo for the
+     * monospaced look since they only contain digits / latin letters. */
+    const int zh = tb_locale_is_chinese();
+    const char *title_font     = zh ? "PingFangSC-Semibold" : "Helvetica-Bold";
+    const char *body_font      = zh ? "PingFangSC-Regular"  : "Helvetica";
+    const char *section_font   = zh ? "PingFangSC-Semibold" : "Helvetica-Bold";
+    const char *value_font     = zh ? "PingFangSC-Regular"  : "Helvetica";
+    /* IP / mode strings are mostly ASCII numerics; keep monospaced look. */
+    const char *mono_font      = "Menlo";
+    const char *mono_bold_font = "Menlo-Bold";
 
-    tb_disp_draw_text(ctx, "IP THUNDERBOLT BRIDGE", "Helvetica-Bold", 16, 72, (CGFloat)drawable_h - 190, 0.54, 0.62, 0.76);
-    tb_disp_draw_text(ctx, ip, "Menlo-Bold", 36, 72, (CGFloat)drawable_h - 235, 0.43, 0.93, 0.60);
+    tb_disp_draw_text(ctx, tb_tr("TARGETBRIDGE RECEIVER", "TARGETBRIDGE 接收端"),
+                      title_font, 30, 72, (CGFloat)drawable_h - 76, 0.95, 0.97, 1.0);
+    tb_disp_draw_text(ctx, tb_tr("5K / HiDPI receiver ready for sender", "5K / HiDPI 接收端，等待发送端连接"),
+                      body_font, 18, 72, (CGFloat)drawable_h - 118, 0.72, 0.76, 0.84);
+    tb_disp_draw_text(ctx, TB_RECEIVER_VERSION, mono_bold_font, 18, (CGFloat)drawable_w - 220, (CGFloat)drawable_h - 78, 0.64, 0.69, 0.78);
+    tb_disp_draw_text(ctx, TB_RECEIVER_BUILD, mono_font, 14, (CGFloat)drawable_w - 220, (CGFloat)drawable_h - 120, 0.53, 0.57, 0.66);
 
-    tb_disp_draw_text(ctx, "STATUS", "Helvetica-Bold", 16, 72, (CGFloat)drawable_h - 300, 0.54, 0.62, 0.76);
-    tb_disp_draw_text(ctx, status, "Helvetica", 24, 72, (CGFloat)drawable_h - 338, 0.94, 0.96, 0.99);
+    tb_disp_draw_text(ctx, tb_tr("IP THUNDERBOLT BRIDGE", "Thunderbolt Bridge IP"),
+                      section_font, 16, 72, (CGFloat)drawable_h - 190, 0.54, 0.62, 0.76);
+    tb_disp_draw_text(ctx, ip, mono_bold_font, 36, 72, (CGFloat)drawable_h - 235, 0.43, 0.93, 0.60);
 
-    tb_disp_draw_text(ctx, "SENDER", "Helvetica-Bold", 16, 72, (CGFloat)drawable_h - 400, 0.54, 0.62, 0.76);
-    tb_disp_draw_text(ctx, sender, "Helvetica", 22, 72, (CGFloat)drawable_h - 436, 0.94, 0.96, 0.99);
+    tb_disp_draw_text(ctx, tb_tr("STATUS", "状态"),
+                      section_font, 16, 72, (CGFloat)drawable_h - 300, 0.54, 0.62, 0.76);
+    tb_disp_draw_text(ctx, status, value_font, 24, 72, (CGFloat)drawable_h - 338, 0.94, 0.96, 0.99);
 
-    tb_disp_draw_text(ctx, "DISPLAY", "Helvetica-Bold", 16, 72, (CGFloat)drawable_h - 498, 0.54, 0.62, 0.76);
-    tb_disp_draw_text(ctx, panel, "Menlo", 22, 72, (CGFloat)drawable_h - 534, 0.94, 0.96, 0.99);
+    tb_disp_draw_text(ctx, tb_tr("SENDER", "发送端"),
+                      section_font, 16, 72, (CGFloat)drawable_h - 400, 0.54, 0.62, 0.76);
+    tb_disp_draw_text(ctx, sender, value_font, 22, 72, (CGFloat)drawable_h - 436, 0.94, 0.96, 0.99);
 
-    tb_disp_draw_text(ctx, "STREAM PROFILE", "Helvetica-Bold", 16, 72, (CGFloat)drawable_h - 596, 0.54, 0.62, 0.76);
-    tb_disp_draw_text(ctx, mode, "Menlo", 22, 72, (CGFloat)drawable_h - 632, 0.94, 0.96, 0.99);
+    tb_disp_draw_text(ctx, tb_tr("DISPLAY", "显示器"),
+                      section_font, 16, 72, (CGFloat)drawable_h - 498, 0.54, 0.62, 0.76);
+    tb_disp_draw_text(ctx, panel, zh ? value_font : mono_font, 22, 72, (CGFloat)drawable_h - 534, 0.94, 0.96, 0.99);
 
-    tb_disp_draw_text(ctx, "Start the sender on your MacBook and enter this IP address.", "Helvetica", 18, 72, 146, 0.76, 0.80, 0.88);
-    tb_disp_draw_text(ctx, "When the first frame arrives, the receiver switches to fullscreen automatically.", "Helvetica", 18, 72, 116, 0.76, 0.80, 0.88);
-    tb_disp_draw_text(ctx, "If the sender stops, the receiver returns here ready for a new session.", "Helvetica", 18, 72, 86, 0.76, 0.80, 0.88);
+    tb_disp_draw_text(ctx, tb_tr("STREAM PROFILE", "码流配置"),
+                      section_font, 16, 72, (CGFloat)drawable_h - 596, 0.54, 0.62, 0.76);
+    tb_disp_draw_text(ctx, mode, zh ? value_font : mono_font, 22, 72, (CGFloat)drawable_h - 632, 0.94, 0.96, 0.99);
+
+    tb_disp_draw_text(ctx, tb_tr("Start the sender on your MacBook and enter this IP address.",
+                                 "在 MacBook 上启动发送端，并填入上方的 IP 地址。"),
+                      body_font, 18, 72, 146, 0.76, 0.80, 0.88);
+    tb_disp_draw_text(ctx, tb_tr("When the first frame arrives, the receiver switches to fullscreen automatically.",
+                                 "收到第一帧画面后，接收端会自动切换到全屏。"),
+                      body_font, 18, 72, 116, 0.76, 0.80, 0.88);
+    tb_disp_draw_text(ctx, tb_tr("If the sender stops, the receiver returns here ready for a new session.",
+                                 "发送端停止后，接收端会返回此界面，等待下一次会话。"),
+                      body_font, 18, 72, 86, 0.76, 0.80, 0.88);
 
     CGContextRelease(ctx);
 
