@@ -509,6 +509,8 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     private var directDisplayStream: TBDirectDisplayStreamCapture?
     nonisolated(unsafe) private var vtEncoder: VTCompressionSession?
     nonisolated(unsafe) private var encoderRefcon: UnsafeMutableRawPointer?
+    nonisolated(unsafe) private var lastCheckedCursor: NSCursor?
+    private var lastCheckedCursorType: Int = 0
 
     private var sentFrames = 0
     private var sentSnapshot = 0
@@ -1650,31 +1652,43 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
 
     private func getCurrentCursorType() -> Int {
         guard let current = NSCursor.currentSystem else { return 0 }
+        if let last = lastCheckedCursor, last == current {
+            return lastCheckedCursorType
+        }
+
+        lastCheckedCursor = current
+
         if let currentPng = Self.normalizedPng(for: current.image),
            let matchedType = Self.standardCursorPngs[currentPng] {
+            lastCheckedCursorType = matchedType
             return matchedType
         }
 
         let size = current.image.size
         let hotSpot = current.hotSpot
+        let type: Int
         if size.width > 0 && size.height > 0 {
             if hotSpot.x > 0 && hotSpot.x < 10 && hotSpot.y == 0 {
-                return 2 // Pointing Hand
-            }
-            if size.width < size.height && abs(hotSpot.x - size.width / 2) < 2 && abs(hotSpot.y - size.height / 2) < 2 {
-                return 1 // I-Beam
-            }
-            if abs(hotSpot.x - size.width / 2) < 2 && abs(hotSpot.y - size.height / 2) < 2 {
+                type = 2 // Pointing Hand
+            } else if size.width < size.height && abs(hotSpot.x - size.width / 2) < 2 && abs(hotSpot.y - size.height / 2) < 2 {
+                type = 1 // I-Beam
+            } else if abs(hotSpot.x - size.width / 2) < 2 && abs(hotSpot.y - size.height / 2) < 2 {
                 if size.width > size.height {
-                    return 3 // Resize Horizontal
+                    type = 3 // Resize Horizontal
                 } else if size.height > size.width {
-                    return 4 // Resize Vertical
+                    type = 4 // Resize Vertical
                 } else {
-                    return 3 // Default fallback for square symmetric cursors: Resize Horizontal
+                    type = 3 // Default fallback for square symmetric cursors: Resize Horizontal
                 }
+            } else {
+                type = 0 // Arrow
             }
+        } else {
+            type = 0 // Arrow
         }
-        return 0 // Arrow
+
+        lastCheckedCursorType = type
+        return type
     }
 
     private func sendCursorUpdateIfNeeded(force: Bool = false) {
