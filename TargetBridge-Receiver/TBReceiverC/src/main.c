@@ -57,7 +57,6 @@ struct app {
     char     bonjour_name[128];
 
     SDL_AudioDeviceID audio_device;
-    int audio_started;
 
     uint8_t audio_buf[AUDIO_BUF_CAP];
     int     audio_buf_head;
@@ -231,21 +230,25 @@ static void on_frame(const uint8_t *y, int y_stride,
     a->frames++;
 }
 
+static void ring_read(struct app *a, Uint8 *dst, int len) {
+    int first = AUDIO_BUF_CAP - a->audio_buf_tail;
+    if (first >= len) {
+        memcpy(dst, a->audio_buf + a->audio_buf_tail, len);
+    } else {
+        memcpy(dst, a->audio_buf + a->audio_buf_tail, first);
+        memcpy(dst + first, a->audio_buf, len - first);
+    }
+    a->audio_buf_tail = (a->audio_buf_tail + len) % AUDIO_BUF_CAP;
+    a->audio_buf_size -= len;
+}
+
 static void audio_callback(void *userdata, Uint8 *stream, int len) {
     struct app *a = (struct app *)userdata;
     if (a->audio_buf_size >= len) {
-        for (int i = 0; i < len; i++) {
-            stream[i] = a->audio_buf[a->audio_buf_tail];
-            a->audio_buf_tail = (a->audio_buf_tail + 1) % AUDIO_BUF_CAP;
-        }
-        a->audio_buf_size -= len;
+        ring_read(a, stream, len);
     } else {
         int available = a->audio_buf_size;
-        for (int i = 0; i < available; i++) {
-            stream[i] = a->audio_buf[a->audio_buf_tail];
-            a->audio_buf_tail = (a->audio_buf_tail + 1) % AUDIO_BUF_CAP;
-        }
-        a->audio_buf_size = 0;
+        if (available > 0) ring_read(a, stream, available);
         memset(stream + available, 0, len - available);
     }
 }
@@ -333,12 +336,16 @@ static void on_packet(uint8_t type, const uint8_t *payload, size_t len, void *ud
             }
             
             // Write payload to circular buffer
-            if (a->audio_buf_size + len <= AUDIO_BUF_CAP) {
-                for (size_t i = 0; i < len; i++) {
-                    a->audio_buf[a->audio_buf_head] = payload[i];
-                    a->audio_buf_head = (a->audio_buf_head + 1) % AUDIO_BUF_CAP;
+            if (a->audio_buf_size + (int)len <= AUDIO_BUF_CAP) {
+                int first = AUDIO_BUF_CAP - a->audio_buf_head;
+                if (first >= (int)len) {
+                    memcpy(a->audio_buf + a->audio_buf_head, payload, len);
+                } else {
+                    memcpy(a->audio_buf + a->audio_buf_head, payload, first);
+                    memcpy(a->audio_buf, payload + first, len - first);
                 }
-                a->audio_buf_size += len;
+                a->audio_buf_head = (a->audio_buf_head + (int)len) % AUDIO_BUF_CAP;
+                a->audio_buf_size += (int)len;
             }
             
             SDL_UnlockAudioDevice(a->audio_device);
@@ -483,7 +490,7 @@ static void close_client(struct app *a) {
         a->audio_buf_size = 0;
         SDL_UnlockAudioDevice(a->audio_device);
     }
-    a->audio_started = 0;
+
     fprintf(stderr, "[main] client disconnected\n");
 }
 
