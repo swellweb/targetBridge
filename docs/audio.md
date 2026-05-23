@@ -50,6 +50,12 @@ To support audio in Extended Display Mode, the capture strategy was unified:
   - By setting `capturesAudio = true` on the virtual display stream, ScreenCaptureKit captures system audio and delivers it alongside the virtual display's H.264 video frames.
   - This unifies the entire sender-side pipeline, unlocking high-fidelity, low-latency audio for both Mirror and Extended Display sessions without needing separate capture loops.
 
+### 4. Per-Session Audio Toggles (Live Muting)
+When broadcasting to multiple receivers, audio can be controlled on a per-session basis:
+* **Decoupled State**: Each `TBDisplaySenderSession` manages its own `@Published var audioEnabled: Bool` state, initialized using the global preference as a default.
+* **On-the-Fly Toggle**: Toggles inside each session card bind directly to that session's state and remain interactive at all times.
+* **Instant Playout Cutoff**: The `processAudio` callback verifies `audioEnabled` before every frame conversion. Disabling the toggle stops packet transmission instantly, providing seamless real-time muting for individual targets during active streaming.
+
 ---
 
 ## 🔊 Receiver-Side Architecture (C)

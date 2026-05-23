@@ -34,7 +34,6 @@ final class TBDisplaySenderService: ObservableObject {
     @Published var audioEnabled: Bool = UserDefaults.standard.object(forKey: "fd.tbdisplaysender.audioEnabled") as? Bool ?? true {
         didSet {
             UserDefaults.standard.set(audioEnabled, forKey: "fd.tbdisplaysender.audioEnabled")
-            sessions.forEach { $0.audioEnabled = audioEnabled }
             objectWillChange.send()
         }
     }

@@ -269,6 +269,11 @@ private struct TBDisplaySenderSessionCard: View {
                         .disabled(session.isConnected || session.isStreaming)
                     }
 
+                    controlRow(TBDisplaySenderL10n.streamAudio(service.language)) {
+                        Toggle("", isOn: $session.audioEnabled)
+                            .labelsHidden()
+                    }
+
                     VStack(alignment: .leading, spacing: 4) {
                         Text(TBDisplaySenderL10n.streamHint1(service.language))
                         Text(TBDisplaySenderL10n.streamHint2(service.language))
