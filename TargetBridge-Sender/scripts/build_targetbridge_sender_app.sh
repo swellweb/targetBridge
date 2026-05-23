@@ -26,6 +26,7 @@ xcodebuild \
 mkdir -p "$DEST_DIR"
 rm -rf "$DEST_APP"
 ditto "$SOURCE_APP" "$DEST_APP"
+touch "$DEST_APP"
 
 echo "TargetBridge sender built: $DEST_APP"
 echo "Local DerivedData: $DERIVED_DATA_DIR"
