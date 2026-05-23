@@ -1,6 +1,7 @@
 /* display.c — SDL2 NV12 renderer.
  *
- * SDL2 on macOS uses Metal renderer by default (SDL_RENDERER_ACCELERATED).
+ * On macOS, prefer SDL's Metal renderer and fall back to OpenGL/default
+ * accelerated backends if needed.
  * SDL_PIXELFORMAT_NV12 + SDL_UpdateNVTexture lets us upload YUV planes
  * directly to GPU; the shader does YUV→RGB conversion on the GPU.
  */
@@ -232,10 +233,41 @@ static void tb_disp_refresh_window_mode(struct tb_display *d) {
     }
 }
 
-struct tb_display *tb_disp_create(int fullscreen) {
-    /* Force OpenGL renderer driver to avoid Metal's HDR/swapchain flickering on macOS Tahoe. */
-    SDL_SetHint(SDL_HINT_RENDER_DRIVER, "opengl");
+static SDL_Renderer *tb_disp_try_renderer(SDL_Window *win, const char *driver) {
+    if (driver && driver[0] != '\0') {
+        SDL_SetHint(SDL_HINT_RENDER_DRIVER, driver);
+    } else {
+        SDL_SetHint(SDL_HINT_RENDER_DRIVER, "");
+    }
 
+    SDL_Renderer *ren = SDL_CreateRenderer(win, -1, SDL_RENDERER_ACCELERATED);
+    if (!ren) {
+        fprintf(stderr, "[disp] CreateRenderer(%s): %s\n",
+                driver && driver[0] != '\0' ? driver : "default",
+                SDL_GetError());
+    }
+    return ren;
+}
+
+static SDL_Renderer *tb_disp_create_accelerated_renderer(SDL_Window *win) {
+    const char *forced_driver = getenv("TB_RECEIVER_RENDER_DRIVER");
+    if (forced_driver && forced_driver[0] != '\0') {
+        fprintf(stderr, "[disp] renderer override = %s\n", forced_driver);
+        return tb_disp_try_renderer(win, forced_driver);
+    }
+
+#if defined(__APPLE__)
+    const char *macos_drivers[] = { "metal", "opengl", NULL };
+    for (int i = 0; macos_drivers[i] != NULL; i++) {
+        SDL_Renderer *ren = tb_disp_try_renderer(win, macos_drivers[i]);
+        if (ren) return ren;
+    }
+#endif
+
+    return tb_disp_try_renderer(win, NULL);
+}
+
+struct tb_display *tb_disp_create(int fullscreen) {
     /* Best-quality scaling (linear filter; Metal backend uses bilinear
      * regardless but this sets the hint correctly). "best" enables
      * anisotropic where supported. Must be set BEFORE renderer creation. */
@@ -263,7 +295,7 @@ struct tb_display *tb_disp_create(int fullscreen) {
     /* No VSYNC: lets us present as fast as decode produces frames.
      * On Intel iMac with Radeon Pro 570 + 5K display, VSYNC at 60Hz combined
      * with GPU→CPU NV12 transfer was stalling the pipeline to ~4 fps. */
-    d->ren = SDL_CreateRenderer(d->win, -1, SDL_RENDERER_ACCELERATED);
+    d->ren = tb_disp_create_accelerated_renderer(d->win);
     if (!d->ren) {
         fprintf(stderr, "[disp] CreateRenderer: %s\n", SDL_GetError());
         SDL_DestroyWindow(d->win); free(d); return NULL;

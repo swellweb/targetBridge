@@ -310,14 +310,16 @@ static void on_packet(uint8_t type, const uint8_t *payload, size_t len, void *ud
 
 static int drain_socket(struct app *a) {
     uint8_t buf[1024 * 1024];
+    int saw_data = 0;
     for (;;) {
         ssize_t n = read(a->client_fd, buf, sizeof(buf));
         if (n > 0) {
+            saw_data = 1;
             if (tb_parser_feed(&a->parser, buf, (size_t)n) < 0) return -1;
         } else if (n == 0) {
             return -1;  /* peer closed */
         } else {
-            if (errno == EAGAIN || errno == EWOULDBLOCK) return 0;
+            if (errno == EAGAIN || errno == EWOULDBLOCK) return saw_data;
             perror("[main] read");
             return -1;
         }
@@ -486,6 +488,7 @@ int main(int argc, char **argv) {
 
     while (!g_term && !tb_disp_poll_quit(a.disp)) {
         uint64_t t = now_ms();
+        int socket_activity = 0;
 
         if (t - a.last_ip_check_ms >= 1000) {
             char refreshed_ip[64] = {0};
@@ -511,8 +514,13 @@ int main(int argc, char **argv) {
                 send_receiver_info(&a);
             }
         } else {
-            if (drain_socket(&a) < 0) close_client(&a);
-            else if (a.close_requested) close_client(&a);
+            int drain_result = drain_socket(&a);
+            if (drain_result < 0) {
+                close_client(&a);
+            } else {
+                socket_activity = drain_result;
+                if (a.close_requested) close_client(&a);
+            }
         }
 
         if (a.client_fd < 0 || !a.have_video_frame) {
@@ -527,9 +535,9 @@ int main(int argc, char **argv) {
             if (df > 0) fprintf(stderr, "[main] %llu fps\n", (unsigned long long)df);
         }
 
-        /* Yield only while idle. During active video, keep draining and
-         * rendering without injecting an extra millisecond of latency. */
-        if (a.client_fd < 0 || !a.have_video_frame) {
+        /* Yield when idle or when an active nonblocking socket had no data.
+         * Without this, active video can busy-spin between frame packets. */
+        if (a.client_fd < 0 || !a.have_video_frame || socket_activity == 0) {
             SDL_Delay(1);
         }
     }
