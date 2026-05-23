@@ -30,6 +30,7 @@
 #define TB_PKT_CREATE_SESSION_ACK 0x12
 #define TB_PKT_PARAM_SETS       0x20
 #define TB_PKT_FRAME            0x21
+#define TB_PKT_AUDIO_FRAME      0x23
 #define TB_PKT_HEARTBEAT        0x30
 #define TB_PKT_TEARDOWN         0x31
 #define TB_PKT_CURSOR           0x32

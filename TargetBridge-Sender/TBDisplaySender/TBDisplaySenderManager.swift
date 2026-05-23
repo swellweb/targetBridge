@@ -31,6 +31,13 @@ final class TBDisplaySenderService: ObservableObject {
             objectWillChange.send()
         }
     }
+    @Published var audioEnabled: Bool = UserDefaults.standard.object(forKey: "fd.tbdisplaysender.audioEnabled") as? Bool ?? true {
+        didSet {
+            UserDefaults.standard.set(audioEnabled, forKey: "fd.tbdisplaysender.audioEnabled")
+            sessions.forEach { $0.audioEnabled = audioEnabled }
+            objectWillChange.send()
+        }
+    }
 
     private var sessionCancellables: [UUID: AnyCancellable] = [:]
     private let receiverDiscovery = TBReceiverDiscovery()
@@ -70,7 +77,7 @@ final class TBDisplaySenderService: ObservableObject {
     }
 
     func addSession() {
-        let session = TBDisplaySenderSession(language: language, largeCursor: largeCursor)
+        let session = TBDisplaySenderSession(language: language, largeCursor: largeCursor, audioEnabled: audioEnabled)
         if let previous = sessions.last {
             session.capturePreset = previous.capturePreset
             session.captureSource = previous.captureSource

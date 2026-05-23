@@ -480,6 +480,14 @@ enum TBDisplaySenderL10n {
         }
     }
 
+    static func streamAudio(_ language: TBDisplaySenderLanguage) -> String {
+        switch language {
+        case .italian: return "Trasmetti audio del Mac"
+        case .english: return "Stream Mac audio"
+        case .german: return "Mac-Audio übertragen"
+        }
+    }
+
     static func showMainWindow(_ language: TBDisplaySenderLanguage) -> String {
         switch language {
         case .italian: return "Mostra finestra principale"

@@ -30,6 +30,8 @@
 #include <time.h>
 #include <unistd.h>
 
+#define AUDIO_BUF_CAP (192000) // 1 second buffer of 48000Hz stereo 16-bit PCM
+
 struct app {
     struct tb_display *disp;
     struct tb_decoder *dec;
@@ -53,6 +55,14 @@ struct app {
 
     DNSServiceRef bonjour_ref;
     char     bonjour_name[128];
+
+    SDL_AudioDeviceID audio_device;
+    int audio_started;
+
+    uint8_t audio_buf[AUDIO_BUF_CAP];
+    int     audio_buf_head;
+    int     audio_buf_tail;
+    int     audio_buf_size;
 };
 
 static volatile sig_atomic_t g_term = 0;
@@ -221,6 +231,25 @@ static void on_frame(const uint8_t *y, int y_stride,
     a->frames++;
 }
 
+static void audio_callback(void *userdata, Uint8 *stream, int len) {
+    struct app *a = (struct app *)userdata;
+    if (a->audio_buf_size >= len) {
+        for (int i = 0; i < len; i++) {
+            stream[i] = a->audio_buf[a->audio_buf_tail];
+            a->audio_buf_tail = (a->audio_buf_tail + 1) % AUDIO_BUF_CAP;
+        }
+        a->audio_buf_size -= len;
+    } else {
+        int available = a->audio_buf_size;
+        for (int i = 0; i < available; i++) {
+            stream[i] = a->audio_buf[a->audio_buf_tail];
+            a->audio_buf_tail = (a->audio_buf_tail + 1) % AUDIO_BUF_CAP;
+        }
+        a->audio_buf_size = 0;
+        memset(stream + available, 0, len - available);
+    }
+}
+
 /* ---- Callbacks: parser → decoder ------------------------------------- */
 
 static void on_packet(uint8_t type, const uint8_t *payload, size_t len, void *ud) {
@@ -288,6 +317,31 @@ static void on_packet(uint8_t type, const uint8_t *payload, size_t len, void *ud
             (void)extract_json_bool_field(payload, len, "\"visible\"", &visible);
             (void)extract_json_int_field(payload, len, "\"type\"", &type);
             tb_disp_set_cursor(a->disp, x, y, w, h, visible, type);
+        }
+        break;
+    case TB_PKT_AUDIO_FRAME:
+        if (a->audio_device != 0) {
+            SDL_LockAudioDevice(a->audio_device);
+            
+            // Limit audio backlog to 80ms (80 * 192 = 15360 bytes).
+            // If the buffer would exceed this, smoothly discard the oldest excess bytes.
+            const int cap_bytes = 15360;
+            if (a->audio_buf_size + len > cap_bytes) {
+                int excess = (a->audio_buf_size + len) - cap_bytes;
+                a->audio_buf_tail = (a->audio_buf_tail + excess) % AUDIO_BUF_CAP;
+                a->audio_buf_size -= excess;
+            }
+            
+            // Write payload to circular buffer
+            if (a->audio_buf_size + len <= AUDIO_BUF_CAP) {
+                for (size_t i = 0; i < len; i++) {
+                    a->audio_buf[a->audio_buf_head] = payload[i];
+                    a->audio_buf_head = (a->audio_buf_head + 1) % AUDIO_BUF_CAP;
+                }
+                a->audio_buf_size += len;
+            }
+            
+            SDL_UnlockAudioDevice(a->audio_device);
         }
         break;
     case TB_PKT_HEARTBEAT:
@@ -422,6 +476,14 @@ static void close_client(struct app *a) {
     tb_parser_free(&a->parser);
     tb_parser_init(&a->parser, on_packet, a);
     tb_dec_reset(a->dec);   /* fresh decoder for next session */
+    if (a->audio_device != 0) {
+        SDL_LockAudioDevice(a->audio_device);
+        a->audio_buf_head = 0;
+        a->audio_buf_tail = 0;
+        a->audio_buf_size = 0;
+        SDL_UnlockAudioDevice(a->audio_device);
+    }
+    a->audio_started = 0;
     fprintf(stderr, "[main] client disconnected\n");
 }
 
@@ -463,6 +525,24 @@ int main(int argc, char **argv) {
 
     a.disp = tb_disp_create(fullscreen);
     if (!a.disp) { fprintf(stderr, "tb_disp_create failed\n"); return 1; }
+
+    /* Open SDL Audio Device */
+    SDL_AudioSpec spec;
+    SDL_zero(spec);
+    spec.freq = 48000;
+    spec.format = AUDIO_S16LSB; // 16-bit signed, little-endian PCM
+    spec.channels = 2;          // Stereo
+    spec.samples = 1024;        // Buffer size (approx 21.3ms)
+    spec.callback = audio_callback;
+    spec.userdata = &a;
+    SDL_AudioSpec obtained;
+    a.audio_device = SDL_OpenAudioDevice(NULL, 0, &spec, &obtained, 0);
+    if (a.audio_device != 0) {
+        SDL_PauseAudioDevice(a.audio_device, 0); // Start playing (unpaused)
+        fprintf(stderr, "[main] SDL audio device opened: 48000Hz stereo 16-bit PCM (obtained %d samples)\n", obtained.samples);
+    } else {
+        fprintf(stderr, "[main] warning: SDL_OpenAudioDevice failed: %s\n", SDL_GetError());
+    }
 
     struct tb_display_info boot_info;
     if (tb_disp_get_info(a.disp, &boot_info) == 0) {
@@ -539,6 +619,9 @@ int main(int argc, char **argv) {
     bonjour_deinit(&a);
     tb_parser_free(&a.parser);
     tb_dec_destroy(a.dec);
+    if (a.audio_device != 0) {
+        SDL_CloseAudioDevice(a.audio_device);
+    }
     tb_disp_destroy(a.disp);
     fprintf(stderr, "[main] bye\n");
     return 0;

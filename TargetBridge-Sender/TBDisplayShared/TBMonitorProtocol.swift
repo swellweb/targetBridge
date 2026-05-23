@@ -6,6 +6,7 @@ enum TBMonitorPacketType: UInt8 {
     case createSessionAck = 0x12
     case paramSets = 0x20
     case frame = 0x21
+    case audioFrame = 0x23
     case heartbeat = 0x30
     case teardown = 0x31
     case cursor = 0x32

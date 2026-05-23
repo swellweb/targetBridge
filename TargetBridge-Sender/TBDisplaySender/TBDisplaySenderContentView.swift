@@ -163,6 +163,9 @@ struct TBDisplaySenderContentView: View {
 
                 Toggle(TBDisplaySenderL10n.largeCursor(service.language), isOn: $service.largeCursor)
                     .disabled(service.anyConnected)
+
+                Toggle(TBDisplaySenderL10n.streamAudio(service.language), isOn: $service.audioEnabled)
+                    .disabled(service.anyConnected)
             }
         }
     }

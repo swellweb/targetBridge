@@ -27,7 +27,7 @@ targets:
         MARKETING_VERSION: "2.0"
         CURRENT_PROJECT_VERSION: "1"
         SWIFT_VERSION: "6.0"
-        ENABLE_HARDENED_RUNTIME: YES
+        ENABLE_HARDENED_RUNTIME: NO
         SWIFT_STRICT_CONCURRENCY: minimal
         SWIFT_OBJC_BRIDGING_HEADER: TargetBridgeSupport/TargetBridge-Bridging-Header.h
         GENERATE_INFOPLIST_FILE: YES

@@ -241,7 +241,7 @@ struct tb_display *tb_disp_create(int fullscreen) {
      * anisotropic where supported. Must be set BEFORE renderer creation. */
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "best");
 
-    if (SDL_Init(SDL_INIT_VIDEO) < 0) {
+    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0) {
         fprintf(stderr, "[disp] SDL_Init: %s\n", SDL_GetError());
         return NULL;
     }

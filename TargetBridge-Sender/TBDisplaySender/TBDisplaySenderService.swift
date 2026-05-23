@@ -4,6 +4,7 @@ import CoreMedia
 import CoreVideo
 import Darwin
 import Foundation
+import AVFoundation
 import IOSurface
 import Network
 @preconcurrency import ScreenCaptureKit
@@ -306,6 +307,7 @@ private final class TBDirectDisplayStreamCapture {
 @MainActor
 final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @unchecked Sendable {
     private static let receiverIPDefaultsKey = "fd.tbdisplaysender.receiverIP"
+    private static let audioEnabledDefaultsKey = "fd.tbdisplaysender.audioEnabled"
     private struct SavedExtendedDisplayArrangement {
         let x: Int32
         let y: Int32
@@ -394,12 +396,13 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
 
     let id = UUID()
 
-    init(language: TBDisplaySenderLanguage, largeCursor: Bool) {
+    init(language: TBDisplaySenderLanguage, largeCursor: Bool, audioEnabled: Bool) {
         self.statusText = TBDisplaySenderStatusState.ready.text(language)
         self.receiverPanelText = TBDisplaySenderL10n.waitingReceiverProfile(language)
         self.virtualDisplayText = TBDisplaySenderL10n.virtualDisplayNotCreated(language)
         self.language = language
         self.largeCursor = largeCursor
+        self.audioEnabled = audioEnabled
         self.streamResolutionText = TBDisplaySenderL10n.streamSummary(
             preset: .standard1440p,
             source: .desktopMirror,
@@ -421,6 +424,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
             UserDefaults.standard.set(receiverIP, forKey: Self.receiverIPDefaultsKey)
         }
     }
+    @Published var audioEnabled: Bool
     @Published var senderFPS = 0
     @Published var receiverPanelText: String
     @Published var virtualDisplayText: String
@@ -453,6 +457,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     private var recvBuffer = Data()
 
     private var session = ReceiverBackedVirtualDisplaySession()
+    private let audioConverter = SBAudioConverter()
     private var activeProfile: TBMonitorDisplayProfile?
 
     private var captureDelegate: CaptureDelegate?
@@ -480,6 +485,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
 
     private final class CaptureDelegate: NSObject, SCStreamOutput, SCStreamDelegate {
         var onFrame: ((CMSampleBuffer) -> Void)?
+        var onAudio: ((CMSampleBuffer) -> Void)?
         var onError: ((Error) -> Void)?
 
         private static func shouldProcessFrame(_ sampleBuffer: CMSampleBuffer) -> Bool {
@@ -504,6 +510,10 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         nonisolated func stream(_ stream: SCStream,
                                 didOutputSampleBuffer sampleBuffer: CMSampleBuffer,
                                 of type: SCStreamOutputType) {
+            if type == .audio {
+                onAudio?(sampleBuffer)
+                return
+            }
             guard type == .screen else { return }
             guard Self.shouldProcessFrame(sampleBuffer) else { return }
             onFrame?(sampleBuffer)
@@ -1000,15 +1010,26 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         do {
             let preset = capturePreset
 
-            if captureSource == .extendedDesktop, session.displayID != kCGNullDirectDisplay {
-                if startDirectDisplayStream(displayID: session.displayID, preset: preset) {
+            let display: SCDisplay
+            if captureSource == .desktopMirror {
+                // In mirror mode, the virtual display mirrors the main display.
+                // We capture the main display directly via ScreenCaptureKit to stream both video and system audio.
+                let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
+                guard let mainDisplay = content.displays.first(where: { $0.displayID == CGMainDisplayID() }) else {
+                    return false
+                }
+                display = mainDisplay
+            } else {
+                if session.displayID != kCGNullDirectDisplay {
+                    if startDirectDisplayStream(displayID: session.displayID, preset: preset) {
+                        return true
+                    }
+                }
+                let capturedDisplay = try await waitForCaptureDisplay()
+                if startDirectDisplayStream(displayID: capturedDisplay.displayID, preset: preset) {
                     return true
                 }
-            }
-
-            let display = try await waitForCaptureDisplay()
-            if startDirectDisplayStream(displayID: display.displayID, preset: preset) {
-                return true
+                display = capturedDisplay
             }
 
             let configuration = SCStreamConfiguration()
@@ -1020,6 +1041,10 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
             configuration.showsCursor = !largeCursor
             configuration.scalesToFit = true
             configuration.captureResolution = preset.captureResolution
+            configuration.capturesAudio = true
+            configuration.excludesCurrentProcessAudio = true
+            configuration.sampleRate = 48000
+            configuration.channelCount = 2
 
             setupEncoder(
                 width: preset.width,
@@ -1033,6 +1058,9 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
             let delegate = CaptureDelegate()
             delegate.onFrame = { [weak self] sampleBuffer in
                 self?.encode(sampleBuffer)
+            }
+            delegate.onAudio = { [weak self] sampleBuffer in
+                self?.processAudio(sampleBuffer)
             }
             delegate.onError = { [weak self] error in
                 Task { @MainActor [weak self] in
@@ -1050,6 +1078,11 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
                 delegate,
                 type: .screen,
                 sampleHandlerQueue: DispatchQueue(label: "fd.tbmonitor.sender.capture", qos: .userInteractive)
+            )
+            try stream.addStreamOutput(
+                delegate,
+                type: .audio,
+                sampleHandlerQueue: DispatchQueue(label: "fd.tbmonitor.sender.audio", qos: .userInteractive)
             )
             try await stream.startCapture()
             scStream = stream
@@ -1683,8 +1716,133 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         }
     }
 
+    private func processAudio(_ sampleBuffer: CMSampleBuffer) {
+        guard audioEnabled else { return }
+        guard let data = audioConverter.convert(sampleBuffer: sampleBuffer) else { return }
+        let packet = TBMonitorProtocol.makePacket(type: .audioFrame, payload: data)
+        send(packet)
+    }
+
     private func send(_ packet: Data) {
         connection?.send(content: packet, completion: .contentProcessed({ _ in }))
     }
 
+}
+
+private final class SBAudioConverter: Sendable {
+    private let converterState: LockedConverterState = LockedConverterState()
+
+    private final class LockedConverterState: @unchecked Sendable {
+        private let lock = NSLock()
+        var converter: AVAudioConverter?
+        var inputFormat: AVAudioFormat?
+        let outputFormat: AVAudioFormat
+
+        init() {
+            var asbd = AudioStreamBasicDescription(
+                mSampleRate: 48000.0,
+                mFormatID: kAudioFormatLinearPCM,
+                mFormatFlags: kAudioFormatFlagIsSignedInteger | kAudioFormatFlagIsPacked,
+                mBytesPerPacket: 4,
+                mFramesPerPacket: 1,
+                mBytesPerFrame: 4,
+                mChannelsPerFrame: 2,
+                mBitsPerChannel: 16,
+                mReserved: 0
+            )
+            self.outputFormat = AVAudioFormat(streamDescription: &asbd)!
+        }
+
+        func convert(sampleBuffer: CMSampleBuffer) -> Data? {
+            lock.lock()
+            defer { lock.unlock() }
+
+            guard let formatDesc = CMSampleBufferGetFormatDescription(sampleBuffer) else { return nil }
+            guard let asbdPointer = CMAudioFormatDescriptionGetStreamBasicDescription(formatDesc) else { return nil }
+            let inputASBD = asbdPointer.pointee
+
+            // Recreate converter if input format changes
+            if inputFormat == nil ||
+               inputFormat!.streamDescription.pointee.mFormatFlags != inputASBD.mFormatFlags ||
+               inputFormat!.streamDescription.pointee.mSampleRate != inputASBD.mSampleRate ||
+               inputFormat!.streamDescription.pointee.mChannelsPerFrame != inputASBD.mChannelsPerFrame {
+                var mutableASBD = inputASBD
+                guard let inFormat = AVAudioFormat(streamDescription: &mutableASBD) else { return nil }
+                self.inputFormat = inFormat
+                self.converter = AVAudioConverter(from: inFormat, to: outputFormat)
+            }
+
+            guard let converter = self.converter, let inFormat = self.inputFormat else { return nil }
+
+            let frameCount = sampleBuffer.numSamples
+            guard frameCount > 0 else { return nil }
+            let audioFrameCount = AVAudioFrameCount(frameCount)
+
+            // Create input buffer
+            guard let inputBuffer = AVAudioPCMBuffer(pcmFormat: inFormat, frameCapacity: audioFrameCount) else { return nil }
+            inputBuffer.frameLength = audioFrameCount
+
+            // Extract audio data from sampleBuffer into inputBuffer
+            let channelCount = Int(inFormat.channelCount)
+            let bufferListSize = MemoryLayout<AudioBufferList>.size + (channelCount - 1) * MemoryLayout<AudioBuffer>.size
+            let bufferListRaw = UnsafeMutableRawPointer.allocate(byteCount: bufferListSize, alignment: MemoryLayout<AudioBufferList>.alignment)
+            defer { bufferListRaw.deallocate() }
+
+            let ablPointer = bufferListRaw.assumingMemoryBound(to: AudioBufferList.self)
+            var blockBuffer: CMBlockBuffer?
+
+            let status = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(
+                sampleBuffer,
+                bufferListSizeNeededOut: nil,
+                bufferListOut: ablPointer,
+                bufferListSize: bufferListSize,
+                blockBufferAllocator: nil,
+                blockBufferMemoryAllocator: nil,
+                flags: kCMSampleBufferFlag_AudioBufferList_Assure16ByteAlignment,
+                blockBufferOut: &blockBuffer
+            )
+
+            guard status == noErr else { return nil }
+
+            let firstBufferPtr = withUnsafeMutablePointer(to: &ablPointer.pointee.mBuffers) { $0 }
+            let buffers = UnsafeBufferPointer(start: firstBufferPtr, count: channelCount)
+
+            if inFormat.isInterleaved {
+                if let dest = inputBuffer.floatChannelData?[0] ?? UnsafeMutablePointer<Float>(OpaquePointer(inputBuffer.int16ChannelData?[0])),
+                   let src = buffers[0].mData {
+                    memcpy(dest, src, Int(buffers[0].mDataByteSize))
+                }
+            } else {
+                for i in 0..<channelCount {
+                    if let dest = inputBuffer.floatChannelData?[i], let src = buffers[i].mData {
+                        memcpy(dest, src, Int(buffers[i].mDataByteSize))
+                    } else if let dest = inputBuffer.int16ChannelData?[i], let src = buffers[i].mData {
+                        memcpy(dest, src, Int(buffers[i].mDataByteSize))
+                    }
+                }
+            }
+
+            // Perform conversion to outputFormat
+            guard let outputBuffer = AVAudioPCMBuffer(pcmFormat: outputFormat, frameCapacity: audioFrameCount) else { return nil }
+
+            var error: NSError?
+            let convertStatus = converter.convert(to: outputBuffer, error: &error) { inNumPackets, outStatus in
+                outStatus.pointee = .haveData
+                return inputBuffer
+            }
+
+            if convertStatus == .error || error != nil {
+                return nil
+            }
+
+            guard let channels = outputBuffer.int16ChannelData else { return nil }
+            let dataSize = Int(outputBuffer.frameLength) * 4 // 2 channels * 2 bytes = 4 bytes per frame
+            let rawPointer = UnsafeRawPointer(channels.pointee)
+            return Data(bytes: rawPointer, count: dataSize)
+        }
+    }
+
+    func convert(sampleBuffer: CMSampleBuffer) -> Data? {
+        return converterState.convert(sampleBuffer: sampleBuffer)
+    }
 }
