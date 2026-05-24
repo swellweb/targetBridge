@@ -1009,8 +1009,9 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         do {
             let preset = capturePreset
 
-            if captureSource == .extendedDesktop, session.displayID != kCGNullDirectDisplay {
-                if startDirectDisplayStream(displayID: session.displayID, preset: preset) {
+            if session.displayID != kCGNullDirectDisplay {
+                let captureDisplayID = (captureSource == .desktopMirror) ? CGMainDisplayID() : session.displayID
+                if startDirectDisplayStream(displayID: captureDisplayID, preset: preset) {
                     return true
                 }
             }
@@ -1111,8 +1112,9 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     }
 
     private func waitForCaptureDisplay() async throws -> SCDisplay {
-        try await waitForVirtualDisplay(
-            matching: session.displayID,
+        let targetDisplayID = (captureSource == .desktopMirror) ? CGMainDisplayID() : session.displayID
+        return try await waitForVirtualDisplay(
+            matching: targetDisplayID,
             baselineDisplayIDs: baselineDisplayIDs
         )
     }
