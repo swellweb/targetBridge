@@ -112,7 +112,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
         if let envVal = ProcessInfo.processInfo.environment["QD"], let parsed = Int(envVal) {
             return parsed
         }
-        return 2
+        return 6
     }
 
     var expectedFrameRate: Int {
@@ -171,7 +171,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
         if let envVal = ProcessInfo.processInfo.environment["MPVP"], let parsed = Int(envVal) {
             return parsed
         }
-        return 3
+        return 10
     }
 
     var maxFrameDelayCount: Int {
@@ -196,7 +196,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
         if let envVal = ProcessInfo.processInfo.environment["MIFEF"], let parsed = Int(envVal) {
             return parsed
         }
-        return 5
+        return 6
     }
 
     var captureResolution: SCCaptureResolutionType {
