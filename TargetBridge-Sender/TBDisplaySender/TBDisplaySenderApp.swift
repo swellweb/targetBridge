@@ -17,7 +17,7 @@ struct TBDisplaySenderApp: App {
 
         Settings {
             TBDisplaySenderSettingsView(service: service)
-                .frame(minWidth: 560, minHeight: 420)
+                .frame(minWidth: 760, minHeight: 620)
         }
     }
 }

@@ -1,0 +1,13 @@
+{
+  "id": "targetbridge.network-link",
+  "name": "Network Link",
+  "version": "3.0",
+  "summary": "Enable the experimental LAN and Wi-Fi transport mode alongside Thunderbolt Bridge.",
+  "author": "TargetBridge",
+  "minimumSenderVersion": "3.0",
+  "capabilities": [
+    "network-link"
+  ],
+  "experimental": true,
+  "defaultEnabled": true
+}

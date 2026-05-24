@@ -449,7 +449,7 @@ private struct TBDisplaySenderSessionSettingsSheet: View {
                 settingsSection(title: connectionSettingsTitle) {
                     settingRow(TBDisplaySenderL10n.transportKind(service.language), details: transportDetails) {
                         Picker(TBDisplaySenderL10n.transportKind(service.language), selection: $session.transportKind) {
-                            ForEach(TBTransportKind.allCases) { transportKind in
+                            ForEach(service.availableTransportKinds) { transportKind in
                                 Text(transportKind.title(service.language)).tag(transportKind)
                             }
                         }
@@ -515,10 +515,12 @@ private struct TBDisplaySenderSessionSettingsSheet: View {
                         .disabled(session.isConnected || session.isStreaming)
                     }
 
-                    settingRow(TBDisplaySenderL10n.streamAudio(service.language), details: audioDetails) {
-                        Toggle("", isOn: $session.audioEnabled)
-                            .labelsHidden()
-                            .disabled(session.isConnected || session.isStreaming)
+                    if service.audioRelayAvailable {
+                        settingRow(TBDisplaySenderL10n.streamAudio(service.language), details: audioDetails) {
+                            Toggle("", isOn: $session.audioEnabled)
+                                .labelsHidden()
+                                .disabled(session.isConnected || session.isStreaming)
+                        }
                     }
 
                     VStack(alignment: .leading, spacing: 4) {

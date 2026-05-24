@@ -448,6 +448,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         }
     }
     @Published var audioEnabled: Bool
+    var audioAddonAvailable = true
     var receiverSupportsHEVCDecodeHint: Bool?
     @Published var senderFPS = 0
     @Published var receiverPanelText: String

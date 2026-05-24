@@ -27,7 +27,7 @@ targets:
         INFOPLIST_KEY_CFBundleDisplayName: "TargetBridge"
         INFOPLIST_KEY_NSHumanReadableCopyright: "TargetBridge - Free & Open Source"
         INFOPLIST_KEY_NSScreenCaptureUsageDescription: "TargetBridge requires screen recording permission to capture the virtual display or mirror the desktop to the iMac."
-        MARKETING_VERSION: "2.0"
+        MARKETING_VERSION: "3.0"
         CURRENT_PROJECT_VERSION: "1"
         SWIFT_VERSION: "6.0"
         ENABLE_HARDENED_RUNTIME: NO
@@ -42,7 +42,7 @@ targets:
           STAMP="$(date +%Y%m%d%H%M%S)"
           cat > "${SRCROOT}/TBDisplaySender/TBDisplaySenderBuildInfo.swift" <<EOI
           enum TBDisplaySenderBuildInfo {
-              static let marketingVersion = "2.0"
+              static let marketingVersion = "3.0"
               static let buildNumber = "${STAMP}"
               static let versionDisplay = "\\(marketingVersion) + build \\(buildNumber)"
           }

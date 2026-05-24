@@ -41,6 +41,7 @@ final class TBDisplaySenderService: ObservableObject {
     @Published var sessions: [TBDisplaySenderSession] = []
     @Published private(set) var localInterfaces: [TBLocalLinkInterface] = []
     @Published private(set) var discoveredReceivers: [TBDiscoveredReceiver] = []
+    @Published private(set) var addons: [TBAddonRecord] = []
     @Published var language: TBDisplaySenderLanguage = .load() {
         didSet {
             language.persist()
@@ -66,7 +67,9 @@ final class TBDisplaySenderService: ObservableObject {
 
     private var sessionCancellables: [UUID: AnyCancellable] = [:]
     private let receiverDiscovery = TBReceiverDiscovery()
+    private let addonStore = TBAddonStore.shared
     private var discoveryCancellable: AnyCancellable?
+    private var addonCancellable: AnyCancellable?
 
     private init() {
         discoveryCancellable = receiverDiscovery.$receivers.sink { [weak self] receivers in
@@ -75,7 +78,14 @@ final class TBDisplaySenderService: ObservableObject {
             pushLanguageUpdateToDiscoveredReceivers()
             objectWillChange.send()
         }
+        addonCancellable = addonStore.$addons.sink { [weak self] addons in
+            guard let self else { return }
+            self.addons = addons
+            normalizeAddonState()
+            objectWillChange.send()
+        }
         refreshLocalInterfaces()
+        addonStore.refresh()
         addSession()
     }
 
@@ -104,14 +114,34 @@ final class TBDisplaySenderService: ObservableObject {
             .joined(separator: "   ")
     }
 
+    var availableTransportKinds: [TBTransportKind] {
+        TBTransportKind.allCases.filter { transportKind in
+            switch transportKind {
+            case .thunderboltBridge:
+                return true
+            case .networkLink:
+                return isAddonCapabilityEnabled(.networkLink)
+            }
+        }
+    }
+
+    var audioRelayAvailable: Bool {
+        isAddonCapabilityEnabled(.audioRelay)
+    }
+
     func addSession() {
-        let session = TBDisplaySenderSession(language: language, largeCursor: largeCursor, audioEnabled: audioEnabled)
+        let session = TBDisplaySenderSession(
+            language: language,
+            largeCursor: largeCursor,
+            audioEnabled: audioEnabled && audioRelayAvailable
+        )
         if let previous = sessions.last {
             session.capturePreset = previous.capturePreset
             session.captureSource = previous.captureSource
             session.transportKind = previous.transportKind
-            session.audioEnabled = previous.audioEnabled
+            session.audioEnabled = audioRelayAvailable && previous.audioEnabled
         }
+        session.audioAddonAvailable = audioRelayAvailable
         if let suggestedInterface = suggestedInterfaceForNewSession(transportKind: session.transportKind) {
             session.localInterfaceIP = suggestedInterface.ip
         }
@@ -179,6 +209,32 @@ final class TBDisplaySenderService: ObservableObject {
         objectWillChange.send()
     }
 
+    func refreshAddons() {
+        addonStore.refresh()
+    }
+
+    func openAddonsFolder() {
+        addonStore.openAddonsFolder()
+    }
+
+    func importAddonManifest(from url: URL) throws {
+        _ = try addonStore.importManifest(from: url)
+        normalizeAddonState()
+    }
+
+    func isAddonEnabled(_ addon: TBAddonRecord) -> Bool {
+        addonStore.isEnabled(addon)
+    }
+
+    func setAddonEnabled(_ enabled: Bool, for addon: TBAddonRecord) {
+        addonStore.setEnabled(enabled, for: addon)
+        normalizeAddonState()
+    }
+
+    func isAddonCompatible(_ addon: TBAddonRecord) -> Bool {
+        addonStore.isCompatible(addon)
+    }
+
     func summaryStatusText() -> String {
         if anyStreaming {
             return TBDisplaySenderL10n.multiSessionSummaryStreaming(language, active: connectedSessionCount, total: sessions.count)
@@ -190,9 +246,31 @@ final class TBDisplaySenderService: ObservableObject {
     }
 
     private func attachSession(_ session: TBDisplaySenderSession) {
+        session.audioAddonAvailable = audioRelayAvailable
         sessionCancellables[session.id] = session.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
         }
+    }
+
+    private func isAddonCapabilityEnabled(_ capability: TBAddonCapability) -> Bool {
+        addonStore.isCapabilityEnabled(capability)
+    }
+
+    private func normalizeAddonState() {
+        let networkLinkEnabled = isAddonCapabilityEnabled(.networkLink)
+        let audioEnabled = audioRelayAvailable
+
+        for session in sessions {
+            session.audioAddonAvailable = audioEnabled
+            if !audioEnabled {
+                session.audioEnabled = false
+            }
+            if !networkLinkEnabled, session.transportKind == .networkLink {
+                session.transportKind = .thunderboltBridge
+            }
+        }
+
+        normalizeSessionInterfaces()
     }
 
     private func suggestedInterfaceForNewSession(transportKind: TBTransportKind) -> TBLocalLinkInterface? {

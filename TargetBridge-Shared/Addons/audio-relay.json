@@ -1,0 +1,13 @@
+{
+  "id": "targetbridge.audio-relay",
+  "name": "Audio Relay",
+  "version": "3.0",
+  "summary": "Enable sender-to-receiver audio streaming for each TargetBridge session.",
+  "author": "TargetBridge",
+  "minimumSenderVersion": "3.0",
+  "capabilities": [
+    "audio-relay"
+  ],
+  "experimental": false,
+  "defaultEnabled": true
+}
