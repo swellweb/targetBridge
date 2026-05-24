@@ -262,7 +262,8 @@ private final class TBDirectDisplayStreamCapture {
         let properties: NSDictionary = [
             CGDisplayStream.showCursor: showCursor,
             CGDisplayStream.queueDepth: preset.queueDepth,
-            CGDisplayStream.minimumFrameTime: 1.0 / Double(preset.expectedFrameRate)
+            CGDisplayStream.minimumFrameTime: 1.0 / Double(preset.expectedFrameRate),
+            CGDisplayStream.colorSpace: CGColorSpace(name: CGColorSpace.displayP3) as Any
         ]
 
         let serviceRefValue = UInt(bitPattern: serviceRef)
@@ -1020,6 +1021,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
             configuration.showsCursor = !largeCursor
             configuration.scalesToFit = true
             configuration.captureResolution = preset.captureResolution
+            configuration.colorSpaceName = CGColorSpace.displayP3
 
             setupEncoder(
                 width: preset.width,
@@ -1368,6 +1370,11 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         VTSessionSetProperty(session, key: kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration, value: NSNumber(value: preset.maxKeyFrameIntervalDuration))
         VTSessionSetProperty(session, key: kVTCompressionPropertyKey_MaxFrameDelayCount, value: NSNumber(value: preset.maxFrameDelayCount))
         VTSessionSetProperty(session, key: kVTCompressionPropertyKey_AverageBitRate, value: NSNumber(value: averageBitRate))
+
+        // Tag video stream with native Display P3 color space metadata
+        VTSessionSetProperty(session, key: kVTCompressionPropertyKey_ColorPrimaries, value: kCVImageBufferColorPrimaries_P3_D65)
+        VTSessionSetProperty(session, key: kVTCompressionPropertyKey_TransferFunction, value: kCVImageBufferTransferFunction_ITU_R_709_2)
+        VTSessionSetProperty(session, key: kVTCompressionPropertyKey_YCbCrMatrix, value: kCVImageBufferYCbCrMatrix_ITU_R_709_2)
         if preset.prioritizeSpeed {
             VTSessionSetProperty(session, key: kVTCompressionPropertyKey_PrioritizeEncodingSpeedOverQuality, value: kCFBooleanTrue)
         }

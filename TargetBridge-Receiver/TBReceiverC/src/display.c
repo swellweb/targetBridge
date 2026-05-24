@@ -12,6 +12,12 @@
 #include <CoreText/CoreText.h>
 #include <SDL.h>
 
+#if defined(__APPLE__)
+#include <SDL_syswm.h>
+#include <objc/objc.h>
+#include <objc/message.h>
+#endif
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -300,6 +306,27 @@ struct tb_display *tb_disp_create(int fullscreen) {
     d->cursor_visible = 0;
     d->cursor_type = 0;
     d->last_video_frame_time = 0;
+
+#if defined(__APPLE__)
+    SDL_SysWMinfo wmInfo;
+    SDL_VERSION(&wmInfo.version);
+    if (SDL_GetWindowWMInfo(d->win, &wmInfo)) {
+        id nswin = (id)wmInfo.info.cocoa.window;
+        if (nswin) {
+            Class colorSpaceClass = objc_getClass("NSColorSpace");
+            SEL displayP3Sel = sel_registerName("displayP3ColorSpace");
+            typedef id (*msgSend_id_fn)(Class, SEL);
+            id p3ColorSpace = ((msgSend_id_fn)objc_msgSend)(colorSpaceClass, displayP3Sel);
+
+            if (p3ColorSpace) {
+                SEL setColorSpaceSel = sel_registerName("setColorSpace:");
+                typedef void (*msgSend_void_id_fn)(id, SEL, id);
+                ((msgSend_void_id_fn)objc_msgSend)(nswin, setColorSpaceSel, p3ColorSpace);
+                fprintf(stderr, "[disp] successfully set Cocoa window color space to Display P3\n");
+            }
+        }
+    }
+#endif
 
     tb_disp_refresh_window_mode(d);
     SDL_ShowWindow(d->win);
