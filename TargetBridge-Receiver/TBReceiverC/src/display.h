@@ -24,9 +24,35 @@ enum tb_display_action {
     TB_DISP_ACTION_CYCLE_LANGUAGE = 1 << 1
 };
 
+enum tb_input_event_kind {
+    TB_INPUT_EVENT_NONE = 0,
+    TB_INPUT_EVENT_MOVE,
+    TB_INPUT_EVENT_SCROLL,
+    TB_INPUT_EVENT_LEFT_DOWN,
+    TB_INPUT_EVENT_LEFT_UP,
+    TB_INPUT_EVENT_RIGHT_DOWN,
+    TB_INPUT_EVENT_RIGHT_UP,
+    TB_INPUT_EVENT_OTHER_DOWN,
+    TB_INPUT_EVENT_OTHER_UP,
+    TB_INPUT_EVENT_KEY_DOWN,
+    TB_INPUT_EVENT_KEY_UP,
+    TB_INPUT_EVENT_SWITCH_PREV_TARGET,
+    TB_INPUT_EVENT_SWITCH_NEXT_TARGET
+};
+
+struct tb_input_event {
+    enum tb_input_event_kind kind;
+    int dx;
+    int dy;
+    int scroll_x;
+    int scroll_y;
+    uint16_t key_code;
+};
+
 struct tb_display *tb_disp_create(int fullscreen);
 void               tb_disp_destroy(struct tb_display *d);
 void               tb_disp_set_connection_state(struct tb_display *d, int connected);
+void               tb_disp_set_input_capture_active(struct tb_display *d, int active);
 
 /* Resize/recreate texture when frame dimensions change. */
 int  tb_disp_ensure_texture(struct tb_display *d, int w, int h);
@@ -46,6 +72,7 @@ void tb_disp_set_cursor(struct tb_display *d,
 
 /* Poll input actions while idle/connected. */
 unsigned int tb_disp_poll_actions(struct tb_display *d);
+int          tb_disp_pop_input_event(struct tb_display *d, struct tb_input_event *out);
 
 /* Query active display/window/drawable information for UI/debug metadata. */
 int  tb_disp_get_info(struct tb_display *d, struct tb_display_info *info);

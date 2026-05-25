@@ -4,14 +4,24 @@ import Foundation
 @MainActor
 final class TBInputRelayController {
     typealias Handler = (TBMonitorInputEvent) -> Void
+    typealias SwitchHandler = (_ direction: Int) -> Void
 
     private var localMonitors: [Any] = []
     private var globalMonitors: [Any] = []
     private var handler: Handler?
+    private var switchHandler: SwitchHandler?
+    private var gestureMode: TBInputGestureMode = .native
+    private var lastEdgeSwitchTime: TimeInterval = 0
 
-    func start(handler: @escaping Handler) {
+    func start(
+        gestureMode: TBInputGestureMode,
+        handler: @escaping Handler,
+        switchHandler: @escaping SwitchHandler
+    ) {
         stop()
+        self.gestureMode = gestureMode
         self.handler = handler
+        self.switchHandler = switchHandler
 
         installKeyboardMonitors()
         installMouseMonitors()
@@ -28,6 +38,7 @@ final class TBInputRelayController {
         localMonitors.removeAll()
         globalMonitors.removeAll()
         handler = nil
+        switchHandler = nil
     }
 
     private func installKeyboardMonitors() {
@@ -65,6 +76,9 @@ final class TBInputRelayController {
         if let global { globalMonitors.append(global) }
 
         let local = NSEvent.addLocalMonitorForEvents(matching: mask) { [weak self] event in
+            if self?.shouldSwitchSlaveOnEdge(for: event) == true {
+                return nil
+            }
             self?.handle(event)
             return event
         }
@@ -124,8 +138,14 @@ final class TBInputRelayController {
                 keyCode: nil
             )
         case .keyDown:
+            if gestureMode == .relayToSlave, shouldSwitchSlaveFromHotkey(event) {
+                return nil
+            }
             return TBMonitorInputEvent(kind: "keyDown", dx: nil, dy: nil, scrollX: nil, scrollY: nil, keyCode: event.keyCode)
         case .keyUp:
+            if gestureMode == .relayToSlave, isHandledHotkeyRelease(event) {
+                return nil
+            }
             return TBMonitorInputEvent(kind: "keyUp", dx: nil, dy: nil, scrollX: nil, scrollY: nil, keyCode: event.keyCode)
         case .flagsChanged:
             let down = modifierIsDown(for: event)
@@ -133,6 +153,59 @@ final class TBInputRelayController {
         default:
             return nil
         }
+    }
+
+    private func shouldSwitchSlaveOnEdge(for event: NSEvent) -> Bool {
+        guard gestureMode == .relayToSlave,
+              event.type == .mouseMoved || event.type == .leftMouseDragged || event.type == .rightMouseDragged || event.type == .otherMouseDragged,
+              let switchHandler,
+              let screen = NSScreen.screens.first(where: { NSMouseInRect(NSEvent.mouseLocation, $0.frame, false) })
+        else {
+            return false
+        }
+
+        let location = NSEvent.mouseLocation
+        let threshold: CGFloat = 2
+        let now = ProcessInfo.processInfo.systemUptime
+        guard now - lastEdgeSwitchTime > 0.45 else { return false }
+
+        if location.x <= screen.frame.minX + threshold, event.deltaX < 0 {
+            lastEdgeSwitchTime = now
+            switchHandler(-1)
+            return true
+        }
+
+        if location.x >= screen.frame.maxX - threshold, event.deltaX > 0 {
+            lastEdgeSwitchTime = now
+            switchHandler(1)
+            return true
+        }
+
+        return false
+    }
+
+    private func shouldSwitchSlaveFromHotkey(_ event: NSEvent) -> Bool {
+        guard let switchHandler,
+              event.modifierFlags.contains(.control),
+              event.modifierFlags.contains(.option)
+        else {
+            return false
+        }
+
+        switch Int(event.keyCode) {
+        case 123:
+            switchHandler(-1)
+            return true
+        case 124:
+            switchHandler(1)
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func isHandledHotkeyRelease(_ event: NSEvent) -> Bool {
+        Int(event.keyCode) == 123 || Int(event.keyCode) == 124
     }
 
     private func modifierIsDown(for event: NSEvent) -> Bool {

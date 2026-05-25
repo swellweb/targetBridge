@@ -12,6 +12,7 @@ enum TBMonitorPacketType: UInt8 {
     case teardown = 0x31
     case cursor = 0x32
     case inputEvent = 0x33
+    case inputControlMode = 0x34
     case testData = 0x40
 }
 
@@ -36,6 +37,8 @@ struct TBMonitorDisplayProfile: Codable {
     var captureWidth: Int
     var captureHeight: Int
     var supportsHEVCDecode: Bool?
+    var inputMonitoringTrusted: Bool?
+    var accessibilityTrusted: Bool?
 }
 
 struct TBMonitorCreateSessionAck: Codable {
@@ -72,6 +75,10 @@ struct TBMonitorInputEvent: Codable {
     var scrollX: Int?
     var scrollY: Int?
     var keyCode: UInt16?
+}
+
+struct TBMonitorInputControlMode: Codable {
+    var mode: String
 }
 
 enum TBMonitorProtocol {

@@ -31,7 +31,7 @@ LDFLAGS  += $(shell $(PKG) --libs libavcodec libavutil sdl2)
 
 UNAME_S  := $(shell uname -s)
 ifeq ($(UNAME_S),Darwin)
-LDFLAGS  += -framework CoreFoundation -framework CoreGraphics -framework CoreText -framework VideoToolbox -framework CoreMedia -framework CoreVideo -framework IOSurface -framework CoreServices
+LDFLAGS  += -framework ApplicationServices -framework CoreFoundation -framework CoreGraphics -framework CoreText -framework VideoToolbox -framework CoreMedia -framework CoreVideo -framework IOSurface -framework CoreServices
 endif
 
 SRC = src/main.c src/net.c src/decoder.c src/display.c src/tb_i18n.c

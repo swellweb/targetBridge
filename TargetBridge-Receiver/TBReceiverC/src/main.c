@@ -20,6 +20,7 @@
 #include "tb_i18n.h"
 
 #include <SDL.h>
+#include <ApplicationServices/ApplicationServices.h>
 #include <dns_sd.h>
 #include <CoreFoundation/CoreFoundation.h>
 #include <CoreGraphics/CoreGraphics.h>
@@ -32,6 +33,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <stdarg.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -62,9 +64,12 @@ struct app {
     char     language_pref[8];
     char     language_text[96];
     char     sender_ui_language[8];
+    char     input_control_mode[32];
 
     DNSServiceRef bonjour_ref;
     char     bonjour_name[128];
+    CFMachPortRef input_tap;
+    CFRunLoopSourceRef input_tap_source;
 
     SDL_AudioDeviceID audio_device;
 
@@ -72,7 +77,45 @@ struct app {
     int     audio_buf_head;
     int     audio_buf_tail;
     int     audio_buf_size;
+
+    uint64_t input_events_sent;
+    uint64_t input_events_received;
+    uint64_t last_target_switch_ms;
 };
+
+static int tb_should_log_input_event(uint64_t count) {
+    return count <= 20 || (count % 100) == 0;
+}
+
+static void tb_receiver_input_log(const char *fmt, ...) {
+    char message[1024];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(message, sizeof(message), fmt, args);
+    va_end(args);
+
+    fprintf(stderr, "%s\n", message);
+
+    const char *home = getenv("HOME");
+    if (!home || !*home) return;
+
+    char dir[PATH_MAX];
+    snprintf(dir, sizeof(dir), "%s/Library/Application Support/TargetBridge Receiver/Logs", home);
+    mkdir(dir, 0755);
+
+    char path[PATH_MAX];
+    snprintf(path, sizeof(path), "%s/input-debug.log", dir);
+    FILE *f = fopen(path, "a");
+    if (!f) return;
+
+    time_t now = time(NULL);
+    struct tm tm_now;
+    localtime_r(&now, &tm_now);
+    char timestamp[64];
+    strftime(timestamp, sizeof(timestamp), "%Y-%m-%dT%H:%M:%S%z", &tm_now);
+    fprintf(f, "%s %s\n", timestamp, message);
+    fclose(f);
+}
 
 static volatile sig_atomic_t g_term = 0;
 static void on_sigint(int s) { (void)s; g_term = 1; }
@@ -103,6 +146,8 @@ static void tb_receiver_apply_language_preference(struct app *a);
 static void tb_receiver_cycle_language_preference(struct app *a);
 static void tb_receiver_refresh_language_text(struct app *a);
 static void tb_receiver_apply_input_event(const uint8_t *payload, size_t len);
+static void tb_receiver_apply_input_control_mode(struct app *a, const uint8_t *payload, size_t len);
+static void tb_receiver_refresh_input_capture(struct app *a);
 
 static int tb_receiver_is_valid_language_pref(const char *language_pref) {
     return language_pref &&
@@ -221,6 +266,14 @@ static void tb_receiver_apply_language_preference(struct app *a) {
 
     tb_refresh_idle_localized_strings(a);
     tb_receiver_refresh_language_text(a);
+}
+
+static int tb_receiver_input_monitoring_trusted(void) {
+    return CGPreflightListenEventAccess() ? 1 : 0;
+}
+
+static int tb_receiver_accessibility_trusted(void) {
+    return AXIsProcessTrusted() ? 1 : 0;
 }
 
 static void tb_receiver_cycle_language_preference(struct app *a) {
@@ -461,7 +514,7 @@ static CGPoint tb_receiver_current_mouse_location(void) {
 
 static void tb_receiver_post_mouse_move(int dx, int dy) {
     CGPoint current = tb_receiver_current_mouse_location();
-    CGPoint target = CGPointMake(current.x + dx, current.y - dy);
+    CGPoint target = CGPointMake(current.x + dx, current.y + dy);
     CGEventRef event = CGEventCreateMouseEvent(NULL, kCGEventMouseMoved, target, kCGMouseButtonLeft);
     if (!event) return;
     CGEventPost(kCGHIDEventTap, event);
@@ -495,6 +548,7 @@ static void tb_receiver_apply_input_event(const uint8_t *payload, size_t len) {
     kind[0] = '\0';
     extract_json_string_field(payload, len, "\"kind\"", kind, sizeof(kind));
     if (kind[0] == '\0') return;
+    tb_receiver_input_log("[input][sender->receiver] received kind=%s len=%zu", kind, len);
 
     if (strcmp(kind, "move") == 0) {
         int dx = 0;
@@ -543,6 +597,19 @@ static void tb_receiver_apply_input_event(const uint8_t *payload, size_t len) {
             tb_receiver_post_key((uint16_t)key_code, strcmp(kind, "keyDown") == 0);
         }
     }
+}
+
+static void tb_receiver_apply_input_control_mode(struct app *a, const uint8_t *payload, size_t len) {
+    char mode[32];
+    mode[0] = '\0';
+    extract_json_string_field(payload, len, "\"mode\"", mode, sizeof(mode));
+    if (mode[0] == '\0') {
+        snprintf(a->input_control_mode, sizeof(a->input_control_mode), "off");
+    } else {
+        snprintf(a->input_control_mode, sizeof(a->input_control_mode), "%s", mode);
+    }
+    tb_receiver_input_log("[input] control mode updated to %s", a->input_control_mode);
+    tb_receiver_refresh_input_capture(a);
 }
 
 /* ---- Callbacks: decoder → display ------------------------------------ */
@@ -709,6 +776,9 @@ static void on_packet(uint8_t type, const uint8_t *payload, size_t len, void *ud
     case TB_PKT_INPUT_EVENT:
         tb_receiver_apply_input_event(payload, len);
         break;
+    case TB_PKT_INPUT_CONTROL:
+        tb_receiver_apply_input_control_mode(a, payload, len);
+        break;
     case TB_PKT_HEARTBEAT:
         break;
     case TB_PKT_TEST_DATA:
@@ -769,6 +839,245 @@ static int send_all(int fd, const uint8_t *buf, size_t len) {
     return 0;
 }
 
+static void tb_receiver_send_input_event(struct app *a,
+                                         const char *kind,
+                                         int has_dx, int dx,
+                                         int has_dy, int dy,
+                                         int has_scroll_x, int scroll_x,
+                                         int has_scroll_y, int scroll_y,
+                                         int has_key_code, uint16_t key_code) {
+    if (!a || a->client_fd < 0) return;
+    if (strcmp(a->input_control_mode, "receiverMaster") != 0) return;
+
+    char json[256];
+    int len = snprintf(json, sizeof(json), "{\"kind\":\"%s\"", kind ? kind : "");
+    if (len <= 0 || (size_t)len >= sizeof(json)) return;
+
+    if (has_dx) len += snprintf(json + len, sizeof(json) - (size_t)len, ",\"dx\":%d", dx);
+    if (has_dy) len += snprintf(json + len, sizeof(json) - (size_t)len, ",\"dy\":%d", dy);
+    if (has_scroll_x) len += snprintf(json + len, sizeof(json) - (size_t)len, ",\"scrollX\":%d", scroll_x);
+    if (has_scroll_y) len += snprintf(json + len, sizeof(json) - (size_t)len, ",\"scrollY\":%d", scroll_y);
+    if (has_key_code) len += snprintf(json + len, sizeof(json) - (size_t)len, ",\"keyCode\":%u", (unsigned int)key_code);
+    len += snprintf(json + len, sizeof(json) - (size_t)len, "}");
+    if (len <= 0 || (size_t)len >= sizeof(json)) return;
+
+    uint8_t pkt[4 + 1 + sizeof(json)];
+    write_be32(pkt, (uint32_t)(1 + len));
+    pkt[4] = TB_PKT_INPUT_EVENT;
+    memcpy(pkt + 5, json, (size_t)len);
+    a->input_events_sent += 1;
+    if (tb_should_log_input_event(a->input_events_sent)) {
+        tb_receiver_input_log("[input][receiver->sender] send #%llu kind=%s dx=%d dy=%d sx=%d sy=%d key=%u mode=%s",
+                              (unsigned long long)a->input_events_sent,
+                              kind ? kind : "?",
+                              has_dx ? dx : 0,
+                              has_dy ? dy : 0,
+                              has_scroll_x ? scroll_x : 0,
+                              has_scroll_y ? scroll_y : 0,
+                              has_key_code ? (unsigned int)key_code : 0,
+                              a->input_control_mode);
+    }
+    (void)send_all(a->client_fd, pkt, 5 + (size_t)len);
+}
+
+static void tb_receiver_send_target_switch(struct app *a, int direction) {
+    tb_receiver_send_input_event(a,
+                                 direction < 0 ? "switchPrevTarget" : "switchNextTarget",
+                                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+}
+
+static CGEventRef tb_receiver_input_tap_callback(CGEventTapProxy proxy,
+                                                 CGEventType type,
+                                                 CGEventRef event,
+                                                 void *user_info) {
+    (void)proxy;
+    struct app *a = (struct app *)user_info;
+    if (!a) return event;
+
+    if (type == kCGEventTapDisabledByTimeout || type == kCGEventTapDisabledByUserInput) {
+        if (a->input_tap) CGEventTapEnable(a->input_tap, true);
+        return event;
+    }
+
+    if (strcmp(a->input_control_mode, "receiverMaster") != 0) return event;
+
+    switch (type) {
+    case kCGEventMouseMoved:
+    case kCGEventLeftMouseDragged:
+    case kCGEventRightMouseDragged:
+    case kCGEventOtherMouseDragged: {
+        int dx = (int)CGEventGetIntegerValueField(event, kCGMouseEventDeltaX);
+        int dy = (int)CGEventGetIntegerValueField(event, kCGMouseEventDeltaY);
+        CGPoint location = CGEventGetLocation(event);
+        CGRect bounds = CGDisplayBounds(CGMainDisplayID());
+        uint64_t now = now_ms();
+        if (now - a->last_target_switch_ms > 450) {
+            if (location.x <= CGRectGetMinX(bounds) + 2.0 && dx < 0) {
+                a->last_target_switch_ms = now;
+                tb_receiver_send_target_switch(a, -1);
+                break;
+            }
+            if (location.x >= CGRectGetMaxX(bounds) - 2.0 && dx > 0) {
+                a->last_target_switch_ms = now;
+                tb_receiver_send_target_switch(a, 1);
+                break;
+            }
+        }
+        tb_receiver_send_input_event(a, "move", 1, dx, 1, dy, 0, 0, 0, 0, 0, 0);
+        break;
+    }
+    case kCGEventLeftMouseDown:
+        tb_receiver_send_input_event(a, "leftDown", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+        break;
+    case kCGEventLeftMouseUp:
+        tb_receiver_send_input_event(a, "leftUp", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+        break;
+    case kCGEventRightMouseDown:
+        tb_receiver_send_input_event(a, "rightDown", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+        break;
+    case kCGEventRightMouseUp:
+        tb_receiver_send_input_event(a, "rightUp", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+        break;
+    case kCGEventOtherMouseDown:
+        tb_receiver_send_input_event(a, "otherDown", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+        break;
+    case kCGEventOtherMouseUp:
+        tb_receiver_send_input_event(a, "otherUp", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+        break;
+    case kCGEventScrollWheel: {
+        int sx = (int)CGEventGetIntegerValueField(event, kCGScrollWheelEventDeltaAxis2);
+        int sy = (int)CGEventGetIntegerValueField(event, kCGScrollWheelEventDeltaAxis1);
+        tb_receiver_send_input_event(a, "scroll", 0, 0, 0, 0, 1, sx, 1, sy, 0, 0);
+        break;
+    }
+    case kCGEventKeyDown: {
+        uint16_t key_code = (uint16_t)CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode);
+        CGEventFlags flags = CGEventGetFlags(event);
+        if ((flags & kCGEventFlagMaskControl) && (flags & kCGEventFlagMaskAlternate)) {
+            if (key_code == 123) {
+                tb_receiver_send_target_switch(a, -1);
+                break;
+            }
+            if (key_code == 124) {
+                tb_receiver_send_target_switch(a, 1);
+                break;
+            }
+        }
+        tb_receiver_send_input_event(a, "keyDown", 0, 0, 0, 0, 0, 0, 0, 0, 1, key_code);
+        break;
+    }
+    case kCGEventKeyUp:
+    {
+        uint16_t key_code = (uint16_t)CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode);
+        CGEventFlags flags = CGEventGetFlags(event);
+        if ((flags & kCGEventFlagMaskControl) && (flags & kCGEventFlagMaskAlternate) &&
+            (key_code == 123 || key_code == 124)) {
+            break;
+        }
+        tb_receiver_send_input_event(a, "keyUp", 0, 0, 0, 0, 0, 0, 0, 0, 1, key_code);
+        break;
+    }
+    case kCGEventFlagsChanged: {
+        uint16_t key_code = (uint16_t)CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode);
+        int key_down = 0;
+        int handled = 1;
+        CGEventFlags flags = CGEventGetFlags(event);
+        switch (key_code) {
+        case 54: case 55: key_down = (flags & kCGEventFlagMaskCommand) != 0; break;
+        case 56: case 60: key_down = (flags & kCGEventFlagMaskShift) != 0; break;
+        case 58: case 61: key_down = (flags & kCGEventFlagMaskAlternate) != 0; break;
+        case 59: case 62: key_down = (flags & kCGEventFlagMaskControl) != 0; break;
+        case 57: key_down = (flags & kCGEventFlagMaskAlphaShift) != 0; break;
+        case 63:
+            handled = 0;
+            break;
+        default:
+            handled = 0;
+            break;
+        }
+        if (handled) {
+            tb_receiver_send_input_event(a, key_down ? "keyDown" : "keyUp", 0, 0, 0, 0, 0, 0, 0, 0, 1, key_code);
+        }
+        break;
+    }
+    default:
+        break;
+    }
+
+    return event;
+}
+
+static void tb_receiver_stop_input_tap(struct app *a) {
+    if (!a) return;
+    if (a->input_tap_source) {
+        CFRunLoopRemoveSource(CFRunLoopGetCurrent(), a->input_tap_source, kCFRunLoopCommonModes);
+        CFRelease(a->input_tap_source);
+        a->input_tap_source = NULL;
+    }
+    if (a->input_tap) {
+        CFMachPortInvalidate(a->input_tap);
+        CFRelease(a->input_tap);
+        a->input_tap = NULL;
+    }
+}
+
+static void tb_receiver_start_input_tap(struct app *a) {
+    if (!a || a->input_tap) return;
+
+    CGEventMask mask =
+        CGEventMaskBit(kCGEventMouseMoved) |
+        CGEventMaskBit(kCGEventLeftMouseDragged) |
+        CGEventMaskBit(kCGEventRightMouseDragged) |
+        CGEventMaskBit(kCGEventOtherMouseDragged) |
+        CGEventMaskBit(kCGEventLeftMouseDown) |
+        CGEventMaskBit(kCGEventLeftMouseUp) |
+        CGEventMaskBit(kCGEventRightMouseDown) |
+        CGEventMaskBit(kCGEventRightMouseUp) |
+        CGEventMaskBit(kCGEventOtherMouseDown) |
+        CGEventMaskBit(kCGEventOtherMouseUp) |
+        CGEventMaskBit(kCGEventScrollWheel) |
+        CGEventMaskBit(kCGEventKeyDown) |
+        CGEventMaskBit(kCGEventKeyUp) |
+        CGEventMaskBit(kCGEventFlagsChanged);
+
+    a->input_tap = CGEventTapCreate(
+        kCGHIDEventTap,
+        kCGHeadInsertEventTap,
+        kCGEventTapOptionListenOnly,
+        mask,
+        tb_receiver_input_tap_callback,
+        a
+    );
+    if (!a->input_tap) {
+        tb_receiver_input_log("[input] global event tap unavailable; will fall back to SDL window input");
+        return;
+    }
+
+    a->input_tap_source = CFMachPortCreateRunLoopSource(NULL, a->input_tap, 0);
+    if (!a->input_tap_source) {
+        tb_receiver_stop_input_tap(a);
+        tb_receiver_input_log("[input] failed to create runloop source for event tap; using SDL fallback");
+        return;
+    }
+    CFRunLoopAddSource(CFRunLoopGetCurrent(), a->input_tap_source, kCFRunLoopCommonModes);
+    CGEventTapEnable(a->input_tap, true);
+    tb_receiver_input_log("[input] global event tap enabled for receiverMaster mode");
+}
+
+static void tb_receiver_refresh_input_capture(struct app *a) {
+    if (!a) return;
+    if (strcmp(a->input_control_mode, "receiverMaster") == 0 && a->client_fd >= 0) {
+        tb_receiver_start_input_tap(a);
+        tb_disp_set_input_capture_active(a->disp, a->input_tap == NULL ? 1 : 0);
+        tb_receiver_input_log("[input] receiverMaster capture path = %s",
+                              a->input_tap ? "global-tap" : "sdl-fallback");
+    } else {
+        tb_receiver_stop_input_tap(a);
+        tb_disp_set_input_capture_active(a->disp, 0);
+        tb_receiver_input_log("[input] input capture disabled");
+    }
+}
+
 static void send_receiver_info(struct app *a) {
     struct tb_display_info info;
     if (tb_disp_get_info(a->disp, &info) < 0) return;
@@ -805,7 +1114,7 @@ static void send_receiver_info(struct app *a) {
         "{\"receiverName\":\"%s\",\"panelWidth\":%u,\"panelHeight\":%u,"
         "\"modeWidth\":%u,\"modeHeight\":%u,\"refreshRate\":60,"
         "\"hiDPI\":true,\"captureWidth\":%u,\"captureHeight\":%u,"
-        "\"supportsHEVCDecode\":%s}",
+        "\"supportsHEVCDecode\":%s,\"inputMonitoringTrusted\":%s,\"accessibilityTrusted\":%s}",
         escaped_name,
         panel_w,
         panel_h,
@@ -813,7 +1122,9 @@ static void send_receiver_info(struct app *a) {
         mode_h,
         capture_w,
         capture_h,
-        tb_dec_supports_hevc_hwdecode() ? "true" : "false"
+        tb_dec_supports_hevc_hwdecode() ? "true" : "false",
+        tb_receiver_input_monitoring_trusted() ? "true" : "false",
+        tb_receiver_accessibility_trusted() ? "true" : "false"
     );
     if (json_len <= 0 || (size_t)json_len >= sizeof(json)) return;
 
@@ -838,6 +1149,8 @@ static void close_client(struct app *a) {
     a->client_fd = -1;
     a->close_requested = 0;
     a->have_video_frame = 0;
+    snprintf(a->input_control_mode, sizeof(a->input_control_mode), "off");
+    tb_receiver_refresh_input_capture(a);
     tb_disp_set_connection_state(a->disp, 0);
     tb_disp_set_cursor(a->disp, 0, 0, 1, 1, 0, 0);
     tb_refresh_idle_localized_strings(a);
@@ -902,6 +1215,7 @@ int main(int argc, char **argv) {
     snprintf(a.net_ip_text, sizeof(a.net_ip_text), "%s", net_ip);
     snprintf(a.ip_text, sizeof(a.ip_text), "%s", tb_ip[0] ? tb_ip : (net_ip[0] ? net_ip : tb_i18n_get("receiver.network.not_detected")));
     snprintf(a.language_pref, sizeof(a.language_pref), "%s", startup_language_pref);
+    snprintf(a.input_control_mode, sizeof(a.input_control_mode), "%s", "off");
     tb_refresh_idle_localized_strings(&a);
     tb_receiver_apply_language_preference(&a);
 
@@ -949,6 +1263,7 @@ int main(int argc, char **argv) {
     while (!g_term) {
         unsigned int disp_actions = tb_disp_poll_actions(a.disp);
         int socket_activity = 0;
+        CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.0, true);
         if (disp_actions & TB_DISP_ACTION_QUIT) break;
         if ((disp_actions & TB_DISP_ACTION_CYCLE_LANGUAGE) && a.client_fd < 0) {
             tb_receiver_cycle_language_preference(&a);
@@ -989,6 +1304,7 @@ int main(int argc, char **argv) {
                 fprintf(stderr, "[main] client connected\n");
                 tb_parser_free(&a.parser);
                 tb_parser_init(&a.parser, on_packet, &a);
+                tb_receiver_refresh_input_capture(&a);
                 send_receiver_info(&a);
             }
         } else {
@@ -1003,6 +1319,53 @@ int main(int argc, char **argv) {
 
         if (a.client_fd < 0 || !a.have_video_frame) {
             tb_disp_render_status(a.disp, a.ip_text, a.status_text, a.sender_text, a.panel_text, a.mode_text, a.language_text);
+        }
+
+        if (strcmp(a.input_control_mode, "receiverMaster") == 0 && a.client_fd >= 0) {
+            struct tb_input_event input_event;
+            while (tb_disp_pop_input_event(a.disp, &input_event)) {
+                switch (input_event.kind) {
+                case TB_INPUT_EVENT_MOVE:
+                    tb_receiver_send_input_event(&a, "move", 1, input_event.dx, 1, input_event.dy, 0, 0, 0, 0, 0, 0);
+                    break;
+                case TB_INPUT_EVENT_SCROLL:
+                    tb_receiver_send_input_event(&a, "scroll", 0, 0, 0, 0, 1, input_event.scroll_x, 1, input_event.scroll_y, 0, 0);
+                    break;
+                case TB_INPUT_EVENT_LEFT_DOWN:
+                    tb_receiver_send_input_event(&a, "leftDown", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+                    break;
+                case TB_INPUT_EVENT_LEFT_UP:
+                    tb_receiver_send_input_event(&a, "leftUp", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+                    break;
+                case TB_INPUT_EVENT_RIGHT_DOWN:
+                    tb_receiver_send_input_event(&a, "rightDown", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+                    break;
+                case TB_INPUT_EVENT_RIGHT_UP:
+                    tb_receiver_send_input_event(&a, "rightUp", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+                    break;
+                case TB_INPUT_EVENT_OTHER_DOWN:
+                    tb_receiver_send_input_event(&a, "otherDown", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+                    break;
+                case TB_INPUT_EVENT_OTHER_UP:
+                    tb_receiver_send_input_event(&a, "otherUp", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+                    break;
+                case TB_INPUT_EVENT_KEY_DOWN:
+                    tb_receiver_send_input_event(&a, "keyDown", 0, 0, 0, 0, 0, 0, 0, 0, 1, input_event.key_code);
+                    break;
+                case TB_INPUT_EVENT_KEY_UP:
+                    tb_receiver_send_input_event(&a, "keyUp", 0, 0, 0, 0, 0, 0, 0, 0, 1, input_event.key_code);
+                    break;
+                case TB_INPUT_EVENT_SWITCH_PREV_TARGET:
+                    tb_receiver_send_target_switch(&a, -1);
+                    break;
+                case TB_INPUT_EVENT_SWITCH_NEXT_TARGET:
+                    tb_receiver_send_target_switch(&a, 1);
+                    break;
+                case TB_INPUT_EVENT_NONE:
+                default:
+                    break;
+                }
+            }
         }
 
         /* FPS log */
@@ -1021,6 +1384,7 @@ int main(int argc, char **argv) {
     }
 
     if (a.client_fd >= 0) close(a.client_fd);
+    tb_receiver_stop_input_tap(&a);
     if (a.server_fd >= 0) close(a.server_fd);
     bonjour_deinit(&a);
     tb_parser_free(&a.parser);

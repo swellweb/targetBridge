@@ -17,9 +17,11 @@ Where addon files live
 
 User-installed addon manifests are loaded from:
 
-`~/Library/Application Support/TargetBridge/Addons/`
+`~/Library/Application Support/TargetBridge/Addons/User/`
 
-Bundled official addon manifests also ship inside the app bundle.
+Bundled official addon manifests also ship inside the app bundle and are mirrored to:
+
+`~/Library/Application Support/TargetBridge/Addons/Official/`
 
 How to add an addon
 -------------------
@@ -78,7 +80,16 @@ Notes
   be listed in the UI but marked incompatible.
 - This addon system currently targets the Sender UI and feature gating.
 - The `input-dockstation` addon forwards keyboard and mouse input from the
-  Sender to one connected Receiver session at a time.
+  currently selected master Mac to one connected slave session at a time.
+- The current input roles are:
+  - `Off`
+  - `This Mac is Master`
+  - `Receiver is Master`
+- When `This Mac is Master` is active, you can also choose how to switch
+  control between slave sessions:
+  - keep the master's desktop behavior fully native
+  - or use the left/right screen edge and the `Ctrl+Option+Left/Right`
+    hotkeys to move control to the previous/next slave
 - The `input-dockstation` addon requires extra macOS permissions:
   - on the Sender, accessibility/input-monitoring approval may be needed so
     TargetBridge can observe keyboard and mouse activity

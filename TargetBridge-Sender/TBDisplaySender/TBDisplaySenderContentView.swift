@@ -525,15 +525,82 @@ private struct TBDisplaySenderSessionSettingsSheet: View {
 
                     if service.inputDockstationAvailable {
                         settingRow(inputDockstationTitle, details: inputDockstationDetails) {
-                            Toggle(
-                                "",
-                                isOn: Binding(
-                                    get: { service.isInputRelayActive(for: session) },
-                                    set: { service.setInputRelayActive($0, for: session) }
+                            Picker(
+                                inputDockstationTitle,
+                                selection: Binding(
+                                    get: { session.inputControlRole },
+                                    set: { service.setInputControlRole($0, for: session) }
                                 )
-                            )
-                            .labelsHidden()
+                            ) {
+                                ForEach(TBInputControlRole.allCases) { role in
+                                    Text(inputControlRoleTitle(role)).tag(role)
+                                }
+                            }
+                            .pickerStyle(.menu)
                             .disabled(!session.isConnected)
+                        }
+
+                        if session.inputControlRole == .senderMaster {
+                            settingRow(inputGestureModeTitle, details: inputGestureModeDetails) {
+                                Picker(
+                                    inputGestureModeTitle,
+                                    selection: $session.inputGestureMode
+                                ) {
+                                    ForEach(TBInputGestureMode.allCases) { mode in
+                                        Text(inputGestureModeOptionTitle(mode)).tag(mode)
+                                    }
+                                }
+                                .pickerStyle(.menu)
+                                .disabled(!session.isConnected)
+                            }
+                        }
+
+                        if session.inputControlRole == .senderMaster, !service.localInputMonitoringTrusted {
+                            SurfaceSubcard {
+                                permissionWarningCard(
+                                    title: localInputMonitoringWarningTitle,
+                                    body: localInputMonitoringWarningBody,
+                                    actionTitle: openInputMonitoringSettingsTitle,
+                                    action: { service.openInputMonitoringSettings() },
+                                    statusText: "listen=false"
+                                )
+                            }
+                        }
+
+                        if session.inputControlRole == .senderMaster, session.receiverAccessibilityTrustedHint == false {
+                            SurfaceSubcard {
+                                permissionWarningCard(
+                                    title: receiverAccessibilityWarningTitle,
+                                    body: receiverAccessibilityWarningBody,
+                                    actionTitle: nil,
+                                    action: nil,
+                                    statusText: "receiver accessibility=false"
+                                )
+                            }
+                        }
+
+                        if session.inputControlRole == .receiverMaster, !service.localInputInjectionTrusted {
+                            SurfaceSubcard {
+                                permissionWarningCard(
+                                    title: inputPermissionWarningTitle,
+                                    body: inputPermissionWarningBody,
+                                    actionTitle: openAccessibilitySettingsTitle,
+                                    action: { service.openAccessibilitySettings() },
+                                    statusText: inputPermissionStatusText
+                                )
+                            }
+                        }
+
+                        if session.inputControlRole == .receiverMaster, session.receiverInputMonitoringTrustedHint == false {
+                            SurfaceSubcard {
+                                permissionWarningCard(
+                                    title: receiverInputMonitoringWarningTitle,
+                                    body: receiverInputMonitoringWarningBody,
+                                    actionTitle: nil,
+                                    action: nil,
+                                    statusText: "receiver input-monitoring=false"
+                                )
+                            }
                         }
                     }
 
@@ -634,6 +701,43 @@ private struct TBDisplaySenderSessionSettingsSheet: View {
             .font(.system(.caption, design: .rounded, weight: .bold))
             .tracking(1.0)
             .foregroundStyle(.secondary)
+    }
+
+    @ViewBuilder
+    private func permissionWarningCard(
+        title: String,
+        body: String,
+        actionTitle: String?,
+        action: (() -> Void)?,
+        statusText: String
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+            } icon: {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.yellow)
+            }
+
+            Text(body)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: 10) {
+                if let actionTitle, let action {
+                    Button(actionTitle) {
+                        action()
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+
+                Text(statusText)
+                    .font(.footnote.monospaced())
+                    .foregroundStyle(.secondary)
+            }
+        }
     }
 
     private var header: some View {
@@ -785,10 +889,172 @@ private struct TBDisplaySenderSessionSettingsSheet: View {
 
     private var inputDockstationDetails: String {
         switch service.language {
-        case .italian: return "Inoltra tastiera e mouse del sender a questo receiver. Gli eventi restano attivi anche localmente sul sender, quindi e una modalita esplicita per controllare un secondo Mac con un solo set di periferiche."
-        case .english: return "Forward the sender keyboard and mouse to this receiver. Events remain active locally on the sender, so this is an explicit mode for controlling a second Mac with one set of peripherals."
-        case .german: return "Leite Tastatur und Maus des Senders an diesen Receiver weiter. Die Ereignisse bleiben lokal auf dem Sender aktiv; dies ist daher ein expliziter Modus, um einen zweiten Mac mit einem einzigen Satz Peripherie zu steuern."
-        case .chinese: return "将发送端的键盘和鼠标转发到这个接收端。事件仍会在发送端本地生效，因此这是一个显式模式，用一套外设控制第二台 Mac。"
+        case .italian: return "Definisce il ruolo input di questa sessione. Una sola sessione puo avere un master attivo alla volta: questo Mac puo controllare il receiver, oppure il receiver puo controllare questo Mac."
+        case .english: return "Defines the input role for this session. Only one session can have an active master at a time: this Mac can control the receiver, or the receiver can control this Mac."
+        case .german: return "Legt die Eingaberolle fur diese Sitzung fest. Nur eine Sitzung kann gleichzeitig einen aktiven Master haben: Dieser Mac kann den Receiver steuern oder der Receiver kann diesen Mac steuern."
+        case .chinese: return "定义此会话的输入角色。同一时间只能有一个活动 master：这台 Mac 可以控制 receiver，或者 receiver 可以控制这台 Mac。"
+        }
+    }
+
+    private var inputGestureModeTitle: String {
+        switch service.language {
+        case .italian: return "Cambio slave"
+        case .english: return "Slave switching"
+        case .german: return "Slave-Wechsel"
+        case .chinese: return "Slave 切换"
+        }
+    }
+
+    private var inputGestureModeDetails: String {
+        switch service.language {
+        case .italian:
+            return "Decide come passare da uno slave all'altro quando 'Questo Mac e Master' e attivo. In modalita nativa, macOS continua a gestire normalmente il desktop del master. In modalita relay, TargetBridge usa il bordo sinistro/destro dello schermo e le hotkey Ctrl+Option+Freccia Sinistra/Destra per spostare il controllo allo slave precedente o successivo."
+        case .english:
+            return "Chooses how to move control from one slave to another when 'This Mac is Master' is active. In native mode, macOS keeps handling the master's desktop normally. In relay mode, TargetBridge uses the left/right screen edge and the Ctrl+Option+Left/Right hotkeys to move control to the previous or next slave."
+        case .german:
+            return "Legt fest, wie die Steuerung von einem Slave zum anderen wechselt, wenn 'Dieser Mac ist Master' aktiv ist. Im nativen Modus verwaltet macOS den Desktop des Masters normal weiter. Im Relay-Modus nutzt TargetBridge den linken/rechten Bildschirmrand und die Hotkeys Ctrl+Option+Links/Rechts, um zum vorherigen oder nachsten Slave zu wechseln."
+        case .chinese:
+            return "决定在“这台 Mac 是 Master”启用时如何在不同 slave 之间切换控制。原生模式下，macOS 继续正常处理 master 的桌面；relay 模式下，TargetBridge 会使用屏幕左右边缘以及 Ctrl+Option+Left/Right 热键，把控制切换到上一个或下一个 slave。"
+        }
+    }
+
+    private func inputGestureModeOptionTitle(_ mode: TBInputGestureMode) -> String {
+        switch (mode, service.language) {
+        case (.native, .italian): return "Lascia il desktop nativo del master"
+        case (.native, .english): return "Keep master's desktop native"
+        case (.native, .german): return "Desktop des Masters nativ lassen"
+        case (.native, .chinese): return "保留 master 的原生桌面行为"
+        case (.relayToSlave, .italian): return "Usa bordi schermo e hotkey per cambiare slave"
+        case (.relayToSlave, .english): return "Use screen edges and hotkeys to switch slave"
+        case (.relayToSlave, .german): return "Bildschirmrander und Hotkeys fur Slave-Wechsel nutzen"
+        case (.relayToSlave, .chinese): return "使用屏幕边缘和热键切换 slave"
+        }
+    }
+
+    private func inputControlRoleTitle(_ role: TBInputControlRole) -> String {
+        switch (role, service.language) {
+        case (.off, .italian): return "Off"
+        case (.off, .english): return "Off"
+        case (.off, .german): return "Aus"
+        case (.off, .chinese): return "关闭"
+        case (.senderMaster, .italian): return "Questo Mac e Master"
+        case (.senderMaster, .english): return "This Mac is Master"
+        case (.senderMaster, .german): return "Dieser Mac ist Master"
+        case (.senderMaster, .chinese): return "这台 Mac 是 Master"
+        case (.receiverMaster, .italian): return "Receiver e Master"
+        case (.receiverMaster, .english): return "Receiver is Master"
+        case (.receiverMaster, .german): return "Receiver ist Master"
+        case (.receiverMaster, .chinese): return "Receiver 是 Master"
+        }
+    }
+
+    private var inputPermissionWarningTitle: String {
+        switch service.language {
+        case .italian: return "Il sender non puo ancora iniettare input"
+        case .english: return "The sender cannot inject input yet"
+        case .german: return "Der Sender kann noch keine Eingaben injizieren"
+        case .chinese: return "Sender 目前还不能注入输入"
+        }
+    }
+
+    private var inputPermissionWarningBody: String {
+        switch service.language {
+        case .italian:
+            return "Per usare 'Receiver e Master', questa app TargetBridge sul sender deve essere autorizzata in Privacy e Sicurezza > Accessibilita. Apri le impostazioni, abilita l'app che stai usando e poi riapri la sessione."
+        case .english:
+            return "To use 'Receiver is Master', this TargetBridge app on the sender must be allowed under Privacy & Security > Accessibility. Open the settings, enable the app you are actually running, then reopen the session."
+        case .german:
+            return "Um 'Receiver ist Master' zu verwenden, muss diese TargetBridge-App auf dem Sender unter Datenschutz & Sicherheit > Bedienungshilfen erlaubt sein. Offne die Einstellungen, aktiviere die wirklich verwendete App und offne dann die Sitzung erneut."
+        case .chinese:
+            return "要使用“Receiver 是 Master”，sender 上这份 TargetBridge 必须在“隐私与安全性 > 辅助功能”中被允许。打开设置，启用你当前运行的这份应用，然后重新打开会话。"
+        }
+    }
+
+    private var openAccessibilitySettingsTitle: String {
+        switch service.language {
+        case .italian: return "Apri Accessibilita"
+        case .english: return "Open Accessibility"
+        case .german: return "Bedienungshilfen offnen"
+        case .chinese: return "打开辅助功能"
+        }
+    }
+
+    private var inputPermissionStatusText: String {
+        service.localInputInjectionTrusted ? "trusted=true" : "trusted=false"
+    }
+
+    private var localInputMonitoringWarningTitle: String {
+        switch service.language {
+        case .italian: return "Manca il monitoraggio input sul sender"
+        case .english: return "Input Monitoring is missing on the sender"
+        case .german: return "Input Monitoring fehlt auf dem Sender"
+        case .chinese: return "sender 缺少输入监控权限"
+        }
+    }
+
+    private var localInputMonitoringWarningBody: String {
+        switch service.language {
+        case .italian:
+            return "Per usare 'Questo Mac e Master' in modo affidabile anche fuori dalla finestra attiva, il sender deve avere il permesso Monitoraggio input. Senza questo permesso alcuni tasti o movimenti globali possono non essere catturati."
+        case .english:
+            return "To use 'This Mac is Master' reliably outside the active app window, the sender needs Input Monitoring permission. Without it, some keys or global pointer events may not be captured."
+        case .german:
+            return "Damit 'Dieser Mac ist Master' auch ausserhalb des aktiven Fensters zuverlassig funktioniert, braucht der Sender die Berechtigung fuer Input Monitoring. Ohne diese konnen einige Tasten oder globale Zeigerereignisse fehlen."
+        case .chinese:
+            return "要让“这台 Mac 是 Master”在活动窗口之外也可靠工作，sender 需要“输入监控”权限。没有它，一些按键或全局指针事件可能无法被捕获。"
+        }
+    }
+
+    private var receiverAccessibilityWarningTitle: String {
+        switch service.language {
+        case .italian: return "Manca Accessibilita sul receiver"
+        case .english: return "Accessibility is missing on the receiver"
+        case .german: return "Bedienungshilfen fehlen auf dem Receiver"
+        case .chinese: return "receiver 缺少辅助功能权限"
+        }
+    }
+
+    private var receiverAccessibilityWarningBody: String {
+        switch service.language {
+        case .italian:
+            return "Con 'Questo Mac e Master', il receiver deve poter iniettare click e tastiera. Sul Mac receiver abilita TargetBridge Receiver in Privacy e Sicurezza > Accessibilita."
+        case .english:
+            return "With 'This Mac is Master', the receiver must be allowed to inject clicks and keyboard events. On the receiver Mac, enable TargetBridge Receiver under Privacy & Security > Accessibility."
+        case .german:
+            return "Bei 'Dieser Mac ist Master' muss der Receiver Klicks und Tastatureingaben injizieren durfen. Aktiviere auf dem Receiver-Mac TargetBridge Receiver unter Datenschutz & Sicherheit > Bedienungshilfen."
+        case .chinese:
+            return "在“这台 Mac 是 Master”模式下，receiver 必须被允许注入点击和键盘事件。请在 receiver Mac 的“隐私与安全性 > 辅助功能”中启用 TargetBridge Receiver。"
+        }
+    }
+
+    private var receiverInputMonitoringWarningTitle: String {
+        switch service.language {
+        case .italian: return "Manca Monitoraggio input sul receiver"
+        case .english: return "Input Monitoring is missing on the receiver"
+        case .german: return "Input Monitoring fehlt auf dem Receiver"
+        case .chinese: return "receiver 缺少输入监控权限"
+        }
+    }
+
+    private var receiverInputMonitoringWarningBody: String {
+        switch service.language {
+        case .italian:
+            return "Con 'Receiver e Master', il Mac receiver deve poter leggere tastiera e mouse locali. Sul receiver abilita TargetBridge Receiver in Privacy e Sicurezza > Monitoraggio input."
+        case .english:
+            return "With 'Receiver is Master', the receiver Mac must be allowed to read local keyboard and mouse input. On the receiver, enable TargetBridge Receiver under Privacy & Security > Input Monitoring."
+        case .german:
+            return "Bei 'Receiver ist Master' muss der Receiver-Mac lokale Tastatur- und Mauseingaben lesen durfen. Aktiviere dort TargetBridge Receiver unter Datenschutz & Sicherheit > Input Monitoring."
+        case .chinese:
+            return "在“Receiver 是 Master”模式下，receiver Mac 必须被允许读取本地键盘和鼠标输入。请在 receiver 上的“隐私与安全性 > 输入监控”中启用 TargetBridge Receiver。"
+        }
+    }
+
+    private var openInputMonitoringSettingsTitle: String {
+        switch service.language {
+        case .italian: return "Apri Monitoraggio input"
+        case .english: return "Open Settings"
+        case .german: return "Einstellungen offnen"
+        case .chinese: return "打开设置"
         }
     }
 

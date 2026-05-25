@@ -23,6 +23,14 @@ final class TBAddonStore: ObservableObject {
             .appendingPathComponent("Addons", isDirectory: true)
     }
 
+    var officialAddonsDirectoryURL: URL {
+        addonsDirectoryURL.appendingPathComponent("Official", isDirectory: true)
+    }
+
+    var userAddonsDirectoryURL: URL {
+        addonsDirectoryURL.appendingPathComponent("User", isDirectory: true)
+    }
+
     func refresh() {
         ensureAddonsDirectoryExists()
 
@@ -75,7 +83,7 @@ final class TBAddonStore: ObservableObject {
     func importManifest(from url: URL) throws -> TBAddonRecord {
         ensureAddonsDirectoryExists()
         let manifest = try decodeManifest(at: url)
-        let destination = addonsDirectoryURL.appendingPathComponent("\(manifest.id).json")
+        let destination = userAddonsDirectoryURL.appendingPathComponent("\(manifest.id).json")
         if fileManager.fileExists(atPath: destination.path) {
             try fileManager.removeItem(at: destination)
         }
@@ -95,6 +103,16 @@ final class TBAddonStore: ObservableObject {
 
     private func loadBundledAddons() -> [TBAddonRecord] {
         var urls = Bundle.main.urls(forResourcesWithExtension: "json", subdirectory: "Addons") ?? []
+        syncBundledAddonsToApplicationSupport()
+        if let enumerator = fileManager.enumerator(
+            at: officialAddonsDirectoryURL,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) {
+            for case let url as URL in enumerator where url.pathExtension.lowercased() == "json" {
+                urls.append(url)
+            }
+        }
         if let resources = Bundle.main.resourceURL,
            let enumerator = fileManager.enumerator(
             at: resources,
@@ -113,7 +131,7 @@ final class TBAddonStore: ObservableObject {
 
     private func loadUserAddons() -> [TBAddonRecord] {
         guard let enumerator = fileManager.enumerator(
-            at: addonsDirectoryURL,
+            at: userAddonsDirectoryURL,
             includingPropertiesForKeys: [.isRegularFileKey],
             options: [.skipsHiddenFiles]
         ) else {
@@ -141,8 +159,27 @@ final class TBAddonStore: ObservableObject {
     }
 
     private func ensureAddonsDirectoryExists() {
-        if !fileManager.fileExists(atPath: addonsDirectoryURL.path) {
-            try? fileManager.createDirectory(at: addonsDirectoryURL, withIntermediateDirectories: true)
+        let directories = [
+            addonsDirectoryURL,
+            officialAddonsDirectoryURL,
+            userAddonsDirectoryURL
+        ]
+        for directory in directories where !fileManager.fileExists(atPath: directory.path) {
+            try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+    }
+
+    private func syncBundledAddonsToApplicationSupport() {
+        guard let bundledURLs = Bundle.main.urls(forResourcesWithExtension: "json", subdirectory: "Addons") else {
+            return
+        }
+        ensureAddonsDirectoryExists()
+        for url in bundledURLs {
+            let destination = officialAddonsDirectoryURL.appendingPathComponent(url.lastPathComponent)
+            if fileManager.fileExists(atPath: destination.path) {
+                try? fileManager.removeItem(at: destination)
+            }
+            try? fileManager.copyItem(at: url, to: destination)
         }
     }
 

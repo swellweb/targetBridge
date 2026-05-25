@@ -1,3 +1,5 @@
+import AppKit
+import ApplicationServices
 import Combine
 import Foundation
 import Network
@@ -64,8 +66,6 @@ final class TBDisplaySenderService: ObservableObject {
             objectWillChange.send()
         }
     }
-    @Published var activeInputRelaySessionID: UUID?
-
     private var sessionCancellables: [UUID: AnyCancellable] = [:]
     private let receiverDiscovery = TBReceiverDiscovery()
     private let addonStore = TBAddonStore.shared
@@ -135,6 +135,28 @@ final class TBDisplaySenderService: ObservableObject {
         isAddonCapabilityEnabled(.inputDockstation)
     }
 
+    var localInputInjectionTrusted: Bool {
+        AXIsProcessTrusted()
+    }
+
+    var localInputMonitoringTrusted: Bool {
+        CGPreflightListenEventAccess()
+    }
+
+    func openAccessibilitySettings() {
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") else {
+            return
+        }
+        NSWorkspace.shared.open(url)
+    }
+
+    func openInputMonitoringSettings() {
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent") else {
+            return
+        }
+        NSWorkspace.shared.open(url)
+    }
+
     func addSession() {
         let session = TBDisplaySenderSession(
             language: language,
@@ -146,6 +168,7 @@ final class TBDisplaySenderService: ObservableObject {
             session.captureSource = previous.captureSource
             session.transportKind = previous.transportKind
             session.audioEnabled = audioRelayAvailable && previous.audioEnabled
+            session.inputGestureMode = previous.inputGestureMode
         }
         session.audioAddonAvailable = audioRelayAvailable
         if let suggestedInterface = suggestedInterfaceForNewSession(transportKind: session.transportKind) {
@@ -159,12 +182,9 @@ final class TBDisplaySenderService: ObservableObject {
     func removeSession(_ session: TBDisplaySenderSession) {
         guard sessions.count > 1 else { return }
         session.stop()
-        if activeInputRelaySessionID == session.id {
-            activeInputRelaySessionID = nil
-            updateInputRelayController()
-        }
         sessions.removeAll { $0.id == session.id }
         sessionCancellables.removeValue(forKey: session.id)
+        normalizeAddonState()
         normalizeSessionInterfaces()
         objectWillChange.send()
     }
@@ -257,22 +277,71 @@ final class TBDisplaySenderService: ObservableObject {
 
     private func attachSession(_ session: TBDisplaySenderSession) {
         session.audioAddonAvailable = audioRelayAvailable
+        session.onRemoteSwitchRequest = { [weak self, weak session] direction in
+            guard let self, let session else { return }
+            self.switchReceiverMasterTarget(from: session, direction: direction)
+        }
         sessionCancellables[session.id] = session.objectWillChange.sink { [weak self] _ in
+            self?.updateInputRelayController()
             self?.objectWillChange.send()
         }
     }
 
     func isInputRelayActive(for session: TBDisplaySenderSession) -> Bool {
-        activeInputRelaySessionID == session.id
+        session.inputControlRole != .off
     }
 
-    func setInputRelayActive(_ enabled: Bool, for session: TBDisplaySenderSession) {
-        if enabled {
-            activeInputRelaySessionID = session.id
-        } else if activeInputRelaySessionID == session.id {
-            activeInputRelaySessionID = nil
+    func setInputControlRole(_ role: TBInputControlRole, for session: TBDisplaySenderSession) {
+        for candidate in sessions {
+            if candidate.id == session.id {
+                candidate.inputControlRole = role
+            } else if role != .off {
+                candidate.inputControlRole = .off
+            }
         }
         updateInputRelayController()
+        sessions.forEach { $0.updateInputControlMode() }
+        objectWillChange.send()
+    }
+
+    func switchSenderMasterTarget(direction: Int) {
+        let connected = sessions.filter { $0.isConnected || $0.isStreaming }
+        guard connected.count > 1,
+              let current = connected.first(where: { $0.inputControlRole == .senderMaster }),
+              let currentIndex = connected.firstIndex(where: { $0.id == current.id })
+        else {
+            return
+        }
+
+        let nextIndex = (currentIndex + (direction >= 0 ? 1 : connected.count - 1)) % connected.count
+        let next = connected[nextIndex]
+        guard next.id != current.id else { return }
+
+        for candidate in sessions {
+            candidate.inputControlRole = (candidate.id == next.id) ? .senderMaster : .off
+        }
+        updateInputRelayController()
+        sessions.forEach { $0.updateInputControlMode() }
+        objectWillChange.send()
+    }
+
+    func switchReceiverMasterTarget(from session: TBDisplaySenderSession, direction: Int) {
+        let connected = sessions.filter { $0.isConnected || $0.isStreaming }
+        guard connected.count > 1,
+              let currentIndex = connected.firstIndex(where: { $0.id == session.id })
+        else {
+            return
+        }
+
+        let nextIndex = (currentIndex + (direction >= 0 ? 1 : connected.count - 1)) % connected.count
+        let next = connected[nextIndex]
+        guard next.id != session.id else { return }
+
+        for candidate in sessions {
+            candidate.inputControlRole = (candidate.id == next.id) ? .receiverMaster : .off
+        }
+        updateInputRelayController()
+        sessions.forEach { $0.updateInputControlMode() }
         objectWillChange.send()
     }
 
@@ -293,34 +362,37 @@ final class TBDisplaySenderService: ObservableObject {
             if !networkLinkEnabled, session.transportKind == .networkLink {
                 session.transportKind = .thunderboltBridge
             }
-        }
-
-        if !inputEnabled {
-            activeInputRelaySessionID = nil
-        } else if let activeID = activeInputRelaySessionID,
-                  sessions.contains(where: { $0.id == activeID }) == false {
-            activeInputRelaySessionID = nil
+            if !inputEnabled {
+                session.inputControlRole = .off
+                session.inputGestureMode = .native
+            }
         }
 
         normalizeSessionInterfaces()
         updateInputRelayController()
+        sessions.forEach { $0.updateInputControlMode() }
     }
 
     private func updateInputRelayController() {
         guard inputDockstationAvailable,
-              let sessionID = activeInputRelaySessionID
+              let session = sessions.first(where: { $0.inputControlRole == .senderMaster })
         else {
             inputRelayController.stop()
             return
         }
 
-        inputRelayController.start { [weak self] relayEvent in
+        inputRelayController.start(
+            gestureMode: session.inputGestureMode,
+            handler: { [weak self] relayEvent in
             guard let self,
-                  let session = self.sessions.first(where: { $0.id == sessionID }),
                   session.isConnected
             else { return }
             session.sendInputEvent(relayEvent)
-        }
+        },
+            switchHandler: { [weak self] direction in
+                self?.switchSenderMasterTarget(direction: direction)
+            }
+        )
     }
 
     private func suggestedInterfaceForNewSession(transportKind: TBTransportKind) -> TBLocalLinkInterface? {

@@ -247,6 +247,21 @@ enum TBDisplayCaptureSource: String, CaseIterable, Identifiable {
     }
 }
 
+enum TBInputControlRole: String, CaseIterable, Identifiable {
+    case off
+    case senderMaster
+    case receiverMaster
+
+    var id: String { rawValue }
+}
+
+enum TBInputGestureMode: String, CaseIterable, Identifiable {
+    case native
+    case relayToSlave
+
+    var id: String { rawValue }
+}
+
 final class WeakSessionBox: @unchecked Sendable {
     weak var session: TBDisplaySenderSession?
 
@@ -433,6 +448,8 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         didSet {
             if selectedReceiverID.isEmpty {
                 receiverSupportsHEVCDecodeHint = nil
+                receiverInputMonitoringTrustedHint = nil
+                receiverAccessibilityTrustedHint = nil
             }
         }
     }
@@ -444,12 +461,16 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
             UserDefaults.standard.set(receiverIP, forKey: Self.receiverIPDefaultsKey)
             if receiverIP != oldValue {
                 receiverSupportsHEVCDecodeHint = nil
+                receiverInputMonitoringTrustedHint = nil
+                receiverAccessibilityTrustedHint = nil
             }
         }
     }
     @Published var audioEnabled: Bool
     var audioAddonAvailable = true
     var receiverSupportsHEVCDecodeHint: Bool?
+    var receiverInputMonitoringTrustedHint: Bool?
+    var receiverAccessibilityTrustedHint: Bool?
     @Published var senderFPS = 0
     @Published var receiverPanelText: String
     @Published var virtualDisplayText: String
@@ -476,6 +497,18 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         }
     }
     @Published var streamResolutionText: String
+    var inputRelayActive = false {
+        didSet {
+            guard inputRelayActive != oldValue else { return }
+            applyCursorOverlayMode()
+        }
+    }
+    @Published var inputControlRole: TBInputControlRole = .off {
+        didSet {
+            inputRelayActive = (inputControlRole == .senderMaster)
+        }
+    }
+    @Published var inputGestureMode: TBInputGestureMode = .native
 
     private var connection: NWConnection?
     private let connectionQueue = DispatchQueue(label: "fd.tbmonitor.sender.connection", qos: .userInteractive)
@@ -512,6 +545,8 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     private var cursorDisplayID: CGDirectDisplayID = kCGNullDirectDisplay
     private var lastCursorPacket: TBMonitorCursor?
     private static var cachedSupportsHEVCHardwareEncode: Bool?
+    private var receivedInputEventCount: UInt64 = 0
+    var onRemoteSwitchRequest: ((Int) -> Void)?
 
     private final class CaptureDelegate: NSObject, SCStreamOutput, SCStreamDelegate {
         var onFrame: ((CMSampleBuffer) -> Void)?
@@ -702,6 +737,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
                     self.setStatus(.waitingDisplayProfile)
                     self.startHeartbeat()
                     self.sendHello()
+                    self.sendInputControlModeUpdate()
                     self.receiveLoop(on: conn)
                 case .failed(let error):
                     self.setStatus(.connectionFailed(error.localizedDescription))
@@ -986,6 +1022,15 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         send(packet)
     }
 
+    private func sendInputControlModeUpdate() {
+        guard let packet = TBMonitorProtocol.makeJSONPacket(
+            type: .inputControlMode,
+            value: TBMonitorInputControlMode(mode: inputControlRole.rawValue)
+        ) else { return }
+        TBInputDebugLog.log("sender send control mode update \(inputControlRole.rawValue) to \(receiverIP)")
+        send(packet)
+    }
+
     private func sendHeartbeat() {
         heartbeatSequence += 1
         guard let packet = TBMonitorProtocol.makeJSONPacket(
@@ -1032,6 +1077,21 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
             switch type {
             case .displayProfile:
                 handleDisplayProfile(payload)
+            case .inputEvent:
+                if inputControlRole == .receiverMaster,
+                   let event = TBMonitorProtocol.decodeJSON(TBMonitorInputEvent.self, from: payload) {
+                    receivedInputEventCount += 1
+                    if receivedInputEventCount <= 20 || receivedInputEventCount.isMultiple(of: 100) {
+                        TBInputDebugLog.log("sender received #\(receivedInputEventCount) kind=\(event.kind) dx=\(event.dx ?? 0) dy=\(event.dy ?? 0) sx=\(event.scrollX ?? 0) sy=\(event.scrollY ?? 0) key=\(event.keyCode ?? 0)")
+                    }
+                    if event.kind == "switchPrevTarget" {
+                        onRemoteSwitchRequest?(-1)
+                    } else if event.kind == "switchNextTarget" {
+                        onRemoteSwitchRequest?(1)
+                    } else {
+                        applyIncomingInputEvent(event)
+                    }
+                }
             case .heartbeat:
                 break
             case .teardown:
@@ -1044,6 +1104,78 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         }
     }
 
+    private func currentLocalMouseLocation() -> CGPoint? {
+        CGEvent(source: nil)?.location
+    }
+
+    private func logLocalInputInjectionStateIfNeeded(context: String) {
+        let trusted = AXIsProcessTrusted()
+        TBInputDebugLog.log("sender input injection state trusted=\(trusted) context=\(context)")
+    }
+
+    private func postLocalMouseMove(dx: Int, dy: Int) {
+        logLocalInputInjectionStateIfNeeded(context: "mouseMove")
+        guard let current = currentLocalMouseLocation() else { return }
+        let target = CGPoint(x: current.x + CGFloat(dx), y: current.y + CGFloat(dy))
+        CGWarpMouseCursorPosition(target)
+        guard let event = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: target, mouseButton: .left) else { return }
+        event.post(tap: .cgSessionEventTap)
+    }
+
+    private func postLocalMouseButton(type: CGEventType, button: CGMouseButton) {
+        logLocalInputInjectionStateIfNeeded(context: "mouseButton")
+        guard let current = currentLocalMouseLocation() else { return }
+        guard let event = CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: current, mouseButton: button) else { return }
+        event.post(tap: .cghidEventTap)
+    }
+
+    private func postLocalScroll(scrollX: Int, scrollY: Int) {
+        logLocalInputInjectionStateIfNeeded(context: "scroll")
+        guard let event = CGEvent(
+            scrollWheelEvent2Source: nil,
+            units: .line,
+            wheelCount: 2,
+            wheel1: Int32(scrollY),
+            wheel2: Int32(scrollX),
+            wheel3: 0
+        ) else { return }
+        event.post(tap: .cghidEventTap)
+    }
+
+    private func postLocalKey(keyCode: UInt16, isDown: Bool) {
+        logLocalInputInjectionStateIfNeeded(context: "key")
+        guard let event = CGEvent(keyboardEventSource: nil, virtualKey: CGKeyCode(keyCode), keyDown: isDown) else { return }
+        event.post(tap: .cghidEventTap)
+    }
+
+    private func applyIncomingInputEvent(_ event: TBMonitorInputEvent) {
+        TBInputDebugLog.log("sender applying incoming event kind=\(event.kind)")
+        switch event.kind {
+        case "move":
+            postLocalMouseMove(dx: event.dx ?? 0, dy: event.dy ?? 0)
+        case "leftDown":
+            postLocalMouseButton(type: .leftMouseDown, button: .left)
+        case "leftUp":
+            postLocalMouseButton(type: .leftMouseUp, button: .left)
+        case "rightDown":
+            postLocalMouseButton(type: .rightMouseDown, button: .right)
+        case "rightUp":
+            postLocalMouseButton(type: .rightMouseUp, button: .right)
+        case "otherDown":
+            postLocalMouseButton(type: .otherMouseDown, button: .center)
+        case "otherUp":
+            postLocalMouseButton(type: .otherMouseUp, button: .center)
+        case "scroll":
+            postLocalScroll(scrollX: event.scrollX ?? 0, scrollY: event.scrollY ?? 0)
+        case "keyDown":
+            if let keyCode = event.keyCode { postLocalKey(keyCode: keyCode, isDown: true) }
+        case "keyUp":
+            if let keyCode = event.keyCode { postLocalKey(keyCode: keyCode, isDown: false) }
+        default:
+            break
+        }
+    }
+
     private func handleDisplayProfile(_ payload: Data) {
         guard activeProfile == nil,
               let profile = TBMonitorProtocol.decodeJSON(TBMonitorDisplayProfile.self, from: payload)
@@ -1053,8 +1185,15 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         if let supportsHEVCDecode = profile.supportsHEVCDecode {
             receiverSupportsHEVCDecodeHint = supportsHEVCDecode
         }
+        if let inputMonitoringTrusted = profile.inputMonitoringTrusted {
+            receiverInputMonitoringTrustedHint = inputMonitoringTrusted
+        }
+        if let accessibilityTrusted = profile.accessibilityTrusted {
+            receiverAccessibilityTrustedHint = accessibilityTrusted
+        }
         receiverPanelText = TBDisplaySenderL10n.receiverSummary(profile, language: language)
         sendHello()
+        sendInputControlModeUpdate()
 
         Task { @MainActor in
             if self.isCableTestConnection {
@@ -1757,6 +1896,35 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         sendCursorUpdateIfNeeded(force: true)
     }
 
+    private func sendHiddenCursorPacketIfNeeded() {
+        guard isConnected else { return }
+
+        let cursor = TBMonitorCursor(
+            x: 0,
+            y: 0,
+            width: capturePreset.width,
+            height: capturePreset.height,
+            visible: false,
+            type: 0
+        )
+        lastCursorPacket = cursor
+        if let packet = TBMonitorProtocol.makeJSONPacket(type: .cursor, value: cursor) {
+            send(packet)
+        }
+    }
+
+    private func applyCursorOverlayMode() {
+        if inputRelayActive {
+            cursorTimer?.invalidate()
+            cursorTimer = nil
+            sendHiddenCursorPacketIfNeeded()
+            return
+        }
+
+        guard largeCursor, isStreaming, cursorDisplayID != kCGNullDirectDisplay else { return }
+        startCursorUpdates(displayID: cursorDisplayID)
+    }
+
     private func getCurrentCursorType() -> Int {
         guard let current = NSCursor.currentSystem else { return 0 }
         if let last = lastCheckedCursor, last == current {
@@ -1799,6 +1967,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     }
 
     private func sendCursorUpdateIfNeeded(force: Bool = false) {
+        guard !inputRelayActive else { return }
         guard isConnected, isStreaming, cursorDisplayID != kCGNullDirectDisplay else { return }
         guard let point = CGEvent(source: nil)?.location else { return }
 
@@ -1890,6 +2059,11 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
               let packet = TBMonitorProtocol.makeJSONPacket(type: .inputEvent, value: event)
         else { return }
         send(packet)
+    }
+
+    func updateInputControlMode() {
+        guard isConnected else { return }
+        sendInputControlModeUpdate()
     }
 
 }

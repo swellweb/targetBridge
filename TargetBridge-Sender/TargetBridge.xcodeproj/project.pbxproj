@@ -27,6 +27,7 @@
 		C1A77120267A12D9E355DCEA /* network-link.json in Resources */ = {isa = PBXBuildFile; fileRef = 6579B499CBC11196966318EA /* network-link.json */; };
 		C2CCAB017BC3CAB1DCFA5CCC /* TBMonitorProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA01317B43B46B1B323A7008 /* TBMonitorProtocol.swift */; };
 		CBA7C2F0FA57CC475E2307AF /* TBInputRelayController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E3DC447E3E8E522565E725B /* TBInputRelayController.swift */; };
+		D5E6B5B7B49E740C92010C6F /* TBInputDebugLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80543A7A5A3B583C1543ABC7 /* TBInputDebugLog.swift */; };
 		E4967472D5CB13242FE2F288 /* TBDisplaySenderAboutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 374B5A5AA247C6922BD9AF72 /* TBDisplaySenderAboutView.swift */; };
 		E6A3663426721C75734F5BC5 /* zh.json in Resources */ = {isa = PBXBuildFile; fileRef = C9AA5BB4EE39D2C6FB37B90F /* zh.json */; };
 		E81B28F81AE82FF904E0871F /* TBAddonStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06D011FF8AF7BB6D26EDC25B /* TBAddonStore.swift */; };
@@ -49,6 +50,7 @@
 		6579B499CBC11196966318EA /* network-link.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "network-link.json"; sourceTree = "<group>"; };
 		6AC1AF99431D4889F947CE1B /* TBDisplaySenderStatusItemController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBDisplaySenderStatusItemController.swift; sourceTree = "<group>"; };
 		7E3DC447E3E8E522565E725B /* TBInputRelayController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBInputRelayController.swift; sourceTree = "<group>"; };
+		80543A7A5A3B583C1543ABC7 /* TBInputDebugLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBInputDebugLog.swift; sourceTree = "<group>"; };
 		9D063CAADA68CC48C54157FB /* TBDisplaySenderLocalization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBDisplaySenderLocalization.swift; sourceTree = "<group>"; };
 		A3964153C9F34085F90C2C26 /* audio-relay.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "audio-relay.json"; sourceTree = "<group>"; };
 		A51B69D318A85FF3061D6ED4 /* input-dockstation.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "input-dockstation.json"; sourceTree = "<group>"; };
@@ -99,6 +101,7 @@
 			children = (
 				59E4D00FB492A41B5218CD52 /* TBAddonManifest.swift */,
 				06D011FF8AF7BB6D26EDC25B /* TBAddonStore.swift */,
+				80543A7A5A3B583C1543ABC7 /* TBInputDebugLog.swift */,
 				4C932E960346E674A0659624 /* TBLocalizationStore.swift */,
 				DA01317B43B46B1B323A7008 /* TBMonitorProtocol.swift */,
 			);
@@ -262,6 +265,7 @@
 				A3FD74604472363535D63273 /* TBDisplaySenderSettingsView.swift in Sources */,
 				E9F7A263085592067562F768 /* TBDisplaySenderStatusItemController.swift in Sources */,
 				BB4D986A5A0F32BC1480BD4D /* TBDisplaySenderSurfaceViews.swift in Sources */,
+				D5E6B5B7B49E740C92010C6F /* TBInputDebugLog.swift in Sources */,
 				CBA7C2F0FA57CC475E2307AF /* TBInputRelayController.swift in Sources */,
 				8A729C68ECAC4642FA20A284 /* TBLocalizationStore.swift in Sources */,
 				C2CCAB017BC3CAB1DCFA5CCC /* TBMonitorProtocol.swift in Sources */,
