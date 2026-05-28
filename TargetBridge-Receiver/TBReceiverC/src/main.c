@@ -67,6 +67,9 @@ struct app {
     char     permissions_text[160];
     char     sender_ui_language[8];
     char     input_control_mode[32];
+    int      last_input_monitoring_trusted;
+    int      last_accessibility_trusted;
+    uint64_t last_permissions_poll_ms;
 
     DNSServiceRef bonjour_ref;
     char     bonjour_name[128];
@@ -151,8 +154,10 @@ static void tb_receiver_apply_language_preference(struct app *a);
 static void tb_receiver_cycle_language_preference(struct app *a);
 static void tb_receiver_refresh_language_text(struct app *a);
 static void tb_receiver_refresh_permissions_text(struct app *a);
+static void tb_receiver_poll_permissions(struct app *a);
 static int tb_receiver_input_monitoring_trusted(void);
 static int tb_receiver_accessibility_trusted(void);
+static void send_receiver_info(struct app *a);
 static void tb_receiver_apply_input_event(const uint8_t *payload, size_t len);
 static void tb_receiver_apply_input_control_mode(struct app *a, const uint8_t *payload, size_t len);
 static void tb_receiver_refresh_input_capture(struct app *a);
@@ -266,8 +271,12 @@ static void tb_receiver_refresh_language_text(struct app *a) {
 static void tb_receiver_refresh_permissions_text(struct app *a) {
     if (!a) return;
 
-    const int input_monitoring = tb_receiver_input_monitoring_trusted();
-    const int accessibility = tb_receiver_accessibility_trusted();
+    const int input_monitoring = (a->last_input_monitoring_trusted >= 0)
+        ? a->last_input_monitoring_trusted
+        : tb_receiver_input_monitoring_trusted();
+    const int accessibility = (a->last_accessibility_trusted >= 0)
+        ? a->last_accessibility_trusted
+        : tb_receiver_accessibility_trusted();
     const char *lang = tb_i18n_current_language();
 
     if (lang && strncmp(lang, "it", 2) == 0) {
@@ -303,6 +312,31 @@ static void tb_receiver_refresh_permissions_text(struct app *a) {
             accessibility ? "OK" : "Missing"
         );
     }
+}
+
+static void tb_receiver_poll_permissions(struct app *a) {
+    if (!a) return;
+
+    const int input_monitoring = tb_receiver_input_monitoring_trusted();
+    const int accessibility = tb_receiver_accessibility_trusted();
+
+    const int changed =
+        input_monitoring != a->last_input_monitoring_trusted ||
+        accessibility != a->last_accessibility_trusted;
+
+    a->last_input_monitoring_trusted = input_monitoring;
+    a->last_accessibility_trusted = accessibility;
+
+    if (!changed) return;
+
+    tb_receiver_refresh_permissions_text(a);
+    tb_receiver_refresh_input_capture(a);
+    if (a->client_fd >= 0) {
+        send_receiver_info(a);
+    }
+    tb_receiver_input_log("[input] permission state changed inputMonitoring=%s accessibility=%s",
+                          input_monitoring ? "true" : "false",
+                          accessibility ? "true" : "false");
 }
 
 static void tb_receiver_apply_language_preference(struct app *a) {
@@ -1252,6 +1286,10 @@ static void tb_receiver_stop_input_tap(struct app *a) {
 static void tb_receiver_start_input_tap(struct app *a) {
     if (!a || a->input_tap) return;
 
+    if (!tb_receiver_input_monitoring_trusted()) {
+        return;
+    }
+
     const int can_consume = tb_receiver_accessibility_trusted() ? 1 : 0;
     CGEventTapOptions tap_options = can_consume ? kCGEventTapOptionDefault : kCGEventTapOptionListenOnly;
 
@@ -1300,6 +1338,11 @@ static void tb_receiver_start_input_tap(struct app *a) {
 static void tb_receiver_refresh_input_capture(struct app *a) {
     if (!a) return;
     if (strcmp(a->input_control_mode, "receiverMaster") == 0 && a->client_fd >= 0) {
+        const int wants_global_tap = tb_receiver_input_monitoring_trusted() ? 1 : 0;
+        const int wants_consume = tb_receiver_accessibility_trusted() ? 1 : 0;
+        if (a->input_tap && (!wants_global_tap || a->input_tap_consumes_events != wants_consume)) {
+            tb_receiver_stop_input_tap(a);
+        }
         tb_receiver_start_input_tap(a);
         tb_disp_set_input_intercept_active(a->disp, 1);
         tb_disp_set_input_capture_active(a->disp, a->input_tap == NULL ? 1 : 0);
@@ -1479,6 +1522,8 @@ int main(int argc, char **argv) {
     snprintf(a.ip_text, sizeof(a.ip_text), "%s", tb_ip[0] ? tb_ip : (net_ip[0] ? net_ip : tb_i18n_get("receiver.network.not_detected")));
     snprintf(a.language_pref, sizeof(a.language_pref), "%s", startup_language_pref);
     snprintf(a.input_control_mode, sizeof(a.input_control_mode), "%s", "off");
+    a.last_input_monitoring_trusted = -1;
+    a.last_accessibility_trusted = -1;
     tb_refresh_idle_localized_strings(&a);
     build_display_host(a.display_host, sizeof(a.display_host), a.ip_text, tb_ip[0] || net_ip[0]);
     tb_receiver_apply_language_preference(&a);
@@ -1585,8 +1630,12 @@ int main(int argc, char **argv) {
             }
         }
 
+        if (t - a.last_permissions_poll_ms >= 250) {
+            a.last_permissions_poll_ms = t;
+            tb_receiver_poll_permissions(&a);
+        }
+
         if (a.client_fd < 0 || !a.have_video_frame) {
-            tb_receiver_refresh_permissions_text(&a);
             tb_disp_render_status(a.disp, a.display_host, a.status_text, a.sender_text, a.panel_text, a.mode_text, a.language_text, a.permissions_text);
         }
 

@@ -112,6 +112,7 @@
   "receiver.ui.display": "DISPLAY",
   "receiver.ui.stream_profile": "STREAM PROFILE",
   "receiver.ui.language": "LANGUAGE",
+  "receiver.ui.permissions": "PERMISSIONS",
   "receiver.ui.help_1": "Start the sender on your MacBook and enter this IP address.",
   "receiver.ui.help_2": "When the first frame arrives, the receiver switches to fullscreen automatically.",
   "receiver.ui.help_3": "If the sender stops, the receiver returns here ready for a new session.",

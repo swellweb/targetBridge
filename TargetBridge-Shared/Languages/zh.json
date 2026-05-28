@@ -112,6 +112,7 @@
   "receiver.ui.display": "显示器",
   "receiver.ui.stream_profile": "码流配置",
   "receiver.ui.language": "语言",
+  "receiver.ui.permissions": "权限",
   "receiver.ui.help_1": "在 MacBook 上启动发送端，并填入上方的 IP 地址。",
   "receiver.ui.help_2": "收到第一帧画面后，接收端会自动切换到全屏。",
   "receiver.ui.help_3": "发送端停止后，接收端会返回此界面，等待下一次会话。",

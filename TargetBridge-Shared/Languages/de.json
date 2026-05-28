@@ -112,6 +112,7 @@
   "receiver.ui.display": "DISPLAY",
   "receiver.ui.stream_profile": "STREAM-PROFIL",
   "receiver.ui.language": "SPRACHE",
+  "receiver.ui.permissions": "BERECHTIGUNGEN",
   "receiver.ui.help_1": "Starte den Sender auf deinem MacBook und gib diese IP-Adresse ein.",
   "receiver.ui.help_2": "Sobald der erste Bildinhalt ankommt, wechselt der Empfänger automatisch in den Vollbildmodus.",
   "receiver.ui.help_3": "Wenn der Sender stoppt, kehrt der Empfänger hierher zurück und ist für eine neue Sitzung bereit.",
