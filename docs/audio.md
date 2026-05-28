@@ -42,6 +42,20 @@ The `SBAudioConverter` class executes this:
 2. **Hardware-Accelerated Conversion**: Feeds the float pointers to an `AVAudioConverter` configured to transcode into a packed 16-bit signed integer interleaved `AudioStreamBasicDescription` (ASBD).
 3. **Low-Allocation Copying**: Performs conversion frame-by-frame with zero persistent copies, preserving thread safety using Swift concurrency locks.
 
+### 3. Extended Display Mode Capture (Unified SCStream)
+To support audio in Extended Display Mode, the capture strategy was unified:
+* **The Legacy Approach**: Previously, Extended Display Mode captured the virtual display using the video-only `CGDisplayStream` API. However, `CGDisplayStream` has no audio capture capability.
+* **The Modern Solution**: The virtual display capture was migrated to modern **ScreenCaptureKit (`SCStream`)**.
+  - Since the macOS WindowServer exposes the virtual extended desktop as a standard `SCDisplay` object inside `SCShareableContent.displays`, we can resolve and capture it using `SCStream`.
+  - By setting `capturesAudio = true` on the virtual display stream, ScreenCaptureKit captures system audio and delivers it alongside the virtual display's H.264 video frames.
+  - This unifies the entire sender-side pipeline, unlocking high-fidelity, low-latency audio for both Mirror and Extended Display sessions without needing separate capture loops.
+
+### 4. Per-Session Audio Toggles (Live Muting)
+When broadcasting to multiple receivers, audio can be controlled on a per-session basis:
+* **Decoupled State**: Each `TBDisplaySenderSession` manages its own `@Published var audioEnabled: Bool` state, initialized using the global preference as a default.
+* **On-the-Fly Toggle**: Toggles inside each session card bind directly to that session's state and remain interactive at all times.
+* **Instant Playout Cutoff**: The `processAudio` callback verifies `audioEnabled` before every frame conversion. Disabling the toggle stops packet transmission instantly, providing seamless real-time muting for individual targets during active streaming.
+
 ---
 
 ## 🔊 Receiver-Side Architecture (C)
@@ -53,9 +67,10 @@ The receiver utilizes the cross-platform **SDL2 Audio Subsystem** configured for
 * **Device Buffering**: Requested at **1024 samples (approx. 21.3ms)**.
 
 ### The Evolution: Why `SDL_QueueAudio` Failed
-Initially, the receiver used SDL2's queuing API (`SDL_QueueAudio`) and capped the backlog using `SDL_GetQueuedAudioSize() < 13440` (70ms). This failed due to two factors:
+Initially, the receiver used SDL2's queuing API (`SDL_QueueAudio`) and capped the backlog using `SDL_GetQueuedAudioSize() < 13440` (70ms). This failed due to three factors:
 1. **OS-Level Hardware Buffering**: SDL2 immediately drains the external queued buffer into its internal OS/CoreAudio device playback ring buffers. Once the data leaves the SDL queue, `SDL_GetQueuedAudioSize` reports `0` for it, bypassing the backlog threshold and causing up to **1 second of hidden playback buffering**.
 2. **Socket Congestion**: During temporary network slow-downs or high H.264 keyframe activity, audio packets accumulate in the TCP transmit/receive socket buffers (configured up to 4MB). When the network clears, the socket drains in a massive burst. Sequencing all these backlogged packets directly into playout caused a permanent, lagging delay.
+3. **CPU Busy-Spinning & Thread Starvation**: Initially, the receiver's event loop checked non-blocking network socket events without yielding. This resulted in 100% CPU busy-spinning during active streaming, which created thread-scheduling contention and starved the real-time SDL audio thread. Starving this thread caused sporadic playout underflows and stuttering. Yielding for 1ms via `SDL_Delay(1)` in the main loop when the network socket is idle (0 bytes read) completely resolves this CPU starvation.
 
 ---
 
@@ -88,7 +103,7 @@ Rather than aggressively clearing/wiping the entire audio buffer when it gets ba
   }
   ```
 * **How it works**: If a burst of socket-backlogged packets arrives, the check immediately triggers. Instead of deleting all data, it **advances the read tail pointer by the exact excess byte count**.
-* **The Result**: The oldest, lagging samples are skipped instantly. The circular buffer is left holding at most **150ms of the newest, most up-to-date audio samples**.
+* **The Result**: The oldest, lagging samples are skipped instantly. The circular buffer is left holding exactly **150ms of the newest, most up-to-date audio samples**.
 * **Acoustics**: Truncating just the oldest samples in this manner is perceived by the ear as a seamless micro-skip, maintaining crystal-clear playout fidelity, while guaranteeing that audio latency stays perfectly locked to the video stream.
 
 ---
@@ -101,5 +116,5 @@ Developers can tweak the following properties in `main.c` depending on hardware 
    - Configured at `1024` samples. If run on modern Apple Silicon, this can be safely reduced to `512` (10.6ms) or `256` (5.3ms) for even lower latency.
    - For older Intel Macs or high CPU scheduling jitter, keep this at `1024` to prevent scheduling underflows (which cause crackling/static).
 2. **`cap_bytes` (Latency Threshold)**:
-   - Configured at `28800` bytes (150ms).
-   - If H.264/HEVC video decoding takes longer on a specific system, this can be adjusted upward to match real-world video latency, or reduced again on faster hardware.
+   - Configured at `28800` bytes (150ms) to cushion against ScreenCaptureKit variable delivery chunks and socket congestion.
+   - If H.264 video decoding takes longer on a specific system, this can be adjusted to match video latency.
