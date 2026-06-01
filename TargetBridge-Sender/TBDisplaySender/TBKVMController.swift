@@ -136,21 +136,21 @@ final class TBKVMController: @unchecked Sendable {
     // MARK: - Tap thread
 
     private func runTapThread() {
-        let mask: CGEventMask =
-            (1 << CGEventType.keyDown.rawValue) |
-            (1 << CGEventType.keyUp.rawValue) |
-            (1 << CGEventType.flagsChanged.rawValue) |
-            (1 << CGEventType.mouseMoved.rawValue) |
-            (1 << CGEventType.leftMouseDown.rawValue) |
-            (1 << CGEventType.leftMouseUp.rawValue) |
-            (1 << CGEventType.rightMouseDown.rawValue) |
-            (1 << CGEventType.rightMouseUp.rawValue) |
-            (1 << CGEventType.otherMouseDown.rawValue) |
-            (1 << CGEventType.otherMouseUp.rawValue) |
-            (1 << CGEventType.leftMouseDragged.rawValue) |
-            (1 << CGEventType.rightMouseDragged.rawValue) |
-            (1 << CGEventType.otherMouseDragged.rawValue) |
-            (1 << CGEventType.scrollWheel.rawValue)
+        // Built with a loop, not one big `|` expression — a 14-term OR chain
+        // makes the Swift type-checker time out on older Xcode (CI: Xcode 16.4).
+        let tappedTypes: [CGEventType] = [
+            .keyDown, .keyUp, .flagsChanged,
+            .mouseMoved,
+            .leftMouseDown, .leftMouseUp,
+            .rightMouseDown, .rightMouseUp,
+            .otherMouseDown, .otherMouseUp,
+            .leftMouseDragged, .rightMouseDragged, .otherMouseDragged,
+            .scrollWheel
+        ]
+        var mask: CGEventMask = 0
+        for type in tappedTypes {
+            mask |= CGEventMask(1) << CGEventMask(type.rawValue)
+        }
 
         let refcon = Unmanaged.passUnretained(self).toOpaque()
         guard let tap = CGEvent.tapCreate(
