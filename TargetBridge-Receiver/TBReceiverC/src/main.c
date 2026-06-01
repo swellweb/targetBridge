@@ -323,6 +323,9 @@ static void on_packet(uint8_t type, const uint8_t *payload, size_t len, void *ud
         {
             int enabled = 0;
             (void)extract_json_bool_field(payload, len, "\"enabled\"", &enabled);
+            if (enabled && !a->input) {
+                a->input = tb_input_create();   /* lazy: first time KVM is engaged */
+            }
             a->kvm_active = enabled;
             tb_disp_set_kvm_hidden(a->disp, enabled);
             if (a->input) tb_input_reset_modifiers(a->input);   /* clean slate entering/leaving KVM */
@@ -555,11 +558,10 @@ int main(int argc, char **argv) {
     a.dec = tb_dec_create(on_frame, &a);
     if (!a.dec) { fprintf(stderr, "tb_dec_create failed\n"); tb_disp_destroy(a.disp); return 1; }
 
-    a.input = tb_input_create();
-    if (a.input && !tb_input_accessibility_ok(a.input)) {
-        fprintf(stderr, "[kvm] Accessibility not granted yet; KVM input control will be inert\n"
-                        "      until enabled in System Settings -> Privacy & Security -> Accessibility.\n");
-    }
+    /* Input injection (tb_input) is created lazily the first time KVM is
+     * engaged — see TB_PKT_INPUT_CONTROL. We deliberately do NOT touch the
+     * CoreGraphics HID/Accessibility machinery at startup so the normal
+     * streaming path is identical to a build without KVM. */
 
     tb_parser_init(&a.parser, on_packet, &a);
 
