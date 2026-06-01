@@ -43,6 +43,8 @@ struct tb_display {
     int           input_tail;
     uint32_t      last_target_switch_tick;
     uint32_t      last_space_switch_tick;
+    uint32_t      last_space_gesture_tick;
+    int           space_gesture_accum_x;
     int           cursor_x, cursor_y;
     int           cursor_source_w, cursor_source_h;
     int           cursor_visible;
@@ -1074,19 +1076,32 @@ unsigned int tb_disp_poll_actions(struct tb_display *d) {
                 tb_disp_queue_input_event(d, &input_event);
                 break;
             case SDL_MOUSEWHEEL:
-                if (abs(ev.wheel.x) >= 3 &&
-                    abs(ev.wheel.x) > abs(ev.wheel.y) * 2 &&
-                    SDL_GetTicks() - d->last_space_switch_tick > 450) {
-                    input_event.kind = ev.wheel.x > 0 ? TB_INPUT_EVENT_SWITCH_NEXT_SPACE : TB_INPUT_EVENT_SWITCH_PREV_SPACE;
-                    tb_disp_queue_input_event(d, &input_event);
-                    d->last_space_switch_tick = SDL_GetTicks();
+            {
+                uint32_t now = SDL_GetTicks();
+                if (abs(ev.wheel.x) > abs(ev.wheel.y) * 2 && ev.wheel.x != 0) {
+                    if (now - d->last_space_gesture_tick > 250) {
+                        d->space_gesture_accum_x = 0;
+                    }
+                    d->last_space_gesture_tick = now;
+                    d->space_gesture_accum_x += ev.wheel.x;
+                    if (abs(d->space_gesture_accum_x) >= 6 &&
+                        now - d->last_space_switch_tick > 450) {
+                        input_event.kind = d->space_gesture_accum_x > 0 ? TB_INPUT_EVENT_SWITCH_NEXT_SPACE : TB_INPUT_EVENT_SWITCH_PREV_SPACE;
+                        tb_disp_queue_input_event(d, &input_event);
+                        d->last_space_switch_tick = now;
+                        d->space_gesture_accum_x = 0;
+                    }
                     break;
+                }
+                if (now - d->last_space_gesture_tick > 250) {
+                    d->space_gesture_accum_x = 0;
                 }
                 input_event.kind = TB_INPUT_EVENT_SCROLL;
                 input_event.scroll_x = ev.wheel.x;
                 input_event.scroll_y = ev.wheel.y;
                 tb_disp_queue_input_event(d, &input_event);
                 break;
+            }
             case SDL_MOUSEBUTTONDOWN:
                 if (ev.button.button == SDL_BUTTON_LEFT) input_event.kind = TB_INPUT_EVENT_LEFT_DOWN;
                 else if (ev.button.button == SDL_BUTTON_RIGHT) input_event.kind = TB_INPUT_EVENT_RIGHT_DOWN;

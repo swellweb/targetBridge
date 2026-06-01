@@ -88,6 +88,8 @@ struct app {
     uint64_t input_events_received;
     uint64_t last_target_switch_ms;
     uint64_t last_space_switch_ms;
+    uint64_t last_space_gesture_ms;
+    int      space_gesture_accum_x;
     uint64_t last_clipboard_poll_ms;
     char     last_clipboard_text[4096];
 };
@@ -1210,14 +1212,29 @@ static CGEventRef tb_receiver_input_tap_callback(CGEventTapProxy proxy,
     case kCGEventScrollWheel: {
         int sx = (int)CGEventGetIntegerValueField(event, kCGScrollWheelEventDeltaAxis2);
         int sy = (int)CGEventGetIntegerValueField(event, kCGScrollWheelEventDeltaAxis1);
+        int point_sx = (int)CGEventGetIntegerValueField(event, kCGScrollWheelEventPointDeltaAxis2);
+        int point_sy = (int)CGEventGetIntegerValueField(event, kCGScrollWheelEventPointDeltaAxis1);
+        int is_continuous = (int)CGEventGetIntegerValueField(event, kCGScrollWheelEventIsContinuous);
         uint64_t now = now_ms();
-        if (llabs((long long)sx) >= 3 &&
-            llabs((long long)sx) > llabs((long long)sy) * 2 &&
-            now - a->last_space_switch_ms > 450) {
-            a->last_space_switch_ms = now;
-            tb_receiver_send_space_switch(a, sx > 0 ? 1 : -1);
+        if (is_continuous &&
+            (point_sx != 0 || point_sy != 0) &&
+            llabs((long long)point_sx) > llabs((long long)point_sy) * 2) {
+            if (now - a->last_space_gesture_ms > 250) {
+                a->space_gesture_accum_x = 0;
+            }
+            a->last_space_gesture_ms = now;
+            a->space_gesture_accum_x += point_sx;
+            if (llabs((long long)a->space_gesture_accum_x) >= 45 &&
+                now - a->last_space_switch_ms > 450) {
+                a->last_space_switch_ms = now;
+                tb_receiver_send_space_switch(a, a->space_gesture_accum_x > 0 ? 1 : -1);
+                a->space_gesture_accum_x = 0;
+            }
             should_consume = a->input_tap_consumes_events;
             break;
+        }
+        if (now - a->last_space_gesture_ms > 250) {
+            a->space_gesture_accum_x = 0;
         }
         tb_receiver_send_input_event(a, "scroll", 0, 0, 0, 0, 1, sx, 1, sy, 0, 0);
         should_consume = a->input_tap_consumes_events;
