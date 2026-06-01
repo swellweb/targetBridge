@@ -1,6 +1,7 @@
 import AppKit
 import CoreGraphics
 import Foundation
+import IOKit.pwr_mgt
 import Network
 
 /// Software-KVM input capture. When active, an event tap on a dedicated thread
@@ -31,6 +32,8 @@ final class TBKVMController: @unchecked Sendable {
     private var runLoopSource: CFRunLoopSource?
     private var flushTimer: CFRunLoopTimer?
     private var lifecycleObservers: [NSObjectProtocol] = []
+    private var userActivityTimer: Timer?
+    private var idleAssertionID = IOPMAssertionID(0)
 
     // Mouse-move coalescing — touched only on the tap thread (callback + timer
     // run serially on the same runloop), so no locking is needed for these.
@@ -75,9 +78,26 @@ final class TBKVMController: @unchecked Sendable {
             }
         ]
 
+        // Keep this Mac awake while it's driving the remote. The user's input is
+        // consumed and forwarded, so the local idle timer sees no activity and
+        // would fire the screensaver/lock mid-session (even worse while passively
+        // watching remote video). Declare user activity now and on a repeating
+        // timer so the screensaver/display-sleep never engage during KVM.
+        declareUserActivity()
+        userActivityTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.declareUserActivity() }
+        }
+
         lock.lock(); active = true; lock.unlock()
         Self.installAtExitFailsafe()
         return true
+    }
+
+    @MainActor
+    private func declareUserActivity() {
+        IOPMAssertionDeclareUserActivity("TargetBridge KVM active" as CFString,
+                                         kIOPMUserActiveLocal,
+                                         &idleAssertionID)
     }
 
     /// Called by the owning session when its connection drops, so KVM can't
@@ -101,6 +121,9 @@ final class TBKVMController: @unchecked Sendable {
         let nc = NotificationCenter.default
         lifecycleObservers.forEach { nc.removeObserver($0) }
         lifecycleObservers.removeAll()
+
+        userActivityTimer?.invalidate()
+        userActivityTimer = nil
 
         if let rl = runLoop { CFRunLoopStop(rl) }
         tapThread = nil
