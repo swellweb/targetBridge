@@ -1158,6 +1158,8 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         if persistArrangement {
             persistExtendedDisplayArrangementIfNeeded()
         }
+        // Never leave KVM active (cursor parked) once the session is going away.
+        TBKVMController.shared.notifyConnectionLost()
         sendTeardown(reason: "sender_stop")
         heartbeatTimer?.invalidate()
         heartbeatTimer = nil
@@ -2076,6 +2078,28 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
 
     private func send(_ packet: Data) {
         connection?.send(content: packet, completion: .contentProcessed({ _ in }))
+    }
+
+    // MARK: - Software KVM
+
+    /// Starts forwarding this sender's keyboard/mouse to the receiver's native
+    /// desktop. Returns false if not connected or Accessibility is denied.
+    func beginKVM(onForceDeactivate: @escaping () -> Void) -> Bool {
+        guard isConnected, let connection,
+              let packet = TBMonitorProtocol.makeJSONPacket(type: .inputControl, value: TBMonitorInputControl(enabled: true))
+        else { return false }
+        guard TBKVMController.shared.activate(connection: connection, onForceDeactivate: onForceDeactivate) else { return false }
+        send(packet)   // tell the receiver to hide its window and accept input
+        return true
+    }
+
+    /// Stops KVM forwarding and restores the receiver's window + local cursor.
+    func endKVM() {
+        if isConnected,
+           let packet = TBMonitorProtocol.makeJSONPacket(type: .inputControl, value: TBMonitorInputControl(enabled: false)) {
+            send(packet)
+        }
+        TBKVMController.shared.deactivate()
     }
 
 }

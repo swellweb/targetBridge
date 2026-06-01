@@ -33,6 +33,7 @@ struct tb_display {
     int           quit;
     int           preferred_fullscreen;
     int           is_connected;
+    int           kvm_hidden;   /* window minimized so the native desktop shows through (KVM mode) */
     int           cursor_x, cursor_y;
     int           cursor_source_w, cursor_source_h;
     int           cursor_visible;
@@ -793,6 +794,9 @@ static void tb_disp_draw_cursor(struct tb_display *d) {
 
 static void tb_disp_render_current(struct tb_display *d) {
     if (!d || !d->tex) return;
+    /* While KVM mode hides the window to expose the native desktop, don't
+     * present — it would waste cycles and fight the minimized state. */
+    if (d->kvm_hidden) return;
     SDL_RenderClear(d->ren);
     SDL_RenderCopy(d->ren, d->tex, NULL, NULL);
     tb_disp_draw_cursor(d);
@@ -889,7 +893,24 @@ void tb_disp_set_connection_state(struct tb_display *d, int connected) {
     if (!d) return;
     if (d->is_connected == connected) return;
     d->is_connected = connected;
+    if (d->kvm_hidden) return;   /* don't fight the minimized window while in KVM mode */
     tb_disp_refresh_window_mode(d);
+}
+
+void tb_disp_set_kvm_hidden(struct tb_display *d, int hidden) {
+    if (!d || !d->win) return;
+    if (hidden == d->kvm_hidden) return;
+    d->kvm_hidden = hidden;
+    if (hidden) {
+        /* Exit fullscreen first so we drop out of our own Space, then minimize:
+         * this resigns active (the previously-frontmost native app regains
+         * focus) and exposes the receiver Mac's native desktop. */
+        SDL_SetWindowFullscreen(d->win, 0);
+        SDL_MinimizeWindow(d->win);
+    } else {
+        SDL_RestoreWindow(d->win);
+        tb_disp_refresh_window_mode(d);   /* re-fullscreen if still connected */
+    }
 }
 
 void tb_disp_render_status(struct tb_display *d,

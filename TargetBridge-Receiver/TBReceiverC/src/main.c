@@ -16,6 +16,7 @@
 #include "net.h"
 #include "decoder.h"
 #include "display.h"
+#include "input.h"
 #include "proto.h"
 
 #include <SDL.h>
@@ -33,7 +34,10 @@
 struct app {
     struct tb_display *disp;
     struct tb_decoder *dec;
+    struct tb_input   *input;
     struct tb_parser   parser;
+
+    int      kvm_active;
 
     int      server_fd;
     int      client_fd;
@@ -208,6 +212,29 @@ static int extract_json_bool_field(const uint8_t *payload,
     return extract_json_int_field(payload, len, key, out_value);
 }
 
+static int extract_json_u64_field(const uint8_t *payload,
+                                  size_t len,
+                                  const char *key,
+                                  uint64_t *out_value) {
+    if (!payload || !key || !out_value) return 0;
+
+    const char *text = (const char *)payload;
+    const char *pos = strstr(text, key);
+    if (!pos) return 0;
+
+    pos = strchr(pos, ':');
+    if (!pos) return 0;
+    pos++;
+    while ((size_t)(pos - text) < len && (*pos == ' ' || *pos == '\t')) pos++;
+    if ((size_t)(pos - text) >= len) return 0;
+
+    char *end = NULL;
+    unsigned long long value = strtoull(pos, &end, 10);
+    if (end == pos) return 0;
+    *out_value = (uint64_t)value;
+    return 1;
+}
+
 /* ---- Callbacks: decoder → display ------------------------------------ */
 
 static void on_frame(const uint8_t *y, int y_stride,
@@ -291,6 +318,54 @@ static void on_packet(uint8_t type, const uint8_t *payload, size_t len, void *ud
         }
         break;
     case TB_PKT_HEARTBEAT:
+        break;
+    case TB_PKT_INPUT_CONTROL:
+        {
+            int enabled = 0;
+            (void)extract_json_bool_field(payload, len, "\"enabled\"", &enabled);
+            a->kvm_active = enabled;
+            tb_disp_set_kvm_hidden(a->disp, enabled);
+            if (a->input) tb_input_reset_modifiers(a->input);   /* clean slate entering/leaving KVM */
+            if (enabled && a->input && !tb_input_accessibility_ok(a->input)) {
+                fprintf(stderr, "[kvm] WARNING: Accessibility not granted — input will not reach the native session.\n"
+                                "      Grant it in System Settings -> Privacy & Security -> Accessibility.\n");
+            }
+            fprintf(stderr, "[kvm] control mode %s\n", enabled ? "ENABLED (driving native desktop)" : "disabled");
+        }
+        break;
+    case TB_PKT_INPUT_MOUSE_MOVE:
+        if (a->kvm_active && a->input) {
+            int dx = 0, dy = 0;
+            (void)extract_json_int_field(payload, len, "\"dx\"", &dx);
+            (void)extract_json_int_field(payload, len, "\"dy\"", &dy);
+            tb_input_mouse_move(a->input, dx, dy);
+        }
+        break;
+    case TB_PKT_INPUT_MOUSE_BTN:
+        if (a->kvm_active && a->input) {
+            int button = 0, down = 0;
+            (void)extract_json_int_field(payload, len, "\"button\"", &button);
+            (void)extract_json_bool_field(payload, len, "\"down\"", &down);
+            tb_input_mouse_button(a->input, button, down);
+        }
+        break;
+    case TB_PKT_INPUT_SCROLL:
+        if (a->kvm_active && a->input) {
+            int dx = 0, dy = 0;
+            (void)extract_json_int_field(payload, len, "\"dx\"", &dx);
+            (void)extract_json_int_field(payload, len, "\"dy\"", &dy);
+            tb_input_scroll(a->input, dx, dy);
+        }
+        break;
+    case TB_PKT_INPUT_KEY:
+        if (a->kvm_active && a->input) {
+            int keycode = 0, down = 0;
+            uint64_t flags = 0;
+            (void)extract_json_int_field(payload, len, "\"keycode\"", &keycode);
+            (void)extract_json_bool_field(payload, len, "\"down\"", &down);
+            (void)extract_json_u64_field(payload, len, "\"flags\"", &flags);
+            tb_input_key(a->input, keycode, down, flags);
+        }
         break;
     case TB_PKT_TEST_DATA:
         /* Performance test data; discard */
@@ -415,6 +490,10 @@ static void close_client(struct app *a) {
     a->client_fd = -1;
     a->close_requested = 0;
     a->have_video_frame = 0;
+    if (a->kvm_active) {            /* sender gone: leave KVM mode, restore window */
+        a->kvm_active = 0;
+        tb_disp_set_kvm_hidden(a->disp, 0);
+    }
     tb_disp_set_connection_state(a->disp, 0);
     tb_disp_set_cursor(a->disp, 0, 0, 1, 1, 0, 0);
     snprintf(a->status_text, sizeof(a->status_text), "%s", "waiting for sender");
@@ -475,6 +554,12 @@ int main(int argc, char **argv) {
 
     a.dec = tb_dec_create(on_frame, &a);
     if (!a.dec) { fprintf(stderr, "tb_dec_create failed\n"); tb_disp_destroy(a.disp); return 1; }
+
+    a.input = tb_input_create();
+    if (a.input && !tb_input_accessibility_ok(a.input)) {
+        fprintf(stderr, "[kvm] Accessibility not granted yet; KVM input control will be inert\n"
+                        "      until enabled in System Settings -> Privacy & Security -> Accessibility.\n");
+    }
 
     tb_parser_init(&a.parser, on_packet, &a);
 
@@ -538,6 +623,7 @@ int main(int argc, char **argv) {
     if (a.server_fd >= 0) close(a.server_fd);
     bonjour_deinit(&a);
     tb_parser_free(&a.parser);
+    tb_input_destroy(a.input);
     tb_dec_destroy(a.dec);
     tb_disp_destroy(a.disp);
     fprintf(stderr, "[main] bye\n");

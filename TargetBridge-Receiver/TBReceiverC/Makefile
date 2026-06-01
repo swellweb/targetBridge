@@ -30,10 +30,10 @@ LDFLAGS  += $(shell $(PKG) --libs libavcodec libavutil sdl2)
 
 UNAME_S  := $(shell uname -s)
 ifeq ($(UNAME_S),Darwin)
-LDFLAGS  += -framework CoreFoundation -framework CoreGraphics -framework CoreText -framework VideoToolbox -framework CoreMedia -framework CoreVideo -framework IOSurface -framework CoreServices
+LDFLAGS  += -framework CoreFoundation -framework CoreGraphics -framework CoreText -framework VideoToolbox -framework CoreMedia -framework CoreVideo -framework IOSurface -framework CoreServices -framework ApplicationServices
 endif
 
-SRC = src/main.c src/net.c src/decoder.c src/display.c
+SRC = src/main.c src/net.c src/decoder.c src/display.c src/input.c
 OBJ = $(SRC:.c=.o)
 BIN = tbreceiver
 

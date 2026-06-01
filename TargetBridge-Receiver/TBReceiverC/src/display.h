@@ -22,6 +22,10 @@ struct tb_display *tb_disp_create(int fullscreen);
 void               tb_disp_destroy(struct tb_display *d);
 void               tb_disp_set_connection_state(struct tb_display *d, int connected);
 
+/* KVM mode: minimize/restore the window so the receiver Mac's native desktop is
+ * exposed (and the app resigns active) while the sender drives it directly. */
+void               tb_disp_set_kvm_hidden(struct tb_display *d, int hidden);
+
 /* Resize/recreate texture when frame dimensions change. */
 int  tb_disp_ensure_texture(struct tb_display *d, int w, int h);
 

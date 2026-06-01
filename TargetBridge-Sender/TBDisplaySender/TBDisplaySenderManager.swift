@@ -48,6 +48,37 @@ final class TBDisplaySenderService: ObservableObject {
         }
     }
 
+    /// Software-KVM: when on, the sender's keyboard/mouse drive the receiver's
+    /// native desktop. Transient (never persisted — must be re-armed each launch).
+    @Published var controlIMacKVM: Bool = false {
+        didSet {
+            guard controlIMacKVM != oldValue else { return }
+            if controlIMacKVM { enableKVM() } else { disableKVM() }
+        }
+    }
+
+    /// KVM can only be engaged while a session is connected.
+    var canControlIMac: Bool { sessions.contains { $0.isConnected } }
+
+    private func enableKVM() {
+        guard let session = sessions.first(where: { $0.isConnected }) else {
+            controlIMacKVM = false   // nothing to control
+            return
+        }
+        let started = session.beginKVM(onForceDeactivate: { [weak self] in
+            // Escape hotkey or a failsafe fired on the tap — reflect it in the UI,
+            // which routes back through disableKVM().
+            self?.controlIMacKVM = false
+        })
+        if !started {
+            controlIMacKVM = false   // not connected, or Accessibility denied
+        }
+    }
+
+    private func disableKVM() {
+        sessions.forEach { $0.endKVM() }
+    }
+
     private var sessionCancellables: [UUID: AnyCancellable] = [:]
     private let receiverDiscovery = TBReceiverDiscovery()
     private var discoveryCancellable: AnyCancellable?

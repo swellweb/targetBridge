@@ -520,6 +520,22 @@ enum TBDisplaySenderL10n {
         }
     }
 
+    static func controlIMacKVM(_ language: TBDisplaySenderLanguage) -> String {
+        switch language {
+        case .italian: return "Controlla il Mac ricevente (tastiera e mouse)"
+        case .english: return "Control receiver Mac (keyboard & mouse)"
+        case .german: return "Empfänger-Mac steuern (Tastatur & Maus)"
+        }
+    }
+
+    static func controlIMacKVMActive(_ language: TBDisplaySenderLanguage) -> String {
+        switch language {
+        case .italian: return "Controllo del Mac ricevente — premi ⌃⌥⌘K per tornare"
+        case .english: return "Controlling receiver Mac — press ⌃⌥⌘K to return"
+        case .german: return "Steuere Empfänger-Mac — ⌃⌥⌘K zum Zurückkehren"
+        }
+    }
+
     static func topBarIP(_ language: TBDisplaySenderLanguage, _ ip: String) -> String {
         switch language {
         case .italian: return "IP TB: \(ip)"

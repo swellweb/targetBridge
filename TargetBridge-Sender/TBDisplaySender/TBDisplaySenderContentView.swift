@@ -169,6 +169,15 @@ struct TBDisplaySenderContentView: View {
                 Toggle(TBDisplaySenderL10n.autoRestartOnWake(service.language), isOn: $service.autoRestartOnWake)
 
                 Toggle(TBDisplaySenderL10n.verboseDisplayLogging(service.language), isOn: $service.verboseDisplayLogging)
+
+                Toggle(TBDisplaySenderL10n.controlIMacKVM(service.language), isOn: $service.controlIMacKVM)
+                    .disabled(!service.canControlIMac && !service.controlIMacKVM)
+
+                if service.controlIMacKVM {
+                    Label(TBDisplaySenderL10n.controlIMacKVMActive(service.language), systemImage: "keyboard.badge.ellipsis")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.orange)
+                }
             }
         }
     }

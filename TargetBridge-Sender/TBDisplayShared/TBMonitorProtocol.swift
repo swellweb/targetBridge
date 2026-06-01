@@ -9,6 +9,13 @@ enum TBMonitorPacketType: UInt8 {
     case heartbeat = 0x30
     case teardown = 0x31
     case cursor = 0x32
+    // Software-KVM input forwarding (sender → receiver). When enabled, the
+    // sender's keyboard/mouse drive the receiver's *native* desktop.
+    case inputControl = 0x33
+    case inputMouseMove = 0x34
+    case inputMouseButton = 0x35
+    case inputScroll = 0x36
+    case inputKey = 0x37
     case testData = 0x40
 }
 
@@ -54,6 +61,42 @@ struct TBMonitorCursor: Codable {
     var height: Int
     var visible: Bool
     var type: Int
+}
+
+// MARK: - Software-KVM input forwarding
+
+/// Toggles KVM input mode on the receiver. When enabled, the receiver hides its
+/// display window to expose its native desktop and begins injecting forwarded
+/// input; disabling reverses both.
+struct TBMonitorInputControl: Codable {
+    var enabled: Bool
+}
+
+/// Relative pointer motion. The receiver owns/clamps the real cursor, applying
+/// these OS-accelerated deltas to its tracked position.
+struct TBMonitorInputMouseMove: Codable {
+    var dx: Int
+    var dy: Int
+}
+
+/// A mouse button transition. `button`: 0 = left, 1 = right, 2 = center.
+struct TBMonitorInputMouseButton: Codable {
+    var button: Int
+    var down: Bool
+}
+
+/// Scroll-wheel delta (line units).
+struct TBMonitorInputScroll: Codable {
+    var dx: Int
+    var dy: Int
+}
+
+/// A key transition. `keycode` is a virtual keycode (CGKeyCode); `flags` is the
+/// raw `CGEventFlags` bitmask so the receiver can re-synthesize modifiers.
+struct TBMonitorInputKey: Codable {
+    var keycode: Int
+    var down: Bool
+    var flags: UInt64
 }
 
 enum TBMonitorProtocol {
