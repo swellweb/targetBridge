@@ -2,7 +2,13 @@
 
 #include "input.h"
 
-#include <ApplicationServices/ApplicationServices.h>
+/* CoreGraphics (already linked by the base build) provides the CGEvent* and
+ * CGDisplay* APIs we use. We deliberately avoid <ApplicationServices/...> /
+ * AXIsProcessTrusted so the receiver links the exact same frameworks as a
+ * build without KVM — linking the ApplicationServices umbrella was implicated
+ * in a connection regression on OCLP-patched macOS. */
+#include <CoreGraphics/CoreGraphics.h>
+#include <CoreFoundation/CoreFoundation.h>
 #include <stdlib.h>
 
 /* Button bits in `button_mask`. */
@@ -49,8 +55,11 @@ void tb_input_destroy(struct tb_input *in) {
 }
 
 int tb_input_accessibility_ok(struct tb_input *in) {
+    /* Without AXIsProcessTrusted (ApplicationServices) we can't cheaply probe
+     * the grant. Injection via CGEventPost simply no-ops until the user grants
+     * Accessibility in System Settings; we assume OK and rely on that. */
     (void)in;
-    return AXIsProcessTrusted() ? 1 : 0;
+    return 1;
 }
 
 static CGMouseButton tb_cg_button(int button) {
