@@ -530,9 +530,9 @@ enum TBDisplaySenderL10n {
 
     static func controlIMacKVMActive(_ language: TBDisplaySenderLanguage) -> String {
         switch language {
-        case .italian: return "Controllo del Mac ricevente — premi ⌃⌥⌘K per tornare"
-        case .english: return "Controlling receiver Mac — press ⌃⌥⌘K to return"
-        case .german: return "Steuere Empfänger-Mac — ⌃⌥⌘K zum Zurückkehren"
+        case .italian: return "Controllo del Mac ricevente — premi Ctrl-Opzione-Comando-K per tornare"
+        case .english: return "Controlling receiver Mac — press Control-Option-Command-K to return"
+        case .german: return "Steuere Empfänger-Mac — Strg-Wahl-Befehl-K zum Zurückkehren"
         }
     }
 
