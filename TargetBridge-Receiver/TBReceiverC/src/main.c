@@ -17,6 +17,7 @@
 #include "decoder.h"
 #include "display.h"
 #include "proto.h"
+#include "tb_gesture_bridge.h"
 #include "tb_i18n.h"
 
 #include <SDL.h>
@@ -1130,6 +1131,12 @@ static void tb_receiver_send_space_switch(struct app *a, int direction) {
                                  0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 }
 
+static void tb_receiver_space_switch_callback(int direction, void *context) {
+    struct app *a = (struct app *)context;
+    if (!a || strcmp(a->input_control_mode, "receiverMaster") != 0 || a->client_fd < 0) return;
+    tb_receiver_send_space_switch(a, direction);
+}
+
 static void tb_receiver_send_deactivate_control(struct app *a) {
     tb_receiver_send_input_event(a,
                                  "deactivateInputControl",
@@ -1402,12 +1409,14 @@ static void tb_receiver_refresh_input_capture(struct app *a) {
         tb_receiver_start_input_tap(a);
         tb_disp_set_input_intercept_active(a->disp, 1);
         tb_disp_set_input_capture_active(a->disp, a->input_tap == NULL ? 1 : 0);
+        tb_gesture_bridge_set_active(1);
         tb_receiver_input_log("[input] receiverMaster capture path = %s",
                               a->input_tap ? "global-tap" : "sdl-fallback");
     } else {
         tb_receiver_stop_input_tap(a);
         tb_disp_set_input_intercept_active(a->disp, 0);
         tb_disp_set_input_capture_active(a->disp, 0);
+        tb_gesture_bridge_set_active(0);
         tb_receiver_input_log("[input] input capture disabled");
     }
 }
@@ -1583,6 +1592,8 @@ int main(int argc, char **argv) {
     tb_refresh_idle_localized_strings(&a);
     build_display_host(a.display_host, sizeof(a.display_host), a.ip_text, tb_ip[0] || net_ip[0]);
     tb_receiver_apply_language_preference(&a);
+    tb_gesture_bridge_install(tb_receiver_space_switch_callback, &a);
+    tb_gesture_bridge_set_active(0);
 
     a.disp = tb_disp_create(fullscreen);
     if (!a.disp) { fprintf(stderr, "tb_disp_create failed\n"); return 1; }

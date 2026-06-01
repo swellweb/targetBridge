@@ -31,11 +31,12 @@ LDFLAGS  += $(shell $(PKG) --libs libavcodec libavutil sdl2)
 
 UNAME_S  := $(shell uname -s)
 ifeq ($(UNAME_S),Darwin)
-LDFLAGS  += -framework ApplicationServices -framework CoreFoundation -framework CoreGraphics -framework CoreText -framework VideoToolbox -framework CoreMedia -framework CoreVideo -framework IOSurface -framework CoreServices
+LDFLAGS  += -framework ApplicationServices -framework AppKit -framework CoreFoundation -framework CoreGraphics -framework CoreText -framework VideoToolbox -framework CoreMedia -framework CoreVideo -framework IOSurface -framework CoreServices
 endif
 
-SRC = src/main.c src/net.c src/decoder.c src/display.c src/tb_i18n.c
-OBJ = $(SRC:.c=.o)
+C_SRC = src/main.c src/net.c src/decoder.c src/display.c src/tb_i18n.c
+OBJC_SRC = src/tb_gesture_bridge.m
+OBJ = $(C_SRC:.c=.o) $(OBJC_SRC:.m=.o)
 BIN = tbreceiver
 
 all: $(BIN)
@@ -45,6 +46,9 @@ $(BIN): $(OBJ)
 
 %.o: %.c
 	$(CC) $(CFLAGS) -c -o $@ $<
+
+%.o: %.m
+	$(CC) $(CFLAGS) -fobjc-arc -c -o $@ $<
 
 clean:
 	rm -f $(OBJ) $(BIN)
