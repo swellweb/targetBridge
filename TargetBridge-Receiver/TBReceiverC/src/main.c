@@ -23,6 +23,7 @@
 #include <dns_sd.h>
 
 #include <errno.h>
+#include <poll.h>
 #include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -614,10 +615,16 @@ int main(int argc, char **argv) {
             if (df > 0) fprintf(stderr, "[main] %llu fps\n", (unsigned long long)df);
         }
 
-        /* Yield only while idle. During active video, keep draining and
-         * rendering without injecting an extra millisecond of latency. */
-        if (a.client_fd < 0 || !a.have_video_frame) {
-            SDL_Delay(1);
+        /* Sleep until the next packet instead of busy-spinning a CPU core.
+         * poll() returns the instant data is ready (no added latency vs the old
+         * busy loop) and otherwise wakes on the short timeout so the per-second
+         * housekeeping and quit handling still run. This is what kept a core
+         * pegged at 100% (constant fan) during streaming. */
+        if (a.client_fd >= 0) {
+            struct pollfd pfd = { .fd = a.client_fd, .events = POLLIN, .revents = 0 };
+            poll(&pfd, 1, 10);
+        } else {
+            SDL_Delay(10);
         }
     }
 
