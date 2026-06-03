@@ -16,12 +16,13 @@
  * type 0x31 = teardown (JSON)
  * type 0x32 = cursor position (JSON)
  *
+ * (0x33 is reserved for brightness control, PR #68; KVM starts at 0x34.)
  * Software-KVM input forwarding (sender -> receiver, JSON payloads):
- * type 0x33 = input control       {"enabled":bool}
- * type 0x34 = input mouse move     {"dx":int,"dy":int}   (relative, accelerated)
- * type 0x35 = input mouse button   {"button":int,"down":bool}  (0=L,1=R,2=C)
- * type 0x36 = input scroll         {"dx":int,"dy":int}
- * type 0x37 = input key            {"keycode":int,"down":bool,"flags":uint64}
+ * type 0x34 = input control       {"enabled":bool}
+ * type 0x35 = input mouse move     {"dx":int,"dy":int}   (relative, accelerated)
+ * type 0x36 = input mouse button   {"button":int,"down":bool}  (0=L,1=R,2=C)
+ * type 0x37 = input scroll         {"dx":int,"dy":int}
+ * type 0x38 = input key            {"keycode":int,"down":bool,"flags":uint64}
  *
  * Compatible with the new TBDisplaySender Swift app.
  */
@@ -40,11 +41,12 @@
 #define TB_PKT_HEARTBEAT        0x30
 #define TB_PKT_TEARDOWN         0x31
 #define TB_PKT_CURSOR           0x32
-#define TB_PKT_INPUT_CONTROL    0x33
-#define TB_PKT_INPUT_MOUSE_MOVE 0x34
-#define TB_PKT_INPUT_MOUSE_BTN  0x35
-#define TB_PKT_INPUT_SCROLL     0x36
-#define TB_PKT_INPUT_KEY        0x37
+/* 0x33 reserved for brightness control (PR #68); KVM input starts at 0x34. */
+#define TB_PKT_INPUT_CONTROL    0x34
+#define TB_PKT_INPUT_MOUSE_MOVE 0x35
+#define TB_PKT_INPUT_MOUSE_BTN  0x36
+#define TB_PKT_INPUT_SCROLL     0x37
+#define TB_PKT_INPUT_KEY        0x38
 #define TB_PKT_TEST_DATA        0x40
 
 #define TB_HDR_BYTES        5   /* 4 length + 1 type */

@@ -9,13 +9,14 @@ enum TBMonitorPacketType: UInt8 {
     case heartbeat = 0x30
     case teardown = 0x31
     case cursor = 0x32
+    // 0x33 is reserved for brightness control (PR #68); KVM starts at 0x34.
     // Software-KVM input forwarding (sender → receiver). When enabled, the
     // sender's keyboard/mouse drive the receiver's *native* desktop.
-    case inputControl = 0x33
-    case inputMouseMove = 0x34
-    case inputMouseButton = 0x35
-    case inputScroll = 0x36
-    case inputKey = 0x37
+    case inputControl = 0x34
+    case inputMouseMove = 0x35
+    case inputMouseButton = 0x36
+    case inputScroll = 0x37
+    case inputKey = 0x38
     case testData = 0x40
 }
 
