@@ -110,14 +110,22 @@ jobs:
           name: TargetBridge-Receiver-arm64.app.zip
           path: ./artifacts
 
-      - name: Create Draft Release
+      - name: Create or Update Release Assets
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "${{ github.ref_name }}" \
-            ./artifacts/TargetBridge-arm64.app.zip \
-            ./artifacts/TargetBridge-Receiver-x86_64.app.zip \
-            ./artifacts/TargetBridge-Receiver-arm64.app.zip \
-            --title "TargetBridge ${{ github.ref_name }}" \
-            --draft \
-            --generate-notes
+          if gh release view "${{ github.ref_name }}" >/dev/null 2>&1; then
+            gh release upload "${{ github.ref_name }}" \
+              ./artifacts/TargetBridge-arm64.app.zip \
+              ./artifacts/TargetBridge-Receiver-x86_64.app.zip \
+              ./artifacts/TargetBridge-Receiver-arm64.app.zip \
+              --clobber
+          else
+            gh release create "${{ github.ref_name }}" \
+              ./artifacts/TargetBridge-arm64.app.zip \
+              ./artifacts/TargetBridge-Receiver-x86_64.app.zip \
+              ./artifacts/TargetBridge-Receiver-arm64.app.zip \
+              --title "TargetBridge ${{ github.ref_name }}" \
+              --draft \
+              --generate-notes
+          fi
