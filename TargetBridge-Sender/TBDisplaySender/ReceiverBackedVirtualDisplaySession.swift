@@ -18,11 +18,17 @@ struct TBVirtualDisplayIdentity {
         usesDedicatedArrangementIdentity: false
     )
 
-    static func extendedDesktop(for profile: TBMonitorDisplayProfile) -> TBVirtualDisplayIdentity {
+    static func extendedDesktop(receiverKey: String) -> TBVirtualDisplayIdentity {
         // Deterministic identity per receiver so macOS retains window placement
         // and the saved extended-desktop arrangement across reconnects.
-        let key = "\(profile.receiverName)|\(profile.panelWidth)x\(profile.panelHeight)"
-        let hash = djb2(key)
+        //
+        // `receiverKey` must uniquely identify the receiver (the caller derives it
+        // from the connection address, matching the saved-arrangement key). Keying
+        // on the receiver-reported display name alone is not enough: identical iMac
+        // models report the same SDL display name and the same hard-coded panel
+        // size, so two of them would derive the same identity and macOS would
+        // refuse to create the second virtual display.
+        let hash = djb2(receiverKey)
         let productLow = (hash & 0x00FF) | 0x01
         let serialLow = (hash & 0xFFFE) | 0x0100
         return TBVirtualDisplayIdentity(

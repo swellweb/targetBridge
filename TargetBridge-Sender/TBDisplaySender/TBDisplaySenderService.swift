@@ -237,12 +237,12 @@ enum TBDisplayCaptureSource: String, CaseIterable, Identifiable {
         }
     }
 
-    func virtualDisplayIdentity(for profile: TBMonitorDisplayProfile) -> TBVirtualDisplayIdentity {
+    func virtualDisplayIdentity(receiverKey: String) -> TBVirtualDisplayIdentity {
         switch self {
         case .desktopMirror:
             return .desktopMirror
         case .extendedDesktop:
-            return .extendedDesktop(for: profile)
+            return .extendedDesktop(receiverKey: receiverKey)
         }
     }
 }
@@ -1414,11 +1414,23 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         displayStateText = TBDisplaySenderL10n.displayStateNotAvailable(language)
     }
 
+    /// Stable per-receiver discriminator: the connection address when known
+    /// (distinct per machine even when two identical iMacs report the same SDL
+    /// display name), falling back to the receiver-reported name.
+    private func receiverIdentityDiscriminator(for profile: TBMonitorDisplayProfile) -> String {
+        let trimmedIP = receiverIP.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedIP.isEmpty ? profile.receiverName : trimmedIP
+    }
+
+    /// Key used to derive the extended-desktop virtual display identity. Shares
+    /// the same receiver discriminator as the saved-arrangement key so a given
+    /// receiver maps to one stable virtual display identity across reconnects.
+    private func extendedDisplayIdentityKey(for profile: TBMonitorDisplayProfile) -> String {
+        "\(receiverIdentityDiscriminator(for: profile))|\(profile.panelWidth)x\(profile.panelHeight)"
+    }
+
     private func extendedArrangementDefaultsKey(for profile: TBMonitorDisplayProfile) -> String {
-        let receiverIdentity = receiverIP.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? profile.receiverName
-            : receiverIP
-        let normalizedIdentity = receiverIdentity.replacingOccurrences(
+        let normalizedIdentity = receiverIdentityDiscriminator(for: profile).replacingOccurrences(
             of: #"[^A-Za-z0-9._-]+"#,
             with: "-",
             options: .regularExpression
@@ -1825,10 +1837,11 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
 
             self.setStatus(.creatingVirtualDisplay)
             self.baselineDisplayIDs = await self.fetchShareableDisplayIDs()
+            let receiverKey = self.extendedDisplayIdentityKey(for: profile)
             guard self.session.create(
                 from: profile,
                 refreshRate: self.capturePreset.virtualDisplayRefreshRate,
-                identity: self.captureSource.virtualDisplayIdentity(for: profile)
+                identity: self.captureSource.virtualDisplayIdentity(receiverKey: receiverKey)
             ) else {
                 self.setStatus(.virtualDisplayCreationFailed)
                 self.stop(resetStatusTo: nil)
