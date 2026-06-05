@@ -15,6 +15,7 @@ enum TBMonitorPacketType: UInt8 {
     case inputControlMode = 0x34
     case brightness = 0x35
     case clipboard = 0x36
+    case volume = 0x37
     case testData = 0x40
 }
 
@@ -84,6 +85,10 @@ struct TBMonitorInputControlMode: Codable {
 }
 
 struct TBMonitorBrightness: Codable {
+    var level: Double
+}
+
+struct TBMonitorVolume: Codable {
     var level: Double
 }
 

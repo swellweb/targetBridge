@@ -196,6 +196,9 @@ private struct TBDisplaySenderSessionCard: View {
                 if session.isConnected {
                     brightnessCard
                 }
+                if session.isConnected && session.audioEnabled {
+                    volumeCard
+                }
                 monitorDetailsCard
             }
         }
@@ -318,6 +321,32 @@ private struct TBDisplaySenderSessionCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    private var volumeCard: some View {
+        SurfaceSubcard {
+            VStack(alignment: .leading, spacing: 10) {
+                sectionHeading(volumeTitle)
+                HStack(spacing: 12) {
+                    Image(systemName: "speaker.fill")
+                        .font(.system(size: 16))
+                        .foregroundStyle(.secondary)
+
+                    Slider(value: $session.volume, in: 0.0...1.0)
+                        .tint(.blue)
+
+                    Image(systemName: "speaker.wave.3.fill")
+                        .font(.system(size: 16))
+                        .foregroundStyle(.secondary)
+
+                    Text("\(Int((session.volume * 100).rounded()))%")
+                        .font(.system(.body, design: .monospaced))
+                        .frame(width: 44, alignment: .trailing)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     private var trimmedReceiverIP: String {
         session.receiverIP.trimmingCharacters(in: .whitespacesAndNewlines)
     }
@@ -418,6 +447,15 @@ private struct TBDisplaySenderSessionCard: View {
         case .english: return "Brightness"
         case .german: return "Helligkeit"
         case .chinese: return "亮度"
+        }
+    }
+
+    private var volumeTitle: String {
+        switch service.language {
+        case .italian: return "Volume"
+        case .english: return "Volume"
+        case .german: return "Lautstärke"
+        case .chinese: return "音量"
         }
     }
 

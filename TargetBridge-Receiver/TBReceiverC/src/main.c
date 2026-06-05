@@ -25,6 +25,13 @@
 #include <dns_sd.h>
 #include <CoreFoundation/CoreFoundation.h>
 #include <CoreGraphics/CoreGraphics.h>
+#include <CoreAudio/CoreAudio.h>
+
+/* kAudioObjectPropertyElementMain is the macOS 12+ SDK spelling; older SDKs
+ * only define kAudioObjectPropertyElementMaster (both are numerically 0). */
+#ifndef kAudioObjectPropertyElementMain
+#define kAudioObjectPropertyElementMain kAudioObjectPropertyElementMaster
+#endif
 
 #include <errno.h>
 #include <limits.h>
@@ -895,6 +902,53 @@ static void audio_callback(void *userdata, Uint8 *stream, int len) {
     }
 }
 
+/* Drive the receiver's master output volume knob (with the system volume HUD).
+ * level is clamped to 0.0..1.0. Sets the default output device's scalar volume,
+ * preferring the master element and falling back to per-channel when a device
+ * has no master volume control. Safe to call from the network/parser thread. */
+static void tb_set_system_volume(double level) {
+    if (level < 0.0) level = 0.0;
+    if (level > 1.0) level = 1.0;
+    Float32 vol = (Float32)level;
+
+    AudioObjectPropertyAddress dev_addr = {
+        kAudioHardwarePropertyDefaultOutputDevice,
+        kAudioObjectPropertyScopeGlobal,
+        kAudioObjectPropertyElementMain
+    };
+    AudioDeviceID device = kAudioObjectUnknown;
+    UInt32 size = sizeof(device);
+    if (AudioObjectGetPropertyData(kAudioObjectSystemObject, &dev_addr, 0, NULL,
+                                   &size, &device) != noErr ||
+        device == kAudioObjectUnknown) {
+        return;
+    }
+
+    AudioObjectPropertyAddress vol_addr = {
+        kAudioDevicePropertyVolumeScalar,
+        kAudioDevicePropertyScopeOutput,
+        kAudioObjectPropertyElementMain   /* element 0 = master */
+    };
+    Boolean settable = false;
+    if (AudioObjectHasProperty(device, &vol_addr) &&
+        AudioObjectIsPropertySettable(device, &vol_addr, &settable) == noErr &&
+        settable) {
+        AudioObjectSetPropertyData(device, &vol_addr, 0, NULL, sizeof(vol), &vol);
+        return;
+    }
+
+    /* No master element — set the left/right channels individually. */
+    for (UInt32 ch = 1; ch <= 2; ch++) {
+        vol_addr.mElement = ch;
+        settable = false;
+        if (AudioObjectHasProperty(device, &vol_addr) &&
+            AudioObjectIsPropertySettable(device, &vol_addr, &settable) == noErr &&
+            settable) {
+            AudioObjectSetPropertyData(device, &vol_addr, 0, NULL, sizeof(vol), &vol);
+        }
+    }
+}
+
 /* ---- Callbacks: parser → decoder ------------------------------------- */
 
 static void on_packet(uint8_t type, const uint8_t *payload, size_t len, void *ud) {
@@ -993,6 +1047,13 @@ static void on_packet(uint8_t type, const uint8_t *payload, size_t len, void *ud
             char text[4096];
             extract_json_string_field(payload, len, "\"text\"", text, sizeof(text));
             tb_receiver_set_clipboard_text(text);
+        }
+        break;
+    case TB_PKT_VOLUME:
+        {
+            double level = 1.0;
+            (void)extract_json_double_field(payload, len, "\"level\"", &level);
+            tb_set_system_volume(level);
         }
         break;
     case TB_PKT_AUDIO_FRAME:

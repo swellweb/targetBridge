@@ -250,6 +250,7 @@ final class TBDisplaySenderService: ObservableObject {
         var audioEnabled: Bool
         var brightness: Double
         var inputGestureMode: String
+        var volume: Double?
     }
 
     private var lastPersistedData: Data?
@@ -280,7 +281,8 @@ final class TBDisplaySenderService: ObservableObject {
                 captureSource: session.captureSource.rawValue,
                 audioEnabled: session.audioEnabled,
                 brightness: session.brightness,
-                inputGestureMode: session.inputGestureMode.rawValue
+                inputGestureMode: session.inputGestureMode.rawValue,
+                volume: session.volume
             )
         }
         guard let data = try? JSONEncoder().encode(configs) else { return }
@@ -339,6 +341,7 @@ final class TBDisplaySenderService: ObservableObject {
         session.localInterfaceIP = config.localInterfaceIP
         session.audioEnabled = config.audioEnabled && audioRelayAvailable
         session.brightness = config.brightness
+        session.volume = config.volume ?? 0.5
     }
 
     func refreshLocalInterfaces() {

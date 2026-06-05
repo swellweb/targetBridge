@@ -896,6 +896,11 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
             sendBrightnessUpdate()
         }
     }
+    @Published var volume: Double = 0.5 {
+        didSet {
+            sendVolumeUpdate()
+        }
+    }
     var audioAddonAvailable = true
     var receiverSupportsHEVCDecodeHint: Bool?
     var receiverInputMonitoringTrustedHint: Bool?
@@ -1209,6 +1214,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
                     self.sendHello()
                     self.sendInputControlModeUpdate()
                     self.sendBrightnessUpdate()
+                    self.sendVolumeUpdate()
                     self.receiveLoop(on: conn)
                 case .failed(let error):
                     self.setStatus(.connectionFailed(error.localizedDescription))
@@ -1520,6 +1526,14 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         send(packet)
     }
 
+    private func sendVolumeUpdate() {
+        guard let packet = TBMonitorProtocol.makeJSONPacket(
+            type: .volume,
+            value: TBMonitorVolume(level: volume)
+        ) else { return }
+        send(packet)
+    }
+
     func sendClipboardText(_ text: String) {
         guard let packet = TBMonitorProtocol.makeJSONPacket(
             type: .clipboard,
@@ -1817,6 +1831,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         sendHello()
         sendInputControlModeUpdate()
         sendBrightnessUpdate()
+        sendVolumeUpdate()
 
         Task { @MainActor in
             if self.isCableTestConnection {
