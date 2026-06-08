@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Merged with Xcode's auto-generated Info.plist (GENERATE_INFOPLIST_FILE).
+         Holds the URL scheme + the string keys Xcode no longer injects once INFOPLIST_FILE is set. -->
+    <key>CFBundleDisplayName</key>
+    <string>TargetBridge</string>
+    <key>NSHumanReadableCopyright</key>
+    <string>TargetBridge - Free &amp; Open Source</string>
+    <key>NSScreenCaptureUsageDescription</key>
+    <string>TargetBridge requires screen recording permission to capture the virtual display or mirror the desktop to the iMac.</string>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>com.targetbridge.sender</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>targetbridge</string>
+            </array>
+        </dict>
+    </array>
+</dict>
+</plist>

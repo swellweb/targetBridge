@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# targetbridge — drive the TargetBridge Sender from the command line.
+#
+# Thin wrapper over the app's `targetbridge://` URL scheme, so it reuses the exact
+# in-app connect/disconnect paths (no separate control logic). Works whether the
+# Sender is already running or not (LaunchServices launches it on demand).
+#
+# Usage:
+#   targetbridge connect [--receiver auto|<id|name|ip>] [--mode mirror|extended]
+#                        [--preset <name>] [--transport tb|net] [--session N] [--local-ip <ip>]
+#   targetbridge disconnect [--session N]
+#
+# Examples:
+#   targetbridge connect                                  # auto receiver, app defaults
+#   targetbridge connect --receiver auto --mode mirror --preset 1440p
+#   targetbridge connect --receiver 169.254.0.2 --mode extended --preset 5k
+#   targetbridge disconnect
+#
+# Presets: standard1440p | smooth1440p60 | smooth1800p60 | crisp2160p60 | native5k
+#          (aliases: 1440p, 1440p60, 1800p, 4k, 5k)
+#
+# Remote / SSH: run it on the sender over SSH (the sender must be at a logged-in
+# desktop). Because the URL must open in that GUI session, wrap it with launchctl:
+#   ssh <user>@<sender> "launchctl asuser \$(id -u <user>) open 'targetbridge://connect?receiver=auto&mode=mirror&preset=1440p'"
+
+prog="$(basename "$0")"
+
+usage() {
+  # Print the leading comment block (from line 4 to the first non-comment line), stripped of '# '.
+  awk 'NR>3 && /^#/ {sub(/^# ?/, ""); print; next} NR>3 {exit}' "$0"
+  exit "${1:-0}"
+}
+
+urlencode() {
+  local s="$1" out="" c i hex
+  for (( i = 0; i < ${#s}; i++ )); do
+    c="${s:i:1}"
+    case "$c" in
+      [a-zA-Z0-9.~_-]) out+="$c" ;;
+      *) printf -v hex '%%%02X' "'$c"; out+="$hex" ;;
+    esac
+  done
+  printf '%s' "$out"
+}
+
+[ $# -ge 1 ] || usage 1
+action="$1"; shift
+case "$action" in
+  connect|disconnect) ;;
+  -h|--help|help) usage 0 ;;
+  *) echo "$prog: unknown command '$action'" >&2; usage 1 ;;
+esac
+
+query=""
+add() { [ -n "$query" ] && query+="&"; query+="$1=$(urlencode "$2")"; }
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --receiver)  add receiver  "${2:-}"; shift 2 ;;
+    --mode)      add mode      "${2:-}"; shift 2 ;;
+    --preset)    add preset    "${2:-}"; shift 2 ;;
+    --transport) add transport "${2:-}"; shift 2 ;;
+    --session)   add session   "${2:-}"; shift 2 ;;
+    --local-ip)  add localIP   "${2:-}"; shift 2 ;;
+    -h|--help)   usage 0 ;;
+    *) echo "$prog: unknown option '$1'" >&2; usage 1 ;;
+  esac
+done
+
+url="targetbridge://$action"
+[ -n "$query" ] && url+="?$query"
+exec open "$url"

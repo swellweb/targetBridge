@@ -11,6 +11,10 @@ struct TBDisplaySenderApp: App {
                 .frame(minWidth: 540)
                 .task {
                     statusItemController.activate()
+                    TBSenderAutomation.handleLaunchArguments(CommandLine.arguments)
+                }
+                .onOpenURL { url in
+                    TBSenderAutomation.handle(url: url)
                 }
         }
         .defaultSize(width: 860, height: 860)

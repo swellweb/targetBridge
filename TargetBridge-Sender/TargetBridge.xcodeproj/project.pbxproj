@@ -19,6 +19,7 @@
 		7F1AE9053DA59169FB761FAA /* de.json in Resources */ = {isa = PBXBuildFile; fileRef = C3658E86F5BE2168F4591491 /* de.json */; };
 		7FB34AA1E75B01E7D1EC3E21 /* it.json in Resources */ = {isa = PBXBuildFile; fileRef = 036E14097FA59989FFC456FD /* it.json */; };
 		8A729C68ECAC4642FA20A284 /* TBLocalizationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C932E960346E674A0659624 /* TBLocalizationStore.swift */; };
+		8D9D2A40A1CD90BD4D4DFC2C /* TBDisplaySenderAutomation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CEA5EB707F01E1708DA9170 /* TBDisplaySenderAutomation.swift */; };
 		96DDF119DE60DFBA437D32D2 /* en.json in Resources */ = {isa = PBXBuildFile; fileRef = D386D0FCD0F93494220CC3DC /* en.json */; };
 		A3FD74604472363535D63273 /* TBDisplaySenderSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B95D015FB8DF172C7418CB5D /* TBDisplaySenderSettingsView.swift */; };
 		B9FA5989F04108E9FBFA8D3B /* TBDisplaySenderApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD235429FA67D231F565C93E /* TBDisplaySenderApp.swift */; };
@@ -51,6 +52,7 @@
 		6AC1AF99431D4889F947CE1B /* TBDisplaySenderStatusItemController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBDisplaySenderStatusItemController.swift; sourceTree = "<group>"; };
 		7E3DC447E3E8E522565E725B /* TBInputRelayController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBInputRelayController.swift; sourceTree = "<group>"; };
 		80543A7A5A3B583C1543ABC7 /* TBInputDebugLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBInputDebugLog.swift; sourceTree = "<group>"; };
+		9CEA5EB707F01E1708DA9170 /* TBDisplaySenderAutomation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBDisplaySenderAutomation.swift; sourceTree = "<group>"; };
 		9D063CAADA68CC48C54157FB /* TBDisplaySenderLocalization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBDisplaySenderLocalization.swift; sourceTree = "<group>"; };
 		A3964153C9F34085F90C2C26 /* audio-relay.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "audio-relay.json"; sourceTree = "<group>"; };
 		A51B69D318A85FF3061D6ED4 /* input-dockstation.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "input-dockstation.json"; sourceTree = "<group>"; };
@@ -82,6 +84,7 @@
 				C242540F9DE94E1364F106F4 /* ReceiverBackedVirtualDisplaySession.swift */,
 				374B5A5AA247C6922BD9AF72 /* TBDisplaySenderAboutView.swift */,
 				CD235429FA67D231F565C93E /* TBDisplaySenderApp.swift */,
+				9CEA5EB707F01E1708DA9170 /* TBDisplaySenderAutomation.swift */,
 				CEB4DF6C72B5C50C29AE6E45 /* TBDisplaySenderBuildInfo.swift */,
 				186812C77BFF98DBE0118100 /* TBDisplaySenderContentView.swift */,
 				9D063CAADA68CC48C54157FB /* TBDisplaySenderLocalization.swift */,
@@ -257,6 +260,7 @@
 				E81B28F81AE82FF904E0871F /* TBAddonStore.swift in Sources */,
 				E4967472D5CB13242FE2F288 /* TBDisplaySenderAboutView.swift in Sources */,
 				B9FA5989F04108E9FBFA8D3B /* TBDisplaySenderApp.swift in Sources */,
+				8D9D2A40A1CD90BD4D4DFC2C /* TBDisplaySenderAutomation.swift in Sources */,
 				4290B6572B8CA96E01C56425 /* TBDisplaySenderBuildInfo.swift in Sources */,
 				5C0CB53005B6D67362F14719 /* TBDisplaySenderContentView.swift in Sources */,
 				BBFD76A352FEDC54029B2158 /* TBDisplaySenderLocalization.swift in Sources */,
@@ -284,15 +288,13 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_HARDENED_RUNTIME = NO;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = TargetBridge;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "TargetBridge - Free & Open Source";
-				INFOPLIST_KEY_NSScreenCaptureUsageDescription = "TargetBridge requires screen recording permission to capture the virtual display or mirror the desktop to the iMac.";
+				INFOPLIST_FILE = TargetBridgeSupport/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 3.0;
+				MARKETING_VERSION = 3.0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.targetbridge.sender;
 				PRODUCT_NAME = TargetBridge;
 				SDKROOT = macosx;
@@ -310,15 +312,13 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_HARDENED_RUNTIME = NO;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = TargetBridge;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "TargetBridge - Free & Open Source";
-				INFOPLIST_KEY_NSScreenCaptureUsageDescription = "TargetBridge requires screen recording permission to capture the virtual display or mirror the desktop to the iMac.";
+				INFOPLIST_FILE = TargetBridgeSupport/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 3.0;
+				MARKETING_VERSION = 3.0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.targetbridge.sender;
 				PRODUCT_NAME = TargetBridge;
 				SDKROOT = macosx;

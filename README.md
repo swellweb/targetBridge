@@ -38,6 +38,7 @@ TargetBridge 3.0 turns the project into a more complete multi-Mac workspace:
 - Audio Relay: [docs/Features.md#audio-relay](docs/Features.md#audio-relay)
 - Input Dockstation, clipboard sync, and master/slave roles: [docs/Features.md#input-dockstation](docs/Features.md#input-dockstation)
 - Remote brightness control: [docs/Features.md#remote-brightness-control](docs/Features.md#remote-brightness-control)
+- CLI & automation (URL scheme, launch args, SSH, login/wake): [docs/Automation.md](docs/Automation.md)
 - Shared translations and language files: [docs/Features.md#shared-translations](docs/Features.md#shared-translations)
 - Thunderbolt networking extras (SSH/SFTP, file sharing, Internet Sharing): [docs/Features.md#thunderbolt-networking-extras](docs/Features.md#thunderbolt-networking-extras)
 
@@ -101,6 +102,7 @@ If you build from source, app outputs go into `build/` folder.
 ## Detailed Documentation
 
 - Feature overview: [docs/Features.md](docs/Features.md)
+- CLI & automation: [docs/Automation.md](docs/Automation.md)
 - Addon manifests and capability model: [docs/Addons.md](docs/Addons.md)
 - Audio transport internals: [docs/audio.md](docs/audio.md)
 - Hardware, cables, adapters, and Thunderbolt Bridge networking: [docs/Hardware.md](docs/Hardware.md)
