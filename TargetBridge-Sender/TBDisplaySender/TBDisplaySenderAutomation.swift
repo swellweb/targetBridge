@@ -77,6 +77,8 @@ enum TBSenderAutomation {
         let service = TBDisplaySenderService.shared
         guard let session = resolveSession(service, params["session"]) else { return }
 
+        service.refreshLocalInterfaces()
+
         if let transport = params["transport"] {
             session.transportKind = parseTransport(transport)
         }
@@ -128,8 +130,17 @@ enum TBSenderAutomation {
 
     private static func disconnect(_ params: [String: String]) {
         let service = TBDisplaySenderService.shared
-        if let index = params["session"].flatMap({ Int($0) }), index >= 1, index <= service.sessions.count {
-            service.sessions[index - 1].stop(persistArrangement: true)
+        guard let target = resolveSessionIndex(params["session"], sessionCount: service.sessions.count, createDefaultIfNeeded: false) else {
+            if params["session"] != nil {
+                NSLog("[automation] invalid session '\(params["session"] ?? "")'; refusing to disconnect")
+            } else {
+                NSLog("[automation] no sessions available to disconnect")
+            }
+            return
+        }
+
+        if let target {
+            service.sessions[target].stop(persistArrangement: true)
         } else {
             service.stopAll()
         }
@@ -138,13 +149,47 @@ enum TBSenderAutomation {
     // MARK: - Helpers
 
     private static func resolveSession(_ service: TBDisplaySenderService, _ raw: String?) -> TBDisplaySenderSession? {
+        guard let index = resolveSessionIndex(raw, sessionCount: service.sessions.count, createDefaultIfNeeded: true) else {
+            NSLog("[automation] invalid session '\(raw ?? "")'; aborting connect")
+            return nil
+        }
+
         if service.sessions.isEmpty {
             service.addSession()
         }
-        guard !service.sessions.isEmpty else { return nil }
-        let index = (raw.flatMap { Int($0) } ?? 1) - 1
-        guard index >= 0, index < service.sessions.count else { return service.sessions.first }
-        return service.sessions[index]
+        guard !service.sessions.isEmpty, let safeIndex = index, safeIndex < service.sessions.count else { return nil }
+        return service.sessions[safeIndex]
+    }
+
+    /// Resolves a 1-based session number from automation input.
+    /// - Returns:
+    ///   - `nil` when the explicit session is invalid.
+    ///   - `.some(nil)` when no session was requested and the caller should target all sessions.
+    ///   - `.some(index)` with a zero-based index for a specific session.
+    private static func resolveSessionIndex(
+        _ raw: String?,
+        sessionCount: Int,
+        createDefaultIfNeeded: Bool
+    ) -> Int?? {
+        guard let raw, !raw.isEmpty else {
+            if createDefaultIfNeeded && sessionCount == 0 {
+                return .some(0)
+            }
+            return createDefaultIfNeeded ? .some(0) : .some(nil)
+        }
+
+        guard let number = Int(raw), number >= 1 else {
+            return nil
+        }
+
+        let index = number - 1
+        if index < sessionCount {
+            return .some(index)
+        }
+        if createDefaultIfNeeded && sessionCount == 0 && index == 0 {
+            return .some(0)
+        }
+        return nil
     }
 
     /// Discovery is async (Bonjour); briefly wait for the first receiver to appear.
