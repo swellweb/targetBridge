@@ -69,6 +69,15 @@ final class TBDisplaySenderStatusItemController: NSObject {
         item.button?.image = NSImage(systemSymbolName: "display.2", accessibilityDescription: "TargetBridge")
         item.button?.imagePosition = .imageOnly
         item.button?.toolTip = TBDisplaySenderL10n.topBarToolTip(service.language)
+
+        // Assign one menu instance for the lifetime of the status item and
+        // repopulate it lazily in `menuNeedsUpdate(_:)`. Swapping `item.menu`
+        // out from under an open/tracking menu leaves macOS holding an
+        // orphaned, invisible menu window that swallows clicks at the menu's
+        // location — the "dead zone" below the menu bar icon.
+        let menu = NSMenu()
+        menu.delegate = self
+        item.menu = menu
         statusItem = item
     }
 
@@ -81,11 +90,10 @@ final class TBDisplaySenderStatusItemController: NSObject {
     private func refreshStatusItem() {
         guard let item = statusItem else { return }
         item.button?.toolTip = TBDisplaySenderL10n.topBarToolTip(service.language)
-        item.menu = makeMenu()
     }
 
-    private func makeMenu() -> NSMenu {
-        let menu = NSMenu()
+    private func rebuildMenuItems(in menu: NSMenu) {
+        menu.removeAllItems()
 
         let titleItem = NSMenuItem(title: "TargetBridge", action: nil, keyEquivalent: "")
         titleItem.isEnabled = false
@@ -148,35 +156,59 @@ final class TBDisplaySenderStatusItemController: NSObject {
         let quitItem = NSMenuItem(title: TBDisplaySenderL10n.quitApp(service.language), action: #selector(quitApp), keyEquivalent: "q")
         quitItem.target = self
         menu.addItem(quitItem)
+    }
 
-        return menu
+    // Menu-item handlers run while the menu is still dismissing. Doing work
+    // synchronously here (activating the app, ordering windows front, mutating
+    // observed session state) interrupts the menu window's fade-out: its alpha
+    // animates to 0 but the window is never closed, leaving an invisible
+    // menu-layer window that swallows clicks at the menu's footprint. Deferring
+    // to the next runloop tick lets the menu fully tear down first.
+    private func runAfterMenuDismissal(_ action: @escaping () -> Void) {
+        DispatchQueue.main.async(execute: action)
     }
 
     @objc
     private func showMainWindow() {
-        NSApp.activate(ignoringOtherApps: true)
-        for window in NSApp.windows {
-            window.makeKeyAndOrderFront(nil)
+        runAfterMenuDismissal {
+            NSApp.activate(ignoringOtherApps: true)
+            for window in NSApp.windows {
+                window.makeKeyAndOrderFront(nil)
+            }
         }
     }
 
     @objc
     private func addSession() {
-        service.addSession()
+        runAfterMenuDismissal { [service] in
+            service.addSession()
+        }
     }
 
     @objc
     private func stopAll() {
-        service.stopAll()
+        runAfterMenuDismissal { [service] in
+            service.stopAll()
+        }
     }
 
     @objc
     private func hideStatusItem() {
-        service.showsMenuBarIcon = false
+        runAfterMenuDismissal { [service] in
+            service.showsMenuBarIcon = false
+        }
     }
 
     @objc
     private func quitApp() {
-        NSApp.terminate(nil)
+        runAfterMenuDismissal {
+            NSApp.terminate(nil)
+        }
+    }
+}
+
+extension TBDisplaySenderStatusItemController: NSMenuDelegate {
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        rebuildMenuItems(in: menu)
     }
 }
