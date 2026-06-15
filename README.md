@@ -14,9 +14,10 @@ Sponsoring the TargetBridge project is also very welcome:
 
 [![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-pink?logo=github)](https://github.com/sponsors/swellweb)
 
-## TargetBridge 3.0
+## TargetBridge 3.1
 
-TargetBridge 3.0 turns the project into a more complete multi-Mac workspace:
+TargetBridge 3.1 keeps the multi-Mac workspace foundation from 3.0 and adds
+scriptable remote connection controls for the Sender:
 
 - mirror mode and extended desktop mode
 - multiple receivers from one sender
@@ -28,6 +29,7 @@ TargetBridge 3.0 turns the project into a more complete multi-Mac workspace:
 - text clipboard sync tied to the active input master
 - remote brightness control from the sender
 - automatic receiver discovery and extended-layout restore
+- remote connection automation via URL scheme, CLI wrapper, launch args, and SSH recipes
 
 ## Feature Guides
 
@@ -38,7 +40,7 @@ TargetBridge 3.0 turns the project into a more complete multi-Mac workspace:
 - Audio Relay: [docs/Features.md#audio-relay](docs/Features.md#audio-relay)
 - Input Dockstation, clipboard sync, and master/slave roles: [docs/Features.md#input-dockstation](docs/Features.md#input-dockstation)
 - Remote brightness control: [docs/Features.md#remote-brightness-control](docs/Features.md#remote-brightness-control)
-- CLI & automation (URL scheme, launch args, SSH, login/wake): [docs/Automation.md](docs/Automation.md)
+- Remote connection & automation (URL scheme, launch args, SSH, login/wake): [docs/Automation.md](docs/Automation.md)
 - Shared translations and language files: [docs/Features.md#shared-translations](docs/Features.md#shared-translations)
 - Thunderbolt networking extras (SSH/SFTP, file sharing, Internet Sharing): [docs/Features.md#thunderbolt-networking-extras](docs/Features.md#thunderbolt-networking-extras)
 
@@ -102,7 +104,7 @@ If you build from source, app outputs go into `build/` folder.
 ## Detailed Documentation
 
 - Feature overview: [docs/Features.md](docs/Features.md)
-- CLI & automation: [docs/Automation.md](docs/Automation.md)
+- Remote connection & automation: [docs/Automation.md](docs/Automation.md)
 - Addon manifests and capability model: [docs/Addons.md](docs/Addons.md)
 - Audio transport internals: [docs/audio.md](docs/audio.md)
 - Hardware, cables, adapters, and Thunderbolt Bridge networking: [docs/Hardware.md](docs/Hardware.md)

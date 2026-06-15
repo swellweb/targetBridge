@@ -1,8 +1,9 @@
-# CLI & Automation (Sender)
+# Remote Connection & Automation (Sender)
 
-TargetBridge's Sender can be driven without the GUI — for scripting, SSH, or connecting
-automatically on login/wake. It reuses the same in-app connect/disconnect paths the GUI
-uses, so there's no separate control logic to keep in sync.
+TargetBridge's Sender can be driven without the GUI — for scripting, SSH, remote
+connection from another Mac, or connecting automatically on login/wake. It reuses the
+same in-app connect/disconnect paths the GUI uses, so there's no separate control logic
+to keep in sync.
 
 There are two equivalent entry points, plus a small CLI wrapper:
 
