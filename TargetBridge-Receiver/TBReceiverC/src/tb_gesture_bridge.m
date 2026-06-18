@@ -1,6 +1,49 @@
 #import "tb_gesture_bridge.h"
 
 #import <AppKit/AppKit.h>
+#include <stdio.h>
+
+int tb_window_on_active_space(void *sdl_window) {
+    /* Whether the receiver's content window is on the Space the user is
+     * currently viewing. Used to gate receiverMaster forwarding so local work
+     * on another (receiver-only) Space doesn't move the sender's cursor.
+     *
+     * We deliberately avoid SDL_GetWindowWMInfo here: it is version-gated and
+     * fails when the app is compiled against newer SDL headers than the bundled
+     * runtime (as happens on the Intel build), which would silently fail open.
+     * Instead we find our largest visible window via NSApp and query the window
+     * server directly with -[NSWindow isOnActiveSpace]. That is purely spatial,
+     * so — unlike keyboard focus — it stays correct even when the receiver app
+     * remains the active application on another Space. */
+    (void)sdl_window;
+
+    NSWindow *content = nil;
+    CGFloat best_area = 0.0;
+    NSArray<NSWindow *> *windows = [NSApp windows];
+    for (NSWindow *w in windows) {
+        if (!w.isVisible) continue;
+        NSSize s = w.frame.size;
+        CGFloat area = s.width * s.height;
+        if (area < 200.0 * 200.0) continue;   /* skip tiny status/aux windows */
+        if (area > best_area) { best_area = area; content = w; }
+    }
+
+    /* Fail open (forward) only when we genuinely can't find a content window. */
+    int on_active = content ? (content.isOnActiveSpace ? 1 : 0) : 1;
+
+    /* Log on decision flips only, to keep the input hot path quiet. */
+    static int last = -1;
+    if (on_active != last) {
+        last = on_active;
+        fprintf(stderr,
+                "[input] forward-gate on_active_space=%d (window=%s area=%.0f "
+                "collectionBehavior=0x%lx windows=%lu)\n",
+                on_active, content ? "found" : "none", best_area,
+                content ? (unsigned long)content.collectionBehavior : 0UL,
+                (unsigned long)windows.count);
+    }
+    return on_active;
+}
 
 static tb_gesture_space_switch_callback g_callback = NULL;
 static void *g_context = NULL;

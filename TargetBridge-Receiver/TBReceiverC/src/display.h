@@ -61,6 +61,11 @@ void               tb_disp_set_connection_state(struct tb_display *d, int connec
 void               tb_disp_set_input_capture_active(struct tb_display *d, int active);
 void               tb_disp_set_input_intercept_active(struct tb_display *d, int active);
 
+/* Whether the receiver display window is on the active macOS Space. Used to
+ * gate receiverMaster global-tap forwarding so input on other receiver Spaces
+ * does not leak to the sender. */
+int                tb_disp_window_on_active_space(struct tb_display *d);
+
 /* Resize/recreate texture when frame dimensions change. */
 int  tb_disp_ensure_texture(struct tb_display *d, int w, int h);
 
