@@ -14,6 +14,7 @@
 		337BD561622AA19F43D3B95B /* ReceiverBackedVirtualDisplaySession.swift in Sources */ = {isa = PBXBuildFile; fileRef = C242540F9DE94E1364F106F4 /* ReceiverBackedVirtualDisplaySession.swift */; };
 		4290B6572B8CA96E01C56425 /* TBDisplaySenderBuildInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEB4DF6C72B5C50C29AE6E45 /* TBDisplaySenderBuildInfo.swift */; };
 		4B770D1232C53EF66F011F7F /* TBAddonManifest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59E4D00FB492A41B5218CD52 /* TBAddonManifest.swift */; };
+		58980FE95A48D8F8EDB42055 /* TBVirtualDisplayModeMemory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6630386DB9C3D210849E6211 /* TBVirtualDisplayModeMemory.swift */; };
 		5C0CB53005B6D67362F14719 /* TBDisplaySenderContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 186812C77BFF98DBE0118100 /* TBDisplaySenderContentView.swift */; };
 		6A54029FE56DEECA996A07B4 /* TBDisplaySenderService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B483A658326FE85720BCBE2 /* TBDisplaySenderService.swift */; };
 		7F1AE9053DA59169FB761FAA /* de.json in Resources */ = {isa = PBXBuildFile; fileRef = C3658E86F5BE2168F4591491 /* de.json */; };
@@ -49,6 +50,7 @@
 		4C932E960346E674A0659624 /* TBLocalizationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBLocalizationStore.swift; sourceTree = "<group>"; };
 		59E4D00FB492A41B5218CD52 /* TBAddonManifest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBAddonManifest.swift; sourceTree = "<group>"; };
 		6579B499CBC11196966318EA /* network-link.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "network-link.json"; sourceTree = "<group>"; };
+		6630386DB9C3D210849E6211 /* TBVirtualDisplayModeMemory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBVirtualDisplayModeMemory.swift; sourceTree = "<group>"; };
 		6AC1AF99431D4889F947CE1B /* TBDisplaySenderStatusItemController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBDisplaySenderStatusItemController.swift; sourceTree = "<group>"; };
 		7E3DC447E3E8E522565E725B /* TBInputRelayController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBInputRelayController.swift; sourceTree = "<group>"; };
 		80543A7A5A3B583C1543ABC7 /* TBInputDebugLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBInputDebugLog.swift; sourceTree = "<group>"; };
@@ -95,6 +97,7 @@
 				DD33D06A2FA6BA7E075A9E46 /* TBDisplaySenderSurfaceViews.swift */,
 				7E3DC447E3E8E522565E725B /* TBInputRelayController.swift */,
 				06BABA1447D1E8DD50A6C2F0 /* TBReceiverDiscovery.swift */,
+				6630386DB9C3D210849E6211 /* TBVirtualDisplayModeMemory.swift */,
 			);
 			path = TBDisplaySender;
 			sourceTree = "<group>";
@@ -274,6 +277,7 @@
 				8A729C68ECAC4642FA20A284 /* TBLocalizationStore.swift in Sources */,
 				C2CCAB017BC3CAB1DCFA5CCC /* TBMonitorProtocol.swift in Sources */,
 				06E4F7B33C77762A5E2CB616 /* TBReceiverDiscovery.swift in Sources */,
+				58980FE95A48D8F8EDB42055 /* TBVirtualDisplayModeMemory.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

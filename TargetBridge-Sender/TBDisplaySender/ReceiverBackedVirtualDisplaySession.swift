@@ -97,16 +97,30 @@ final class ReceiverBackedVirtualDisplaySession {
             return false
         }
 
-        activatePreferredMode(for: display.displayID, profile: profile, refreshRate: preferredRefreshRate)
+        // Restore the user's previously chosen mode for this receiver if we have
+        // one; otherwise fall back to the receiver-advertised profile default.
+        let preferenceKey = TBVirtualDisplayModeMemory.preferenceKey(for: identity)
+        let savedChoice = TBVirtualDisplayModeMemory.shared.load(forKey: preferenceKey)
+        activatePreferredMode(for: display.displayID,
+                              profile: profile,
+                              refreshRate: preferredRefreshRate,
+                              savedChoice: savedChoice)
 
         virtualDisplay = display
         displayID = display.displayID
         displayName = profile.receiverName
         identityDescription = "vendor=0x\(String(descriptor.vendorID, radix: 16)) product=0x\(String(identity.productID, radix: 16)) serial=0x\(String(identity.serialNumber, radix: 16))"
+
+        // Remember any manual resolution change the user makes from now on, so it
+        // sticks across reconnects for this receiver.
+        TBVirtualDisplayModeMemory.shared.track(displayID: display.displayID, key: preferenceKey)
         return true
     }
 
     func destroy() {
+        if displayID != kCGNullDirectDisplay {
+            TBVirtualDisplayModeMemory.shared.untrack(displayID: displayID)
+        }
         virtualDisplay = nil
         displayID = kCGNullDirectDisplay
         displayName = ""
@@ -114,13 +128,18 @@ final class ReceiverBackedVirtualDisplaySession {
     }
 
     @discardableResult
-    private func activatePreferredMode(for displayID: CGDirectDisplayID, profile: TBMonitorDisplayProfile, refreshRate: Double) -> Bool {
+    private func activatePreferredMode(for displayID: CGDirectDisplayID,
+                                       profile: TBMonitorDisplayProfile,
+                                       refreshRate: Double,
+                                       savedChoice: TBVirtualDisplayModeMemory.Choice?) -> Bool {
         let timeout = Date().addingTimeInterval(2.0)
         while Date() < timeout {
             var success = false
             autoreleasepool {
-                if let preferredMode = preferredMode(for: displayID, profile: profile, refreshRate: refreshRate) {
-                    success = CGDisplaySetDisplayMode(displayID, preferredMode, nil) == .success
+                let mode = savedChoice.flatMap { savedMode(for: displayID, choice: $0) }
+                    ?? preferredMode(for: displayID, profile: profile, refreshRate: refreshRate)
+                if let mode {
+                    success = CGDisplaySetDisplayMode(displayID, mode, nil) == .success
                 }
             }
             if success {
@@ -129,6 +148,27 @@ final class ReceiverBackedVirtualDisplaySession {
             RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
         }
         return false
+    }
+
+    /// Find the display mode matching a saved choice. Matches on pixel size as
+    /// well as point size so a HiDPI mode is not confused with its 1× ("Standard")
+    /// counterpart. The low-resolution-duplicates option ensures both variants are
+    /// enumerated.
+    private func savedMode(for displayID: CGDirectDisplayID, choice: TBVirtualDisplayModeMemory.Choice) -> CGDisplayMode? {
+        let options = [kCGDisplayShowDuplicateLowResolutionModes: kCFBooleanTrue] as CFDictionary
+        guard let modesCF = CGDisplayCopyAllDisplayModes(displayID, options) else {
+            return nil
+        }
+        let modes = modesCF as? [CGDisplayMode] ?? []
+
+        let candidates = modes.filter { mode in
+            mode.width == choice.pointWidth && mode.height == choice.pointHeight &&
+            mode.pixelWidth == choice.pixelWidth && mode.pixelHeight == choice.pixelHeight
+        }
+        if let exact = candidates.first(where: { abs($0.refreshRate - choice.refreshRate) < 0.5 }) {
+            return exact
+        }
+        return candidates.first
     }
 
     private func preferredMode(for displayID: CGDirectDisplayID, profile: TBMonitorDisplayProfile, refreshRate: Double) -> CGDisplayMode? {
