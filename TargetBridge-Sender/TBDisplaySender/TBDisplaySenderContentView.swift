@@ -631,6 +631,12 @@ private struct TBDisplaySenderSessionSettingsSheet: View {
                             }
                         }
 
+                        if session.inputControlRole != .off {
+                            SurfaceSubcard {
+                                TBInputBindingsView(session: session)
+                            }
+                        }
+
                         if session.inputControlRole == .senderMaster, !service.localInputMonitoringTrusted {
                             SurfaceSubcard {
                                 permissionWarningCard(

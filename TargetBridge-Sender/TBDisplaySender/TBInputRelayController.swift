@@ -12,9 +12,16 @@ final class TBInputRelayController {
 
     private var localMonitors: [Any] = []
     private var globalMonitors: [Any] = []
+    /// Given a captured key-down (keyCode + our modifier bitmask), returns the
+    /// bracketed key sequence to forward instead (binding action), or nil if no
+    /// binding matches. Set by the manager from the session's bindings.
+    typealias TriggerMatcher = (_ keyCode: UInt16, _ modifiers: UInt32) -> [(keyCode: UInt16, isDown: Bool)]?
+
     private var handler: Handler?
     private var switchHandler: SwitchHandler?
     private var deactivateHandler: DeactivateHandler?
+    private var triggerMatcher: TriggerMatcher?
+    private var suppressedTriggerKeyCode: UInt16?
     private var gestureMode: TBInputGestureMode = .native
     private var lastEdgeSwitchTime: TimeInterval = 0
     private var activityToken: NSObjectProtocol?
@@ -23,13 +30,15 @@ final class TBInputRelayController {
         gestureMode: TBInputGestureMode,
         handler: @escaping Handler,
         switchHandler: @escaping SwitchHandler,
-        deactivateHandler: @escaping DeactivateHandler
+        deactivateHandler: @escaping DeactivateHandler,
+        triggerMatcher: TriggerMatcher? = nil
     ) {
         stop()
         self.gestureMode = gestureMode
         self.handler = handler
         self.switchHandler = switchHandler
         self.deactivateHandler = deactivateHandler
+        self.triggerMatcher = triggerMatcher
         beginKeepAwakeActivity()
 
         installKeyboardMonitors()
@@ -50,6 +59,8 @@ final class TBInputRelayController {
         handler = nil
         switchHandler = nil
         deactivateHandler = nil
+        triggerMatcher = nil
+        suppressedTriggerKeyCode = nil
     }
 
     private func installKeyboardMonitors() {
@@ -125,8 +136,38 @@ final class TBInputRelayController {
     }
 
     private func handle(_ event: NSEvent) {
+        if handleBindingTrigger(event) { return }
         guard let handler, let relayEvent = convert(event) else { return }
         handler(relayEvent)
+    }
+
+    /// senderMaster: if a key-down completes a binding trigger, forward the
+    /// action's bracketed key sequence instead of the trigger, and swallow the
+    /// trigger's key-up. Returns true if the event was handled here.
+    private func handleBindingTrigger(_ event: NSEvent) -> Bool {
+        guard let handler, triggerMatcher != nil else { return false }
+        switch event.type {
+        case .keyUp:
+            if event.keyCode == suppressedTriggerKeyCode {
+                suppressedTriggerKeyCode = nil
+                return true
+            }
+            return false
+        case .keyDown:
+            if event.keyCode == suppressedTriggerKeyCode { return true } // debounce repeat
+            let modifiers = TBInputShortcut.modifiers(from: event.modifierFlags)
+            guard let sequence = triggerMatcher?(event.keyCode, modifiers) else { return false }
+            suppressedTriggerKeyCode = event.keyCode
+            for step in sequence {
+                handler(TBMonitorInputEvent(
+                    kind: step.isDown ? "keyDown" : "keyUp",
+                    dx: nil, dy: nil, scrollX: nil, scrollY: nil, keyCode: step.keyCode
+                ))
+            }
+            return true
+        default:
+            return false
+        }
     }
 
     private func convert(_ event: NSEvent) -> TBMonitorInputEvent? {
