@@ -2783,10 +2783,8 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     }
 
     func sendInputEvent(_ event: TBMonitorInputEvent) {
-        guard isConnected,
-              let packet = TBMonitorProtocol.makeJSONPacket(type: .inputEvent, value: event)
-        else { return }
-        send(packet)
+        guard isConnected else { return }
+        send(TBMonitorProtocol.makeInputEventPacket(event))
     }
 
     func updateInputControlMode() {

@@ -113,6 +113,24 @@ enum TBMonitorProtocol {
         return makePacket(type: type, payload: payload)
     }
 
+    /// Hand-rolled encoder for the input-event hot path. Mouse move/drag events
+    /// fire at display refresh rate (or faster with high-poll-rate mice), and a
+    /// fresh `JSONEncoder` per event is the busiest allocator in that path. This
+    /// emits the same JSON shape `JSONDecoder` reconstructs into a
+    /// `TBMonitorInputEvent` (omitted fields decode as nil), mirroring the
+    /// receiver's `snprintf`-based emitter. `kind` is always a fixed literal from
+    /// the event converter, so no string escaping is required.
+    static func makeInputEventPacket(_ event: TBMonitorInputEvent) -> Data {
+        var json = "{\"kind\":\"\(event.kind)\""
+        if let dx = event.dx { json += ",\"dx\":\(dx)" }
+        if let dy = event.dy { json += ",\"dy\":\(dy)" }
+        if let scrollX = event.scrollX { json += ",\"scrollX\":\(scrollX)" }
+        if let scrollY = event.scrollY { json += ",\"scrollY\":\(scrollY)" }
+        if let keyCode = event.keyCode { json += ",\"keyCode\":\(keyCode)" }
+        json += "}"
+        return makePacket(type: .inputEvent, payload: Data(json.utf8))
+    }
+
     static func decodeJSON<T: Decodable>(_ type: T.Type, from payload: Data) -> T? {
         let decoder = JSONDecoder()
         return try? decoder.decode(type, from: payload)
