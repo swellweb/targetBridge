@@ -1260,6 +1260,13 @@ static CGEventRef tb_receiver_input_tap_callback(CGEventTapProxy proxy,
 
     if (strcmp(a->input_control_mode, "receiverMaster") != 0) return event;
 
+    /* Only drive the sender while the user is actually on the shared display
+     * window's Space. The global tap also sees events from other receiver
+     * Spaces; forwarding those would make the sender's cursor jump while the
+     * user is doing local work on the receiver. When the window is on a
+     * different Space, pass the event through untouched and forward nothing. */
+    if (!tb_disp_window_on_active_space(a->disp)) return event;
+
     int should_consume = 0;
 
     switch (type) {
