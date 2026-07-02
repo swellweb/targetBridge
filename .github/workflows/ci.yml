@@ -41,6 +41,11 @@ jobs:
         run: |
           brew install ffmpeg sdl2 dylibbundler
 
+      - name: Run Receiver Parser Tests
+        run: |
+          cd TargetBridge-Receiver/TBReceiverC
+          make test
+
       - name: Build Receiver App
         run: |
           cd TargetBridge-Receiver
