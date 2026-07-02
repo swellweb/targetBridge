@@ -7,10 +7,12 @@
  * type 0x11 = display profile (JSON)
  * type 0x12 = create session ack (JSON)
  * type 0x13 = ui language update (JSON)
- * type 0x20 = H.264 parameter sets (SPS/PPS)
- *   payload = [1 byte count] then for each: [4 bytes BE uint32 size][size bytes]
+ * type 0x20 = parameter sets (H.264: SPS/PPS; HEVC: VPS/SPS/PPS)
+ *   payload = [1 byte codec marker: 1=H.264, 2=HEVC][1 byte count]
+ *             then for each set: [4 bytes BE uint32 size][size bytes]
+ *   (see build_extradata in decoder.c)
  *
- * type 0x21 = H.264 frame
+ * type 0x21 = video frame
  *   payload = AVCC-formatted NAL units, 4-byte BE length prefixes (no start codes)
  *
  * type 0x30 = heartbeat (JSON)
