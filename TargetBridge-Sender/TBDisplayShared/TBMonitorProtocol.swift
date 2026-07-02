@@ -96,8 +96,28 @@ struct TBMonitorClipboard: Codable {
     var text: String
 }
 
+/// Framing-level corruption that cannot be recovered by waiting for more
+/// bytes. The connection carrying the stream should be torn down.
+enum TBMonitorProtocolError: Error, Equatable, CustomStringConvertible {
+    case invalidPacketLength(UInt32)
+
+    var description: String {
+        switch self {
+        case .invalidPacketLength(let length):
+            return "invalid packet length \(length)"
+        }
+    }
+}
+
 enum TBMonitorProtocol {
     static let port: UInt16 = 54321
+
+    /// Upper bound for a single packet's declared length. Mirrors the
+    /// receiver's parser sanity check (net.c) so both ends agree on what a
+    /// corrupt length prefix is. Without this cap, a corrupted 4-byte length
+    /// (e.g. 0xFFFFFFFF) would make the drain loop buffer inbound data
+    /// forever, waiting for a packet that can never complete.
+    static let maxPacketLength: UInt32 = 64 * 1024 * 1024
 
     static func makePacket(type: TBMonitorPacketType, payload: Data) -> Data {
         var packet = Data()
@@ -136,15 +156,33 @@ enum TBMonitorProtocol {
         return try? decoder.decode(type, from: payload)
     }
 
-    static func drainPacket(from buffer: inout Data) -> (TBMonitorPacketType, Data)? {
-        guard buffer.count >= 5 else { return nil }
-        let packetLength = Int(readBE32(buffer, offset: 0))
-        guard packetLength >= 1, buffer.count >= 4 + packetLength else { return nil }
-        let typeByte = buffer[4]
-        let payload = buffer.subdata(in: 5..<(4 + packetLength))
-        buffer.removeSubrange(0..<(4 + packetLength))
-        guard let packetType = TBMonitorPacketType(rawValue: typeByte) else { return nil }
-        return (packetType, payload)
+    /// Drains the next complete packet from `buffer`.
+    ///
+    /// - Returns: the packet, or `nil` when the buffer does not yet hold a
+    ///   complete packet (more bytes are needed).
+    /// - Throws: `TBMonitorProtocolError.invalidPacketLength` when the length
+    ///   prefix is corrupt (zero or above `maxPacketLength`); the stream is
+    ///   unrecoverable and the caller should close the connection.
+    ///
+    /// Packets with an unrecognized type byte (e.g. from a newer peer) are
+    /// skipped and draining continues with the next packet, so one unknown
+    /// packet cannot stall the packets queued behind it.
+    static func drainPacket(from buffer: inout Data) throws -> (TBMonitorPacketType, Data)? {
+        while buffer.count >= 5 {
+            let packetLength = readBE32(buffer, offset: 0)
+            guard packetLength >= 1, packetLength <= maxPacketLength else {
+                throw TBMonitorProtocolError.invalidPacketLength(packetLength)
+            }
+            let packetEnd = 4 + Int(packetLength)
+            guard buffer.count >= packetEnd else { return nil }
+            let typeByte = buffer[4]
+            let payload = buffer.subdata(in: 5..<packetEnd)
+            buffer.removeSubrange(0..<packetEnd)
+            if let packetType = TBMonitorPacketType(rawValue: typeByte) {
+                return (packetType, payload)
+            }
+        }
+        return nil
     }
 
     static func appendBE32(_ data: inout Data, _ value: UInt32) {

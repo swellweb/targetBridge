@@ -1584,7 +1584,20 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     }
 
     private func drainPackets() {
-        while let (type, payload) = TBMonitorProtocol.drainPacket(from: &recvBuffer) {
+        do {
+            try drainPacketsOrThrow()
+        } catch {
+            // Corrupt length prefix: the framing is unrecoverable, so tear the
+            // connection down instead of buffering inbound data forever.
+            NSLog("[protocol] corrupt inbound stream (\(error)); closing connection")
+            recvBuffer.removeAll(keepingCapacity: false)
+            setStatus(.connectionClosed(String(describing: error)))
+            stop(resetStatusTo: nil)
+        }
+    }
+
+    private func drainPacketsOrThrow() throws {
+        while let (type, payload) = try TBMonitorProtocol.drainPacket(from: &recvBuffer) {
             switch type {
             case .displayProfile:
                 handleDisplayProfile(payload)
