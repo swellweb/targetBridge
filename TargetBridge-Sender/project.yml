@@ -49,3 +49,33 @@ targets:
               static let versionDisplay = "\\(marketingVersion) + build \\(buildNumber)"
           }
           EOI
+
+  TBDisplaySenderTests:
+    type: bundle.unit-test
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: TBDisplaySenderTests
+    dependencies:
+      - target: TBDisplaySender
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.targetbridge.sender.tests
+        SWIFT_VERSION: "6.0"
+        SWIFT_STRICT_CONCURRENCY: minimal
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/TargetBridge.app/Contents/MacOS/TargetBridge"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+
+schemes:
+  TBDisplaySender:
+    build:
+      targets:
+        TBDisplaySender: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      gatherCoverageData: false
+      targets:
+        - TBDisplaySenderTests

@@ -166,7 +166,8 @@ enum TBSenderAutomation {
     ///   - `nil` when the explicit session is invalid.
     ///   - `.some(nil)` when no session was requested and the caller should target all sessions.
     ///   - `.some(index)` with a zero-based index for a specific session.
-    private static func resolveSessionIndex(
+    /// - Note: `internal` (not `private`) so the unit-test bundle can exercise the tri-state logic.
+    static func resolveSessionIndex(
         _ raw: String?,
         sessionCount: Int,
         createDefaultIfNeeded: Bool
@@ -201,7 +202,9 @@ enum TBSenderAutomation {
         return service.discoveredReceivers.first
     }
 
-    private static func matches(_ value: String, _ receiver: TBDiscoveredReceiver) -> Bool {
+    // The pure parsing helpers below are `internal` (not `private`) so the
+    // unit-test bundle can exercise them directly.
+    static func matches(_ value: String, _ receiver: TBDiscoveredReceiver) -> Bool {
         let needle = value.lowercased()
         if receiver.id.lowercased() == needle { return true }
         if receiver.receiverName.lowercased() == needle { return true }
@@ -211,7 +214,7 @@ enum TBSenderAutomation {
             || receiver.networkIP.lowercased() == needle
     }
 
-    private static func parseTransport(_ value: String) -> TBTransportKind {
+    static func parseTransport(_ value: String) -> TBTransportKind {
         switch value.lowercased() {
         case "net", "network", "networklink", "link":
             return .networkLink
@@ -220,7 +223,7 @@ enum TBSenderAutomation {
         }
     }
 
-    private static func parseMode(_ value: String) -> TBDisplayCaptureSource? {
+    static func parseMode(_ value: String) -> TBDisplayCaptureSource? {
         switch value.lowercased() {
         case "extended", "extend", "extendeddesktop", "ext":
             return .extendedDesktop
@@ -231,7 +234,7 @@ enum TBSenderAutomation {
         }
     }
 
-    private static func parsePreset(_ value: String) -> TBDisplayCapturePreset? {
+    static func parsePreset(_ value: String) -> TBDisplayCapturePreset? {
         if let preset = TBDisplayCapturePreset(rawValue: value) { return preset }
         switch value.lowercased() {
         case "1440p", "1440", "standard": return .standard1440p
