@@ -458,7 +458,6 @@ struct tb_display *tb_disp_create(int fullscreen) {
         fprintf(stderr, "[disp] SDL_Init: %s\n", SDL_GetError());
         return NULL;
     }
-    SDL_DisableScreenSaver();
 
     struct tb_display *d = (struct tb_display *)calloc(1, sizeof(*d));
     if (!d) return NULL;
