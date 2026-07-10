@@ -985,6 +985,13 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     private var firstFrameTimer: Timer?
     private var cursorTimer: Timer?
     private var connectTimeoutWorkItem: DispatchWorkItem?
+    /// Name of the local interface the current connect attempt is bound to
+    /// (e.g. "bridge0"), resolved when dialing. Diagnostic context only.
+    private var connectInterfaceName: String?
+    /// Last state reported by NWConnection for the current attempt (e.g.
+    /// "waiting(No route to host)") — surfaced when a connect fails or times
+    /// out so the real reason is not lost.
+    private var lastConnectionStateDetail: String?
     private var heartbeatSequence: UInt64 = 0
     private var statusState: TBDisplaySenderStatusState = .ready
     private var streamingActivity: NSObjectProtocol?
@@ -1184,6 +1191,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         activeProfile = nil
         activeCodecType = nil
         activeCodecName = nil
+        lastConnectionStateDetail = nil
         setStatus(.connecting(receiverDisplayName))
 
         let tcpOptions = NWProtocolTCP.Options()
@@ -1194,8 +1202,28 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         if let localPort = NWEndpoint.Port(rawValue: 0) {
             params.requiredLocalEndpoint = .hostPort(host: NWEndpoint.Host(localInterfaceIP), port: localPort)
         }
+
+        // Scope link-local dials to the interface that owns the local IP.
+        // requiredLocalEndpoint pins the source address but NOT the egress
+        // interface — the routing table keeps 169.254/16 on the primary
+        // interface (usually Wi-Fi), so an unscoped dial to a Thunderbolt
+        // Bridge peer leaves via the wrong link and times out.
+        let interfaces = TBConnectionDiagnostics.currentIPv4Interfaces()
+        connectInterfaceName = TBConnectionDiagnostics.interfaceName(forLocalIP: localInterfaceIP, in: interfaces)
+        let scopedHost = TBConnectionDiagnostics.scopedReceiverHost(
+            receiverIP: receiverIP,
+            localIP: localInterfaceIP,
+            interfaces: interfaces
+        )
+        let dialHost: NWEndpoint.Host
+        if scopedHost != receiverIP, let scopedAddress = IPv4Address(scopedHost) {
+            dialHost = .ipv4(scopedAddress)
+        } else {
+            dialHost = NWEndpoint.Host(receiverIP)
+        }
+        TBLog.connection.info("connect: dialing \(scopedHost, privacy: .public):\(TBMonitorProtocol.port) from \(self.localInterfaceIP, privacy: .public) (\(self.connectInterfaceName ?? "unknown interface", privacy: .public)) transport=\(self.transportKind.rawValue, privacy: .public)")
         let conn = NWConnection(
-            host: NWEndpoint.Host(receiverIP),
+            host: dialHost,
             port: NWEndpoint.Port(integerLiteral: TBMonitorProtocol.port),
             using: params
         )
@@ -1209,6 +1237,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
                     self.connectTimeoutWorkItem?.cancel()
                     self.connectTimeoutWorkItem = nil
                     self.isConnected = true
+                    TBLog.connection.info("connect: ready — \(self.receiverIP, privacy: .public) via \(self.connectInterfaceName ?? "?", privacy: .public)")
                     self.setStatus(.waitingDisplayProfile)
                     self.startHeartbeat()
                     self.sendHello()
@@ -1216,8 +1245,25 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
                     self.sendBrightnessUpdate()
                     self.sendVolumeUpdate()
                     self.receiveLoop(on: conn)
+                case .waiting(let error):
+                    // The dial cannot proceed yet (no route, host down, cable
+                    // unplugged, firewall drop, …). Record and log the real
+                    // reason so a later timeout can report it instead of a
+                    // bare "Connection timed out".
+                    self.lastConnectionStateDetail = "waiting(\(error.localizedDescription))"
+                    TBLog.connection.warning("connect: waiting — \(error.localizedDescription, privacy: .public)")
                 case .failed(let error):
-                    self.setStatus(.connectionFailed(error.localizedDescription))
+                    self.lastConnectionStateDetail = "failed(\(error.localizedDescription))"
+                    let detail = TBConnectionDiagnostics.failureDetail(
+                        receiverHost: self.receiverIP,
+                        port: TBMonitorProtocol.port,
+                        localIP: self.localInterfaceIP,
+                        interfaceName: self.connectInterfaceName,
+                        transport: self.transportKind.rawValue,
+                        lastNetworkState: nil
+                    )
+                    TBLog.connection.error("connect: failed — \(error.localizedDescription, privacy: .public); \(detail, privacy: .public)")
+                    self.setStatus(.connectionFailed("\(error.localizedDescription) — \(detail)"))
                     self.stop(resetStatusTo: nil)
                 case .cancelled:
                     self.isConnected = false
@@ -1589,7 +1635,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         } catch {
             // Corrupt length prefix: the framing is unrecoverable, so tear the
             // connection down instead of buffering inbound data forever.
-            NSLog("[protocol] corrupt inbound stream (\(error)); closing connection")
+            TBLog.connection.error("corrupt inbound stream (\(String(describing: error), privacy: .public)); closing connection")
             recvBuffer.removeAll(keepingCapacity: false)
             setStatus(.connectionClosed(String(describing: error)))
             stop(resetStatusTo: nil)
@@ -2775,7 +2821,19 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
                 case .chinese: timeoutMessage = "连接超时"
                 }
 
-                self.setStatus(.connectionFailed(timeoutMessage))
+                // Attach where we dialed, from which interface, and the last
+                // state the network stack reported — previously all of this
+                // was discarded and the user saw only the bare timeout.
+                let detail = TBConnectionDiagnostics.failureDetail(
+                    receiverHost: self.receiverIP,
+                    port: TBMonitorProtocol.port,
+                    localIP: self.localInterfaceIP,
+                    interfaceName: self.connectInterfaceName,
+                    transport: self.transportKind.rawValue,
+                    lastNetworkState: self.lastConnectionStateDetail
+                )
+                TBLog.connection.error("connect: timed out — \(detail, privacy: .public)")
+                self.setStatus(.connectionFailed("\(timeoutMessage) — \(detail)"))
                 self.stop(resetStatusTo: nil)
             }
         }
