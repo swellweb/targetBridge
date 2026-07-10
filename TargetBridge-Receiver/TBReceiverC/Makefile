@@ -51,6 +51,17 @@ $(BIN): $(OBJ)
 	$(CC) $(CFLAGS) -fobjc-arc -c -o $@ $<
 
 clean:
-	rm -f $(OBJ) $(BIN)
+	rm -f $(OBJ) $(BIN) $(TEST_BIN)
 
-.PHONY: all clean
+# Unit tests for the packet parser. net.c is pure POSIX, so this needs no
+# ffmpeg/SDL/pkgconf — it runs anywhere, including CI, with no hardware.
+TEST_CFLAGS = -O2 -g -Wall -Wextra -Wno-unused-parameter -std=c11
+TEST_BIN = test_net_parser
+
+$(TEST_BIN): tests/test_net_parser.c src/net.c src/net.h src/proto.h
+	$(CC) $(TEST_CFLAGS) -Isrc tests/test_net_parser.c src/net.c -o $@
+
+test: $(TEST_BIN)
+	./$(TEST_BIN)
+
+.PHONY: all clean test

@@ -16,3 +16,7 @@ xcuserdata/
 # C build outputs
 *.o
 tbreceiver
+
+# C test outputs
+test_net_parser
+*.dSYM/
