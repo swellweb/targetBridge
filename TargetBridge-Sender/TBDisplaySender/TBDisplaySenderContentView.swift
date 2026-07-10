@@ -751,6 +751,10 @@ private struct TBDisplaySenderSessionSettingsSheet: View {
             )
             .ignoresSafeArea()
         )
+        // The panel uses a fixed dark background, so force the dark color scheme:
+        // otherwise in system Light mode the semantic text colors (.primary /
+        // .secondary) resolve to dark variants and render dark-on-dark.
+        .preferredColorScheme(.dark)
     }
 
     private func settingsSection<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {

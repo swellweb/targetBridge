@@ -8,6 +8,7 @@
 
 #include "display.h"
 #include "tb_i18n.h"
+#include "tb_gesture_bridge.h"
 
 #include <CoreFoundation/CoreFoundation.h>
 #include <CoreGraphics/CoreGraphics.h>
@@ -20,7 +21,7 @@
 #include <string.h>
 
 #ifndef TB_RECEIVER_VERSION
-#define TB_RECEIVER_VERSION "3.1.0"
+#define TB_RECEIVER_VERSION "3.1.2"
 #endif
 
 #ifndef TB_RECEIVER_BUILD
@@ -457,7 +458,6 @@ struct tb_display *tb_disp_create(int fullscreen) {
         fprintf(stderr, "[disp] SDL_Init: %s\n", SDL_GetError());
         return NULL;
     }
-    SDL_DisableScreenSaver();
 
     struct tb_display *d = (struct tb_display *)calloc(1, sizeof(*d));
     if (!d) return NULL;
@@ -1263,6 +1263,22 @@ void tb_disp_set_input_intercept_active(struct tb_display *d, int active) {
     if (!d) return;
     d->input_intercept_active = active ? 1 : 0;
     tb_disp_refresh_window_mode(d);
+}
+
+int tb_disp_window_on_active_space(struct tb_display *d) {
+    /* Whether the receiver's display window is on the Space the user is
+     * currently viewing. The receiverMaster global event tap fires for events
+     * on every Space, but the user only intends to drive the sender while
+     * looking at this (fullscreen) window. When they switch to another Space on
+     * the receiver, this window is no longer on the active Space and the caller
+     * stops forwarding so local work doesn't leak to the sender's cursor.
+     *
+     * Keyboard focus is not a reliable signal here: a fullscreen window can stay
+     * key across a Space switch when the receiver app remains active on the new
+     * (empty) Space. -[NSWindow isOnActiveSpace] is a direct, purely spatial
+     * query to the window server, so it stays correct in that case. */
+    if (!d || !d->win) return 1;
+    return tb_window_on_active_space(d->win);
 }
 
 void tb_disp_render_status(struct tb_display *d,
