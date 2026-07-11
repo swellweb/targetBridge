@@ -1958,7 +1958,8 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
             guard self.session.create(
                 from: profile,
                 refreshRate: self.capturePreset.virtualDisplayRefreshRate,
-                identity: self.captureSource.virtualDisplayIdentity(receiverKey: receiverKey)
+                identity: self.captureSource.virtualDisplayIdentity(receiverKey: receiverKey),
+                receiverKey: receiverKey
             ) else {
                 self.setStatus(.virtualDisplayCreationFailed)
                 self.stop(resetStatusTo: nil)
