@@ -84,6 +84,7 @@ if (( NO_STREAM )) || ! command -v ffmpeg >/dev/null; then
 else
     python3 "$MOCK" --mode stream --duration 4 || fail "mock stream exited non-zero"
     expect_log "param sets changed, opening decoder" "decoder accepted param sets"
+    expect_log "[disp] texture " "receiver rendered decoded video"
 fi
 
 print ""
