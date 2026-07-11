@@ -109,6 +109,7 @@ If you build from source, app outputs go into `build/` folder.
 - Audio transport internals: [docs/audio.md](docs/audio.md)
 - Hardware, cables, adapters, and Thunderbolt Bridge networking: [docs/Hardware.md](docs/Hardware.md)
 - Translation workflow: [docs/Translations.md](docs/Translations.md)
+- Testing without hardware (unit tests, mock sender, loopback smoke): [docs/Testing.md](docs/Testing.md)
 - Binary verification: [docs/verify-binaries.md](docs/verify-binaries.md)
 
 ## Licensing and brand
