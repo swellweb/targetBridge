@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		06E4F7B33C77762A5E2CB616 /* TBReceiverDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06BABA1447D1E8DD50A6C2F0 /* TBReceiverDiscovery.swift */; };
 		0D17E4E85D8E9CDAB8707EB6 /* audio-relay.json in Resources */ = {isa = PBXBuildFile; fileRef = A3964153C9F34085F90C2C26 /* audio-relay.json */; };
+		15D142162EDD10261447EC43 /* TBInputBindingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37515A84B71F4B19C8EB65B4 /* TBInputBindingTests.swift */; };
 		198725EB3B2C7662DBB0B8D0 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 1819A55F8D993D9347F0E407 /* Assets.xcassets */; };
 		233BAEE5ABED3F316F9D3D12 /* input-dockstation.json in Resources */ = {isa = PBXBuildFile; fileRef = A51B69D318A85FF3061D6ED4 /* input-dockstation.json */; };
 		2C4E1C76CA81F640C700F6BF /* TBMonitorProtocolTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9583EB47BCD79FA719EEA77 /* TBMonitorProtocolTests.swift */; };
@@ -16,7 +17,6 @@
 		4290B6572B8CA96E01C56425 /* TBDisplaySenderBuildInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEB4DF6C72B5C50C29AE6E45 /* TBDisplaySenderBuildInfo.swift */; };
 		4A8719A8C13A6560F4F0EB0D /* TBSenderAutomationParsingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED08E3D2FCC8194F8B8185C9 /* TBSenderAutomationParsingTests.swift */; };
 		4B770D1232C53EF66F011F7F /* TBAddonManifest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59E4D00FB492A41B5218CD52 /* TBAddonManifest.swift */; };
-		A110B1D10A2B3C4D5E6F7081 /* TBInputBindingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A110B1D00A2B3C4D5E6F7081 /* TBInputBindingTests.swift */; };
 		55163F49604063EA7E86D079 /* TBConnectionDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD6EB41D253E67E350F5E25D /* TBConnectionDiagnostics.swift */; };
 		58980FE95A48D8F8EDB42055 /* TBVirtualDisplayModeMemory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6630386DB9C3D210849E6211 /* TBVirtualDisplayModeMemory.swift */; };
 		5A8811B2F7DB1830CBA7B538 /* TBInputBinding.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A72C42968FA2A6B2A0515B9 /* TBInputBinding.swift */; };
@@ -66,6 +66,7 @@
 		186812C77BFF98DBE0118100 /* TBDisplaySenderContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBDisplaySenderContentView.swift; sourceTree = "<group>"; };
 		20FE01BF2EA2F329442890AD /* TBInputBindingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBInputBindingsView.swift; sourceTree = "<group>"; };
 		374B5A5AA247C6922BD9AF72 /* TBDisplaySenderAboutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBDisplaySenderAboutView.swift; sourceTree = "<group>"; };
+		37515A84B71F4B19C8EB65B4 /* TBInputBindingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBInputBindingTests.swift; sourceTree = "<group>"; };
 		405452C4DA622D0B8887623E /* TBConnectionDiagnosticsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBConnectionDiagnosticsTests.swift; sourceTree = "<group>"; };
 		4644CFB05098C895378B648A /* TBDisplaySenderManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBDisplaySenderManager.swift; sourceTree = "<group>"; };
 		4A72C42968FA2A6B2A0515B9 /* TBInputBinding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBInputBinding.swift; sourceTree = "<group>"; };
@@ -79,7 +80,6 @@
 		9CEA5EB707F01E1708DA9170 /* TBDisplaySenderAutomation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBDisplaySenderAutomation.swift; sourceTree = "<group>"; };
 		9D063CAADA68CC48C54157FB /* TBDisplaySenderLocalization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBDisplaySenderLocalization.swift; sourceTree = "<group>"; };
 		A3964153C9F34085F90C2C26 /* audio-relay.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "audio-relay.json"; sourceTree = "<group>"; };
-		A110B1D00A2B3C4D5E6F7081 /* TBInputBindingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBInputBindingTests.swift; sourceTree = "<group>"; };
 		A51B69D318A85FF3061D6ED4 /* input-dockstation.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "input-dockstation.json"; sourceTree = "<group>"; };
 		B95D015FB8DF172C7418CB5D /* TBDisplaySenderSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBDisplaySenderSettingsView.swift; sourceTree = "<group>"; };
 		C242540F9DE94E1364F106F4 /* ReceiverBackedVirtualDisplaySession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiverBackedVirtualDisplaySession.swift; sourceTree = "<group>"; };
@@ -135,10 +135,10 @@
 			isa = PBXGroup;
 			children = (
 				405452C4DA622D0B8887623E /* TBConnectionDiagnosticsTests.swift */,
+				37515A84B71F4B19C8EB65B4 /* TBInputBindingTests.swift */,
 				C9583EB47BCD79FA719EEA77 /* TBMonitorProtocolTests.swift */,
 				17D2B1A011B9446090DA60A7 /* TBReceiverDiscoveryModelTests.swift */,
 				ED08E3D2FCC8194F8B8185C9 /* TBSenderAutomationParsingTests.swift */,
-				A110B1D00A2B3C4D5E6F7081 /* TBInputBindingTests.swift */,
 			);
 			path = TBDisplaySenderTests;
 			sourceTree = "<group>";
@@ -312,7 +312,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -euo pipefail\nSTAMP=\"$(date +%Y%m%d%H%M%S)\"\ncat > \"${SRCROOT}/TBDisplaySender/TBDisplaySenderBuildInfo.swift\" <<EOI\nenum TBDisplaySenderBuildInfo {\n    static let marketingVersion = \"3.1.2\"\n    static let buildNumber = \"${STAMP}\"\n    static let versionDisplay = \"\\\\(marketingVersion) + build \\\\(buildNumber)\"\n}\nEOI\n";
+			shellScript = "set -euo pipefail\nSTAMP=\"$(date +%Y%m%d%H%M%S)\"\ncat > \"${SRCROOT}/TBDisplaySender/TBDisplaySenderBuildInfo.swift\" <<EOI\nenum TBDisplaySenderBuildInfo {\n    static let marketingVersion = \"3.2.0\"\n    static let buildNumber = \"${STAMP}\"\n    static let versionDisplay = \"\\\\(marketingVersion) + build \\\\(buildNumber)\"\n}\nEOI\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -322,10 +322,10 @@
 			buildActionMask = 2147483647;
 			files = (
 				7F103818097EEBD191C5ADBF /* TBConnectionDiagnosticsTests.swift in Sources */,
+				15D142162EDD10261447EC43 /* TBInputBindingTests.swift in Sources */,
 				2C4E1C76CA81F640C700F6BF /* TBMonitorProtocolTests.swift in Sources */,
 				69C27FB23C2EF4078DD3D2F5 /* TBReceiverDiscoveryModelTests.swift in Sources */,
 				4A8719A8C13A6560F4F0EB0D /* TBSenderAutomationParsingTests.swift in Sources */,
-				A110B1D10A2B3C4D5E6F7081 /* TBInputBindingTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -384,7 +384,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 3.1.2;
+				MARKETING_VERSION = 3.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.targetbridge.sender;
 				PRODUCT_NAME = TargetBridge;
 				SDKROOT = macosx;
@@ -408,7 +408,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 3.1.2;
+				MARKETING_VERSION = 3.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.targetbridge.sender;
 				PRODUCT_NAME = TargetBridge;
 				SDKROOT = macosx;

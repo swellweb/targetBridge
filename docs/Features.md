@@ -85,6 +85,13 @@ When input relay is active, TargetBridge can also:
 - sync text clipboard contents in the direction of the active master
 - expose role-specific hotkeys so the active master can switch sender Spaces or change slave target without leaving the session model
 
+When `Receiver is Master` is active, the session settings can also store
+custom shortcut bindings. A trigger pressed on the receiver runs an action on
+the sender, which makes it possible to use a non-reserved trigger such as
+`Ctrl+Option+Left` for a protected sender shortcut such as `Ctrl+Left`.
+macOS asks once for permission to let TargetBridge control `System Events` on
+the sender when a configured shortcut is first used.
+
 This is useful for KVM-like workflows where one keyboard and mouse should control another connected Mac without leaving the TargetBridge session model.
 
 Related reading:

@@ -14,10 +14,11 @@ Sponsoring the TargetBridge project is also very welcome:
 
 [![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-pink?logo=github)](https://github.com/sponsors/swellweb)
 
-## TargetBridge 3.1
+## TargetBridge 3.2
 
-TargetBridge 3.1 keeps the multi-Mac workspace foundation from 3.0 and adds
-scriptable remote connection controls for the Sender:
+TargetBridge 3.2 builds on the multi-Mac workspace foundation with more
+reliable display preferences, receiver-driven shortcuts, and repeatable
+hardware-free Receiver testing:
 
 - mirror mode and extended desktop mode
 - multiple receivers from one sender
@@ -30,6 +31,9 @@ scriptable remote connection controls for the Sender:
 - remote brightness control from the sender
 - automatic receiver discovery and extended-layout restore
 - remote connection automation via URL scheme, CLI wrapper, launch args, and SSH recipes
+- remembers the selected virtual-display resolution for each receiver
+- configurable Receiver Master shortcuts, including protected macOS shortcuts such as Space switching
+- mock sender, parser tests, and a loopback smoke test for Receiver resilience without a second Mac
 
 ## Feature Guides
 
@@ -38,7 +42,7 @@ scriptable remote connection controls for the Sender:
 - Multi-receiver layouts: [docs/Features.md#multi-receiver-workflows](docs/Features.md#multi-receiver-workflows)
 - Network Link (experimental): [docs/Features.md#network-link-experimental](docs/Features.md#network-link-experimental)
 - Audio Relay: [docs/Features.md#audio-relay](docs/Features.md#audio-relay)
-- Input Dockstation, clipboard sync, and master/slave roles: [docs/Features.md#input-dockstation](docs/Features.md#input-dockstation)
+- Input Dockstation, clipboard sync, master/slave roles, and Receiver Master shortcuts: [docs/Features.md#input-dockstation](docs/Features.md#input-dockstation)
 - Remote brightness control: [docs/Features.md#remote-brightness-control](docs/Features.md#remote-brightness-control)
 - Remote connection & automation (URL scheme, launch args, SSH, login/wake): [docs/Automation.md](docs/Automation.md)
 - Shared translations and language files: [docs/Features.md#shared-translations](docs/Features.md#shared-translations)
