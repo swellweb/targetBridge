@@ -241,8 +241,8 @@ final class TBDisplaySenderService: ObservableObject {
     /// runtime state (connection, FPS, …) is intentionally excluded — only the
     /// choices the user makes in the UI are remembered across launches. The input
     /// master role (Input Dockstation) is a user choice, so it is persisted too;
-    /// `inputControlRole` is optional for backward compatibility with sessions
-    /// saved before it was added.
+    /// role and bindings are optional for backward compatibility with sessions
+    /// saved before either setting was added.
     private struct PersistedSession: Codable {
         var transportKind: String
         var localInterfaceIP: String
@@ -255,6 +255,7 @@ final class TBDisplaySenderService: ObservableObject {
         var inputGestureMode: String
         var volume: Double?
         var inputControlRole: String?
+        var inputBindings: [TBInputBinding]?
     }
 
     private var lastPersistedData: Data?
@@ -287,7 +288,8 @@ final class TBDisplaySenderService: ObservableObject {
                 brightness: session.brightness,
                 inputGestureMode: session.inputGestureMode.rawValue,
                 volume: session.volume,
-                inputControlRole: session.inputControlRole.rawValue
+                inputControlRole: session.inputControlRole.rawValue,
+                inputBindings: session.inputBindings
             )
         }
         guard let data = try? JSONEncoder().encode(configs) else { return }
@@ -352,6 +354,9 @@ final class TBDisplaySenderService: ObservableObject {
         if let roleRaw = config.inputControlRole,
            let role = TBInputControlRole(rawValue: roleRaw) {
             session.inputControlRole = role
+        }
+        if let bindings = config.inputBindings {
+            session.inputBindings = bindings
         }
         session.receiverIP = config.receiverIP
         session.selectedReceiverID = config.selectedReceiverID

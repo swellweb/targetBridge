@@ -10,6 +10,8 @@
     <string>TargetBridge - Free &amp; Open Source</string>
     <key>NSScreenCaptureUsageDescription</key>
     <string>TargetBridge requires screen recording permission to capture the virtual display or mirror the desktop to the iMac.</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>TargetBridge uses System Events to run shortcuts selected for Receiver is Master.</string>
     <key>CFBundleURLTypes</key>
     <array>
         <dict>

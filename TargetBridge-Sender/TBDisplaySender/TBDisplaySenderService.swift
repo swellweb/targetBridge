@@ -958,10 +958,15 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
             if inputControlRole != .receiverMaster {
                 injectedRemoteMouseLocation = nil
                 releaseInjectedModifiersIfNeeded()
+                remoteHeldModifierKeyCodes.removeAll()
+                suppressedTriggerKeyCode = nil
             }
         }
     }
     @Published var inputGestureMode: TBInputGestureMode = .native
+    /// User-defined receiver-master shortcuts for this session. See
+    /// TBInputBinding.
+    @Published var inputBindings: [TBInputBinding] = []
 
     private var connection: NWConnection?
     private let connectionQueue = DispatchQueue(label: "fd.tbmonitor.sender.connection", qos: .userInteractive)
@@ -1006,6 +1011,12 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     private var injectedOptionDown = false
     private var injectedControlDown = false
     private var injectedCapsDown = false
+    // Tracks the actual modifier keys still held on the receiver while a
+    // System Events shortcut is running, so released keys are never restored.
+    private var remoteHeldModifierKeyCodes = Set<UInt16>()
+    /// While a binding trigger key is held (matched), swallow its key-up so the
+    /// raw trigger key never reaches the slave.
+    private var suppressedTriggerKeyCode: UInt16?
     private static var cachedSupportsHEVCHardwareEncode: Bool?
     private var receivedInputEventCount: UInt64 = 0
     var onRemoteSwitchRequest: ((Int) -> Void)?
@@ -1438,6 +1449,9 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         }
         pipeline?.stop()
         pipeline = nil
+        releaseInjectedModifiersIfNeeded()
+        remoteHeldModifierKeyCodes.removeAll()
+        suppressedTriggerKeyCode = nil
         connection?.stateUpdateHandler = nil
         connection?.cancel()
         connection = nil
@@ -1906,12 +1920,110 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         case "scroll":
             postLocalScroll(scrollX: event.scrollX ?? 0, scrollY: event.scrollY ?? 0)
         case "keyDown":
-            if let keyCode = event.keyCode { postLocalKey(keyCode: keyCode, isDown: true) }
+            if let keyCode = event.keyCode {
+                updateRemoteModifierState(keyCode: keyCode, isDown: true)
+                if handleIncomingTriggerKeyDown(keyCode) { return }
+                postLocalKey(keyCode: keyCode, isDown: true)
+            }
         case "keyUp":
-            if let keyCode = event.keyCode { postLocalKey(keyCode: keyCode, isDown: false) }
+            if let keyCode = event.keyCode {
+                updateRemoteModifierState(keyCode: keyCode, isDown: false)
+                if keyCode == suppressedTriggerKeyCode {
+                    suppressedTriggerKeyCode = nil
+                    return
+                }
+                postLocalKey(keyCode: keyCode, isDown: false)
+            }
         default:
             break
         }
+    }
+
+    /// receiverMaster: if the incoming key-down completes a binding trigger,
+    /// inject the action locally and swallow the trigger. Returns true if handled.
+    private func handleIncomingTriggerKeyDown(_ keyCode: UInt16) -> Bool {
+        guard !TBInputBindingEngine.isModifierKeyCode(keyCode), !inputBindings.isEmpty else { return false }
+        // Debounce key-repeat: ignore repeats while the trigger is still held.
+        if keyCode == suppressedTriggerKeyCode { return true }
+        let held = currentHeldModifierBits()
+        guard let binding = TBInputBindingEngine.match(keyCode: keyCode, modifiers: held, in: inputBindings) else {
+            return false
+        }
+        suppressedTriggerKeyCode = keyCode
+        TBInputDebugLog.log("binding MATCH: trigger=\(binding.trigger.displayString) -> inject \(binding.action.displayString)")
+        injectActionViaSystemEvents(binding.action)
+        return true
+    }
+
+    /// Inject a binding action through System Events (AppleScript) rather than a
+    /// raw CGEvent. The WindowServer ignores synthetic CGEvent presses for
+    /// protected symbolic hotkeys (e.g. ⌃← to switch Spaces), but honors the same
+    /// shortcut when it comes from the trusted System Events process.
+    ///
+    /// The user may be holding the trigger's modifiers, which we inject as held
+    /// CGEvent state — that would contaminate the action (e.g. a stray ⌥). So we
+    /// release the held modifiers first so System Events sees a clean combo. On
+    /// completion, restore only modifiers that the receiver still holds.
+    private func injectActionViaSystemEvents(_ action: TBInputShortcut) {
+        let heldKeyCodes = currentlyHeldRemoteModifierKeyCodes()
+        for keyCode in heldKeyCodes { postLocalKey(keyCode: keyCode, isDown: false) }
+
+        // Run the AppleScript in-process (NSAppleScript), NOT via /usr/bin/osascript:
+        // when spawned, osascript is the keystroke-sending client and lacks
+        // Accessibility (error 1002). In-process, this app is the client and it
+        // already holds Accessibility + Automation, so System Events is allowed
+        // to post the shortcut.
+        let source = "tell application \"System Events\" to key code \(action.keyCode)\(Self.appleScriptModifierClause(action.modifiers))"
+        DispatchQueue.global(qos: .userInitiated).async {
+            var errorInfo: NSDictionary?
+            NSAppleScript(source: source)?.executeAndReturnError(&errorInfo)
+            let failure: String? = errorInfo.map { "\($0)" }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if let failure { TBInputDebugLog.log("system-events inject error: \(failure)") }
+                guard self.inputControlRole == .receiverMaster else { return }
+                for keyCode in self.currentlyHeldRemoteModifierKeyCodes() {
+                    self.postLocalKey(keyCode: keyCode, isDown: true)
+                }
+            }
+        }
+    }
+
+    private func updateRemoteModifierState(keyCode: UInt16, isDown: Bool) {
+        guard TBInputBindingEngine.modifierBit(for: keyCode) != nil else { return }
+        if isDown {
+            remoteHeldModifierKeyCodes.insert(keyCode)
+        } else {
+            remoteHeldModifierKeyCodes.remove(keyCode)
+        }
+    }
+
+    private func currentlyHeldRemoteModifierKeyCodes() -> [UInt16] {
+        TBInputShortcut.modifierTable.compactMap { modifier in
+            remoteHeldModifierKeyCodes.first {
+                TBInputBindingEngine.modifierBit(for: $0) == modifier.bit
+            }
+        }
+    }
+
+    private static func appleScriptModifierClause(_ modifiers: UInt32) -> String {
+        var parts: [String] = []
+        if modifiers & TBInputShortcut.control != 0 { parts.append("control down") }
+        if modifiers & TBInputShortcut.option  != 0 { parts.append("option down") }
+        if modifiers & TBInputShortcut.shift   != 0 { parts.append("shift down") }
+        if modifiers & TBInputShortcut.command != 0 { parts.append("command down") }
+        guard !parts.isEmpty else { return "" }
+        return " using {" + parts.joined(separator: ", ") + "}"
+    }
+
+    /// Current held modifier state (our bitmask) reconstructed from injected keys.
+    private func currentHeldModifierBits() -> UInt32 {
+        var m: UInt32 = 0
+        if injectedControlDown { m |= TBInputShortcut.control }
+        if injectedOptionDown  { m |= TBInputShortcut.option }
+        if injectedShiftDown   { m |= TBInputShortcut.shift }
+        if injectedCommandDown { m |= TBInputShortcut.command }
+        return m
     }
 
     private func handleDisplayProfile(_ payload: Data) {

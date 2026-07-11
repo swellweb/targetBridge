@@ -136,5 +136,10 @@
   "receiver.mode.requested_preset_codec": "%{width} x %{height} px angefordert (%{preset}, %{codec})",
   "receiver.mode.requested_preset": "%{width} x %{height} px angefordert (%{preset})",
   "receiver.mode.requested_codec": "%{width} x %{height} px angefordert (%{codec})",
-  "receiver.mode.requested": "%{width} x %{height} px angefordert"
+  "receiver.mode.requested": "%{width} x %{height} px angefordert",
+  "sender.input_bindings.title": "Empfänger-Kurzbefehle",
+  "sender.input_bindings.add": "Hinzufügen",
+  "sender.input_bindings.empty": "Noch keine Kurzbefehle. Füge einen hinzu, um eine am Empfänger gedrückte Tastenkombination einer Aktion auf diesem Mac zuzuordnen.",
+  "sender.input_bindings.details": "Verfügbar, wenn der Empfänger Master ist. Der Auslöser wird am Empfänger gedrückt; die Aktion läuft auf diesem Mac. Der Auslöser darf kein von macOS reservierter Kurzbefehl sein, etwa Ctrl+Links für Spaces: verwende stattdessen Ctrl+Option+Links. Die Aktion darf reservierte Kurzbefehle verwenden, einschließlich Ctrl+Links zum Wechseln des Space auf diesem Mac.",
+  "sender.input_bindings.record": "Tasten drücken..."
 }

@@ -136,5 +136,10 @@
   "receiver.mode.requested_preset_codec": "%{width} x %{height} px requested (%{preset}, %{codec})",
   "receiver.mode.requested_preset": "%{width} x %{height} px requested (%{preset})",
   "receiver.mode.requested_codec": "%{width} x %{height} px requested (%{codec})",
-  "receiver.mode.requested": "%{width} x %{height} px requested"
+  "receiver.mode.requested": "%{width} x %{height} px requested",
+  "sender.input_bindings.title": "Receiver shortcuts",
+  "sender.input_bindings.add": "Add",
+  "sender.input_bindings.empty": "No shortcuts yet. Add one to map a shortcut pressed on the receiver to an action on this Mac.",
+  "sender.input_bindings.details": "Available when Receiver is Master. Trigger is pressed on the receiver; Action runs on this Mac. The trigger cannot be a macOS-reserved shortcut, such as Ctrl+Left for Spaces: use Ctrl+Option+Left instead. The action may use reserved shortcuts, including Ctrl+Left to switch this Mac's Space.",
+  "sender.input_bindings.record": "Press keys..."
 }
