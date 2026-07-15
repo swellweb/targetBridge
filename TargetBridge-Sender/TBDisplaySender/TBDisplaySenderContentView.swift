@@ -591,6 +591,14 @@ private struct TBDisplaySenderSessionSettingsSheet: View {
                         .disabled(session.isConnected || session.isStreaming)
                     }
 
+                    if session.captureSource == .extendedDesktop {
+                        settingRow(renderMatchingTitle, details: renderMatchingDetails) {
+                            Toggle("", isOn: $session.matchRenderToStream)
+                                .labelsHidden()
+                                .disabled(session.isConnected || session.isStreaming)
+                        }
+                    }
+
                     if service.audioRelayAvailable {
                         settingRow(TBDisplaySenderL10n.streamAudio(service.language), details: audioDetails) {
                             Toggle("", isOn: $session.audioEnabled)
@@ -969,6 +977,25 @@ private struct TBDisplaySenderSessionSettingsSheet: View {
         case .english: return "Also send the sender’s system audio to the receiver for this session."
         case .german: return "Überträgt für diese Sitzung auch den Systemton des Senders an den Empfänger."
         case .chinese: return "同时将 sender 的系统音频传到此会话的 receiver。"
+        }
+    }
+
+    private var renderMatchingTitle: String {
+        switch service.language {
+        case .italian: return "Rendering alla risoluzione dello stream"
+        case .english: return "Match render to stream"
+        case .german: return "Rendern in Stream-Auflösung"
+        case .chinese: return "渲染匹配串流分辨率"
+        }
+    }
+
+    private var renderMatchingDetails: String {
+        let desktop = session.capturePreset.renderMatchedDesktopDescription
+        switch service.language {
+        case .italian: return "Dimensiona il display virtuale sul profilo dello stream: nessun ridimensionamento in cattura. Il desktop appare come \(desktop) HiDPI."
+        case .english: return "Sizes the virtual display to the stream profile so capture is 1:1 — no rescale before encoding. Desktop looks like \(desktop) HiDPI."
+        case .german: return "Passt das virtuelle Display an das Stream-Profil an, sodass die Aufnahme 1:1 erfolgt. Der Desktop erscheint als \(desktop) HiDPI."
+        case .chinese: return "使虚拟显示器匹配串流分辨率，捕获无需缩放。桌面显示为 \(desktop) HiDPI。"
         }
     }
 

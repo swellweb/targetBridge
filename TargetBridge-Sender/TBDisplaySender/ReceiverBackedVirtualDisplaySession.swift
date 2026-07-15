@@ -5,6 +5,17 @@ extension CGVirtualDisplayDescriptor: @unchecked @retroactive Sendable {}
 extension CGVirtualDisplay: @unchecked @retroactive Sendable {}
 extension CGVirtualDisplaySettings: @unchecked @retroactive Sendable {}
 
+/// Pixel size of the mode handed to CGVirtualDisplay. With `settings.hiDPI = true`
+/// macOS synthesises a strictly 2x backing store, so a mode of (w, h) renders the
+/// desktop into a (2w, 2h) framebuffer and reports "looks like w x h" in Displays.
+struct TBVirtualDisplayModeSize: Equatable {
+    let width: Int
+    let height: Int
+
+    var backingWidth: Int { width * 2 }
+    var backingHeight: Int { height * 2 }
+}
+
 struct TBVirtualDisplayIdentity {
     let productID: UInt32
     let serialNumber: UInt32
@@ -58,11 +69,34 @@ final class ReceiverBackedVirtualDisplaySession {
     func create(
         from profile: TBMonitorDisplayProfile,
         refreshRate: Double? = nil,
+        modeOverride: TBVirtualDisplayModeSize? = nil,
         identity: TBVirtualDisplayIdentity,
         receiverKey: String
     ) -> Bool {
         destroy()
         let preferredRefreshRate = refreshRate ?? profile.refreshRate
+
+        // The receiver hard-codes mode 2560x1440 + hiDPI, i.e. a 5120x2880 backing
+        // store, regardless of which capture preset the sender is running. Any preset
+        // below 5K therefore makes ScreenCaptureKit resample 5120x2880 down to the
+        // stream size, and the receiver resample back up to the panel: two non-integer
+        // passes. `modeOverride` lets the sender size the backing store to match the
+        // stream exactly, so capture is 1:1 and only the panel-side scale remains.
+        var resolvedMode = modeOverride ?? TBVirtualDisplayModeSize(
+            width: profile.modeWidth,
+            height: profile.modeHeight
+        )
+
+        // macOS refuses a HiDPI mode whose backing store exceeds the advertised panel.
+        if resolvedMode.backingWidth > profile.panelWidth || resolvedMode.backingHeight > profile.panelHeight {
+            NSLog(
+                "TargetBridge: mode override %dx%d needs a %dx%d backing store, exceeds panel %dx%d; falling back to receiver profile",
+                resolvedMode.width, resolvedMode.height,
+                resolvedMode.backingWidth, resolvedMode.backingHeight,
+                profile.panelWidth, profile.panelHeight
+            )
+            resolvedMode = TBVirtualDisplayModeSize(width: profile.modeWidth, height: profile.modeHeight)
+        }
 
         let descriptor = CGVirtualDisplayDescriptor()
         descriptor.name = "\(identity.displayNamePrefix) - \(profile.receiverName)"
@@ -86,8 +120,8 @@ final class ReceiverBackedVirtualDisplaySession {
         let settings = CGVirtualDisplaySettings()
         settings.hiDPI = profile.hiDPI
         guard let mode = CGVirtualDisplayMode(
-            width: UInt(profile.modeWidth),
-            height: UInt(profile.modeHeight),
+            width: UInt(resolvedMode.width),
+            height: UInt(resolvedMode.height),
             refreshRate: preferredRefreshRate
         ) else {
             return false
@@ -100,13 +134,17 @@ final class ReceiverBackedVirtualDisplaySession {
 
         // Restore the user's previously chosen mode for this receiver if we have
         // one; otherwise fall back to the receiver-advertised profile default.
+        // An explicit render-matching override outranks the remembered choice: a
+        // stale manual pick would silently break the 1:1 capture the user asked for.
         let preferenceKey = TBVirtualDisplayModeMemory.preferenceKey(
             for: identity,
             receiverKey: receiverKey
         )
-        let savedChoice = TBVirtualDisplayModeMemory.shared.load(forKey: preferenceKey)
+        let savedChoice = modeOverride == nil
+            ? TBVirtualDisplayModeMemory.shared.load(forKey: preferenceKey)
+            : nil
         activatePreferredMode(for: display.displayID,
-                              profile: profile,
+                              mode: resolvedMode,
                               refreshRate: preferredRefreshRate,
                               savedChoice: savedChoice)
 
@@ -133,17 +171,17 @@ final class ReceiverBackedVirtualDisplaySession {
 
     @discardableResult
     private func activatePreferredMode(for displayID: CGDirectDisplayID,
-                                       profile: TBMonitorDisplayProfile,
+                                       mode: TBVirtualDisplayModeSize,
                                        refreshRate: Double,
                                        savedChoice: TBVirtualDisplayModeMemory.Choice?) -> Bool {
         let timeout = Date().addingTimeInterval(2.0)
         while Date() < timeout {
             var success = false
             autoreleasepool {
-                let mode = savedChoice.flatMap { savedMode(for: displayID, choice: $0) }
-                    ?? preferredMode(for: displayID, profile: profile, refreshRate: refreshRate)
-                if let mode {
-                    success = CGDisplaySetDisplayMode(displayID, mode, nil) == .success
+                let chosenMode = savedChoice.flatMap { savedMode(for: displayID, choice: $0) }
+                    ?? preferredMode(for: displayID, mode: mode, refreshRate: refreshRate)
+                if let chosenMode {
+                    success = CGDisplaySetDisplayMode(displayID, chosenMode, nil) == .success
                 }
             }
             if success {
@@ -175,14 +213,14 @@ final class ReceiverBackedVirtualDisplaySession {
         return candidates.first
     }
 
-    private func preferredMode(for displayID: CGDirectDisplayID, profile: TBMonitorDisplayProfile, refreshRate: Double) -> CGDisplayMode? {
+    private func preferredMode(for displayID: CGDirectDisplayID, mode: TBVirtualDisplayModeSize, refreshRate: Double) -> CGDisplayMode? {
         guard let modesCF = CGDisplayCopyAllDisplayModes(displayID, nil) else {
             return nil
         }
         let modes = modesCF as? [CGDisplayMode] ?? []
 
-        let matchingModes = modes.filter { mode in
-            mode.width == profile.modeWidth && mode.height == profile.modeHeight
+        let matchingModes = modes.filter { candidate in
+            candidate.width == mode.width && candidate.height == mode.height
         }.sorted { $0.refreshRate > $1.refreshRate }
 
         if let exactMatch = matchingModes.first(where: { abs($0.refreshRate - refreshRate) < 0.5 }) {

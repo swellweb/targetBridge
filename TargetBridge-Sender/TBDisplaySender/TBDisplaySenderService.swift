@@ -220,6 +220,21 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
             return 48
         }
     }
+
+    /// Virtual display mode that makes the render resolution equal the stream
+    /// resolution. macOS HiDPI is strictly 2x, so a (w/2, h/2) mode backs onto a
+    /// (w, h) framebuffer, which ScreenCaptureKit then captures 1:1.
+    ///
+    /// Costs screen real estate: the desktop reports "looks like w/2 x h/2" rather
+    /// than the receiver's default 2560 x 1440.
+    var renderMatchedDisplayMode: TBVirtualDisplayModeSize {
+        TBVirtualDisplayModeSize(width: width / 2, height: height / 2)
+    }
+
+    /// Logical desktop size the user ends up with under render matching.
+    var renderMatchedDesktopDescription: String {
+        "\(width / 2) × \(height / 2)"
+    }
 }
 
 enum TBDisplayCaptureSource: String, CaseIterable, Identifiable {
@@ -931,6 +946,11 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
             }
         }
     }
+    /// When enabled, the virtual display's backing store is sized to the capture
+    /// preset instead of the receiver-advertised 5120x2880. Removes the capture-side
+    /// downsample and the GPU cost of rendering pixels that get thrown away.
+    @Published var matchRenderToStream: Bool = false
+
     @Published var capturePreset: TBDisplayCapturePreset = .standard1440p {
         didSet {
             if !isStreaming {
@@ -2067,9 +2087,21 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
             self.setStatus(.creatingVirtualDisplay)
             self.baselineDisplayIDs = await self.fetchShareableDisplayIDs()
             let receiverKey = self.extendedDisplayIdentityKey(for: profile)
+            let modeOverride: TBVirtualDisplayModeSize? = (self.matchRenderToStream && self.captureSource == .extendedDesktop)
+                ? self.capturePreset.renderMatchedDisplayMode
+                : nil
+            if let modeOverride {
+                NSLog(
+                    "TargetBridge: render matching on, virtual display mode %dx%d (backing %dx%d) for %dx%d stream",
+                    modeOverride.width, modeOverride.height,
+                    modeOverride.backingWidth, modeOverride.backingHeight,
+                    self.capturePreset.width, self.capturePreset.height
+                )
+            }
             guard self.session.create(
                 from: profile,
                 refreshRate: self.capturePreset.virtualDisplayRefreshRate,
+                modeOverride: modeOverride,
                 identity: self.captureSource.virtualDisplayIdentity(receiverKey: receiverKey),
                 receiverKey: receiverKey
             ) else {
