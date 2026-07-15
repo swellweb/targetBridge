@@ -902,6 +902,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         }
     }
     var audioAddonAvailable = true
+    private var holdsLocalMuteClaim = false
     var receiverSupportsHEVCDecodeHint: Bool?
     var receiverInputMonitoringTrustedHint: Bool?
     var receiverAccessibilityTrustedHint: Bool?
@@ -1417,6 +1418,10 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     private func stop(resetStatusTo status: TBDisplaySenderStatusState?, persistArrangement: Bool = true) {
         if persistArrangement {
             persistExtendedDisplayArrangementIfNeeded()
+        }
+        if holdsLocalMuteClaim {
+            holdsLocalMuteClaim = false
+            TBLocalAudioMuteCoordinator.shared.release()
         }
         sendTeardown(reason: "sender_stop")
         connectTimeoutWorkItem?.cancel()
@@ -2105,6 +2110,13 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
             guard started else {
                 self.stop(resetStatusTo: nil)
                 return
+            }
+
+            // Streamed audio also plays on the local speakers (SCK captures it
+            // upstream of the output device) — mute locally for the duration.
+            if self.audioEnabled {
+                TBLocalAudioMuteCoordinator.shared.claim()
+                self.holdsLocalMuteClaim = true
             }
 
             if self.captureSource == .extendedDesktop {
