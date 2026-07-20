@@ -73,6 +73,7 @@ Do not translate or remove the placeholder tokens themselves. Only translate the
 - Do not remove placeholders.
 - Try to keep the same meaning across all languages.
 - If you add a new key in `en.json`, also add it to `it.json`, `de.json`, and `zh.json`.
+- A feature is not complete until its visible text is reviewed in English, Italian, German, and Chinese.
 
 ## Adding a new language
 
@@ -84,6 +85,16 @@ To add a new language:
 4. Add the corresponding language mapping in the Sender and Receiver code
 
 ## Testing
+
+Before building, run the shared validation from the repository root:
+
+```bash
+./TargetBridge-Shared/scripts/check_localizations.sh
+```
+
+The check verifies valid JSON, identical translation keys, and preserved placeholders.
+It cannot judge translation quality, so always open Sender and Receiver in every supported
+language to review new feature text before release.
 
 After editing translations, rebuild:
 

@@ -2,9 +2,9 @@ name: CI Build Verification
 
 on:
   push:
-    branches: [ main, 3.1-maint, 3.2-dev ]
+    branches: [ main, 3.1-maint, 3.2-dev, dev-3.3.0 ]
   pull_request:
-    branches: [ main, 3.1-maint, 3.2-dev ]
+    branches: [ main, 3.1-maint, 3.2-dev, dev-3.3.0 ]
 
 jobs:
   build-sender:
@@ -16,7 +16,11 @@ jobs:
 
       - name: Install Tools
         run: |
-          brew install xcodegen
+          brew install jq xcodegen
+
+      - name: Check Localizations
+        run: |
+          ./TargetBridge-Shared/scripts/check_localizations.sh
 
       - name: Build Sender App
         run: |
@@ -44,7 +48,11 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          brew install ffmpeg sdl2 sdl3 dylibbundler
+          brew install ffmpeg jq sdl2 sdl3 dylibbundler
+
+      - name: Check Localizations
+        run: |
+          ./TargetBridge-Shared/scripts/check_localizations.sh
 
       - name: Run Receiver Parser Tests
         run: |
