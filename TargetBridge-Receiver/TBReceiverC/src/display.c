@@ -37,6 +37,7 @@ struct tb_display {
     int           quit;
     int           preferred_fullscreen;
     int           is_connected;
+    int           is_connecting;
     int           input_capture_active;
     int           input_intercept_active;
     struct tb_input_event input_events[128];
@@ -62,6 +63,7 @@ struct tb_display {
     char          last_permissions[160];
     int           last_drawable_w;
     int           last_drawable_h;
+    int           status_is_connecting;
 };
 
 static uint16_t tb_disp_mac_keycode_for_sdl_scancode(SDL_Scancode scancode) {
@@ -279,6 +281,73 @@ static void tb_disp_fill_rect(CGContextRef ctx,
     CGContextFillRect(ctx, CGRectMake(x, y, w, h));
 }
 
+static void tb_disp_fill_rounded_rect(CGContextRef ctx,
+                                      CGFloat x,
+                                      CGFloat y,
+                                      CGFloat w,
+                                      CGFloat h,
+                                      CGFloat radius,
+                                      CGFloat r,
+                                      CGFloat g,
+                                      CGFloat b,
+                                      CGFloat a) {
+    CGPathRef path = CGPathCreateWithRoundedRect(CGRectMake(x, y, w, h), radius, radius, NULL);
+    if (!path) return;
+    CGContextSetRGBFillColor(ctx, r, g, b, a);
+    CGContextAddPath(ctx, path);
+    CGContextFillPath(ctx);
+    CGPathRelease(path);
+}
+
+static void tb_disp_draw_brand_icon(CGContextRef ctx, CGFloat x, CGFloat y, CGFloat size) {
+    const CGFloat inset = size * 0.22;
+    const CGFloat monitor_w = size * 0.56;
+    const CGFloat monitor_h = size * 0.34;
+    const CGFloat monitor_x = x + (size - monitor_w) / 2.0;
+    const CGFloat monitor_y = y + size * 0.25;
+
+    tb_disp_fill_rounded_rect(ctx, x, y, size, size, size * 0.22, 0.13, 0.34, 0.24, 1.0);
+    CGContextSetRGBStrokeColor(ctx, 0.94, 0.98, 0.96, 1.0);
+    CGContextSetLineWidth(ctx, size * 0.045);
+    CGContextStrokeRect(ctx, CGRectMake(monitor_x, monitor_y, monitor_w, monitor_h));
+    CGContextMoveToPoint(ctx, monitor_x + monitor_w * 0.5, monitor_y + monitor_h);
+    CGContextAddLineToPoint(ctx, monitor_x + monitor_w * 0.5, monitor_y + monitor_h + size * 0.13);
+    CGContextMoveToPoint(ctx, monitor_x + inset, monitor_y + monitor_h + size * 0.13);
+    CGContextAddLineToPoint(ctx, monitor_x + monitor_w - inset, monitor_y + monitor_h + size * 0.13);
+    CGContextStrokePath(ctx);
+}
+
+static void tb_disp_draw_connecting_spinner(struct tb_display *d, int drawable_w, int drawable_h) {
+    if (!d || !d->ren) return;
+
+    static const int vectors[12][2] = {
+        { 0, -100 }, { 50, -87 }, { 87, -50 }, { 100, 0 },
+        { 87, 50 }, { 50, 87 }, { 0, 100 }, { -50, 87 },
+        { -87, 50 }, { -100, 0 }, { -87, -50 }, { -50, -87 }
+    };
+    const int min_side = drawable_w < drawable_h ? drawable_w : drawable_h;
+    const int radius = min_side / 13;
+    const int segment = min_side / 42;
+    const int center_x = drawable_w / 2;
+    const int center_y = drawable_h / 2 + min_side / 5;
+    const int phase = (int)((SDL_GetTicks() / 90u) % 12u);
+
+    SDL_BlendMode old_blend = SDL_BLENDMODE_NONE;
+    SDL_GetRenderDrawBlendMode(d->ren, &old_blend);
+    SDL_SetRenderDrawBlendMode(d->ren, SDL_BLENDMODE_BLEND);
+    for (int i = 0; i < 12; i++) {
+        const int age = (i - phase + 12) % 12;
+        const Uint8 alpha = (Uint8)(54 + (11 - age) * 18);
+        const int x1 = center_x + vectors[i][0] * radius / 100;
+        const int y1 = center_y + vectors[i][1] * radius / 100;
+        const int x2 = center_x + vectors[i][0] * (radius + segment) / 100;
+        const int y2 = center_y + vectors[i][1] * (radius + segment) / 100;
+        SDL_SetRenderDrawColor(d->ren, 84, 225, 137, alpha);
+        SDL_RenderDrawLine(d->ren, x1, y1, x2, y2);
+    }
+    SDL_SetRenderDrawBlendMode(d->ren, old_blend);
+}
+
 static void tb_disp_rebuild_status_texture(struct tb_display *d,
                                            const char *ip,
                                            const char *status,
@@ -288,7 +357,8 @@ static void tb_disp_rebuild_status_texture(struct tb_display *d,
                                            const char *language,
                                            const char *permissions,
                                            int drawable_w,
-                                           int drawable_h) {
+                                           int drawable_h,
+                                           int connecting) {
     if (!d || drawable_w <= 0 || drawable_h <= 0) return;
 
     tb_disp_destroy_status_texture(d);
@@ -316,10 +386,6 @@ static void tb_disp_rebuild_status_texture(struct tb_display *d,
     CGContextTranslateCTM(ctx, 0, (CGFloat)drawable_h);
     CGContextScaleCTM(ctx, 1.0, -1.0);
 
-    tb_disp_fill_rect(ctx, 0, 0, (CGFloat)drawable_w, (CGFloat)drawable_h, 0.06, 0.07, 0.09, 1.0);
-    tb_disp_fill_rect(ctx, 48, 52, (CGFloat)drawable_w - 96, (CGFloat)drawable_h - 104, 0.11, 0.12, 0.15, 1.0);
-    tb_disp_fill_rect(ctx, 48, (CGFloat)drawable_h - 152, (CGFloat)drawable_w - 96, 2, 0.22, 0.24, 0.29, 1.0);
-
     const char *current_language = tb_i18n_current_language();
     const int zh = current_language && strncmp(current_language, "zh", 2) == 0;
     const char *title_font = zh ? "PingFangSC-Semibold" : "Helvetica-Bold";
@@ -327,6 +393,44 @@ static void tb_disp_rebuild_status_texture(struct tb_display *d,
     const char *section_font = zh ? "PingFangSC-Semibold" : "Helvetica-Bold";
     const char *mono_font = "Menlo";
     const char *mono_bold_font = "Menlo-Bold";
+
+    if (connecting) {
+        const CGFloat min_side = (CGFloat)(drawable_w < drawable_h ? drawable_w : drawable_h);
+        const CGFloat scale = min_side / 720.0;
+        const CGFloat icon_size = 132.0 * scale;
+        const CGFloat center_x = (CGFloat)drawable_w / 2.0;
+        const CGFloat icon_x = center_x - icon_size / 2.0;
+        const CGFloat icon_y = (CGFloat)drawable_h / 2.0 - 206.0 * scale;
+
+        tb_disp_fill_rect(ctx, 0, 0, (CGFloat)drawable_w, (CGFloat)drawable_h, 0.035, 0.045, 0.06, 1.0);
+        tb_disp_fill_rounded_rect(ctx,
+                                  center_x - 300.0 * scale,
+                                  icon_y - 60.0 * scale,
+                                  600.0 * scale,
+                                  490.0 * scale,
+                                  38.0 * scale,
+                                  0.075, 0.09, 0.12, 1.0);
+        tb_disp_draw_brand_icon(ctx, icon_x, icon_y, icon_size);
+        tb_disp_draw_text(ctx, "TargetBridge", title_font, 42.0 * scale,
+                          center_x - 156.0 * scale, icon_y + icon_size + 74.0 * scale,
+                          0.95, 0.98, 0.97);
+        tb_disp_draw_text(ctx, "RECEIVER", mono_bold_font, 15.0 * scale,
+                          center_x - 48.0 * scale, icon_y + icon_size + 104.0 * scale,
+                          0.40, 0.90, 0.59);
+        tb_disp_draw_text(ctx, tb_i18n_get("receiver.splash.connecting"), body_font, 23.0 * scale,
+                          center_x - 158.0 * scale, icon_y + icon_size + 166.0 * scale,
+                          0.93, 0.95, 0.99);
+        tb_disp_draw_text(ctx, tb_i18n_get("receiver.splash.waiting_first_frame"), body_font, 17.0 * scale,
+                          center_x - 178.0 * scale, icon_y + icon_size + 202.0 * scale,
+                          0.62, 0.68, 0.77);
+        tb_disp_draw_text(ctx, TB_RECEIVER_VERSION, mono_font, 13.0 * scale,
+                          center_x - 26.0 * scale, icon_y + icon_size + 310.0 * scale,
+                          0.40, 0.45, 0.53);
+    } else {
+
+    tb_disp_fill_rect(ctx, 0, 0, (CGFloat)drawable_w, (CGFloat)drawable_h, 0.06, 0.07, 0.09, 1.0);
+    tb_disp_fill_rect(ctx, 48, 52, (CGFloat)drawable_w - 96, (CGFloat)drawable_h - 104, 0.11, 0.12, 0.15, 1.0);
+    tb_disp_fill_rect(ctx, 48, (CGFloat)drawable_h - 152, (CGFloat)drawable_w - 96, 2, 0.22, 0.24, 0.29, 1.0);
 
     const CGFloat outer_x = 72.0;
     const CGFloat outer_w = (CGFloat)drawable_w - 144.0;
@@ -371,6 +475,7 @@ static void tb_disp_rebuild_status_texture(struct tb_display *d,
     tb_disp_draw_text(ctx, tb_i18n_get("receiver.ui.help_1"), body_font, 17, 72, 138, 0.76, 0.80, 0.88);
     tb_disp_draw_text(ctx, tb_i18n_get("receiver.ui.help_2"), body_font, 17, 72, 108, 0.76, 0.80, 0.88);
     tb_disp_draw_text(ctx, tb_i18n_get("receiver.ui.help_4"), body_font, 17, 72, 78, 0.76, 0.80, 0.88);
+    }
 
     CGContextRelease(ctx);
 
@@ -391,7 +496,7 @@ static void tb_disp_rebuild_status_texture(struct tb_display *d,
 static void tb_disp_refresh_window_mode(struct tb_display *d) {
     if (!d || !d->win) return;
 
-    if (d->is_connected && d->preferred_fullscreen) {
+    if ((d->is_connected || d->is_connecting) && d->preferred_fullscreen) {
         SDL_SetWindowFullscreen(d->win, SDL_WINDOW_FULLSCREEN_DESKTOP);
     } else {
         SDL_SetWindowFullscreen(d->win, 0);
@@ -400,7 +505,7 @@ static void tb_disp_refresh_window_mode(struct tb_display *d) {
     }
 
     const int should_hide_cursor =
-        (d->is_connected && d->preferred_fullscreen) ||
+        ((d->is_connected || d->is_connecting) && d->preferred_fullscreen) ||
         d->input_capture_active ||
         d->input_intercept_active;
 
@@ -1246,11 +1351,20 @@ int tb_disp_get_info(struct tb_display *d, struct tb_display_info *info) {
     return 0;
 }
 
-void tb_disp_set_connection_state(struct tb_display *d, int connected) {
+static void tb_disp_set_stream_state(struct tb_display *d, int connected, int connecting) {
     if (!d) return;
-    if (d->is_connected == connected) return;
+    if (d->is_connected == connected && d->is_connecting == connecting) return;
     d->is_connected = connected;
+    d->is_connecting = connecting;
     tb_disp_refresh_window_mode(d);
+}
+
+void tb_disp_set_connection_state(struct tb_display *d, int connected) {
+    tb_disp_set_stream_state(d, connected ? 1 : 0, 0);
+}
+
+static void tb_disp_set_connecting_state(struct tb_display *d, int connecting) {
+    tb_disp_set_stream_state(d, 0, connecting ? 1 : 0);
 }
 
 void tb_disp_set_input_capture_active(struct tb_display *d, int active) {
@@ -1317,7 +1431,8 @@ void tb_disp_render_status(struct tb_display *d,
         strcmp(d->last_permissions, permissions) != 0 ||
         d->last_drawable_w != drawable_w ||
         d->last_drawable_h != drawable_h ||
-        d->status_tex == NULL) {
+        d->status_tex == NULL ||
+        d->status_is_connecting) {
         snprintf(d->last_ip, sizeof(d->last_ip), "%s", ip);
         snprintf(d->last_status, sizeof(d->last_status), "%s", status);
         snprintf(d->last_sender, sizeof(d->last_sender), "%s", sender);
@@ -1327,7 +1442,9 @@ void tb_disp_render_status(struct tb_display *d,
         snprintf(d->last_permissions, sizeof(d->last_permissions), "%s", permissions);
         d->last_drawable_w = drawable_w;
         d->last_drawable_h = drawable_h;
-        tb_disp_rebuild_status_texture(d, ip, status, sender, panel, mode, language, permissions, drawable_w, drawable_h);
+        d->status_is_connecting = 0;
+        tb_disp_rebuild_status_texture(d, ip, status, sender, panel, mode, language, permissions,
+                                       drawable_w, drawable_h, 0);
     }
 
     char title[256];
@@ -1336,6 +1453,37 @@ void tb_disp_render_status(struct tb_display *d,
 
     SDL_RenderClear(d->ren);
     if (d->status_tex) SDL_RenderCopy(d->ren, d->status_tex, NULL, NULL);
+    SDL_RenderPresent(d->ren);
+}
+
+void tb_disp_render_connecting(struct tb_display *d) {
+    if (!d || !d->ren || !d->win) return;
+
+    tb_disp_set_connecting_state(d, 1);
+
+    int drawable_w = 0;
+    int drawable_h = 0;
+    if (SDL_GetRendererOutputSize(d->ren, &drawable_w, &drawable_h) < 0 ||
+        drawable_w <= 0 || drawable_h <= 0) {
+        drawable_w = 980;
+        drawable_h = 620;
+    }
+
+    if (d->status_tex == NULL ||
+        !d->status_is_connecting ||
+        d->last_drawable_w != drawable_w ||
+        d->last_drawable_h != drawable_h) {
+        d->last_drawable_w = drawable_w;
+        d->last_drawable_h = drawable_h;
+        d->status_is_connecting = 1;
+        tb_disp_rebuild_status_texture(d, "", "", "", "", "", "", "",
+                                       drawable_w, drawable_h, 1);
+    }
+
+    SDL_SetWindowTitle(d->win, "TargetBridge Receiver — Connecting");
+    SDL_RenderClear(d->ren);
+    if (d->status_tex) SDL_RenderCopy(d->ren, d->status_tex, NULL, NULL);
+    tb_disp_draw_connecting_spinner(d, drawable_w, drawable_h);
     SDL_RenderPresent(d->ren);
 }
 

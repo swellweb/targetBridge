@@ -1855,8 +1855,10 @@ int main(int argc, char **argv) {
             tb_receiver_poll_permissions(&a);
         }
 
-        if (a.client_fd < 0 || !a.have_video_frame) {
+        if (a.client_fd < 0) {
             tb_disp_render_status(a.disp, a.display_host, a.status_text, a.sender_text, a.panel_text, a.mode_text, a.language_text, a.permissions_text);
+        } else if (!a.have_video_frame) {
+            tb_disp_render_connecting(a.disp);
         }
 
         if (strcmp(a.input_control_mode, "receiverMaster") == 0 && a.client_fd >= 0) {

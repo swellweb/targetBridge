@@ -100,5 +100,6 @@ void tb_disp_render_status(struct tb_display *d,
                            const char *mode,
                            const char *language,
                            const char *permissions);
+void tb_disp_render_connecting(struct tb_display *d);
 
 #endif

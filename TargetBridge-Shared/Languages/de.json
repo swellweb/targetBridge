@@ -119,6 +119,8 @@
   "receiver.ui.help_4": "Drücke L, um die Sprache des Empfängers zu ändern.",
   "receiver.language.auto": "Automatisch",
   "receiver.status.waiting_for_sender": "warte auf Sender",
+  "receiver.splash.connecting": "Verbindung mit deinem MacBook wird hergestellt",
+  "receiver.splash.waiting_first_frame": "Warte auf das erste Bild…",
   "receiver.status.waiting": "warte",
   "receiver.status.stream_active": "Stream aktiv",
   "receiver.status.sender_connected": "Sender verbunden",
