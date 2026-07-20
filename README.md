@@ -10,7 +10,14 @@ It's free and open source software, no subscription and no dongle required.
 
 If it is useful to you, spread the news and give us a ⭐ on GitHub.
 
-Sponsoring the TargetBridge project is also very welcome:
+## Support and Thanks
+
+TargetBridge is free and open source. Sponsorship is never required, but monthly
+and one-time contributions make it possible to reserve time for macOS
+compatibility, bug fixes, hardware testing, and future useful tools for Mac.
+
+Thank you to everyone supporting TargetBridge through GitHub Sponsors. Your
+contributions help keep the project moving forward.
 
 [![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-pink?logo=github)](https://github.com/sponsors/swellweb)
 
@@ -129,14 +136,11 @@ license. For now, the canonical source-code license is:
 
 ## Screenshots
 
-**Sender (Apple Silicon Mac) — multi-session dashboard:**
-![TargetBridge Sender](images/sender-multisession.png)
+**Sender (Apple Silicon Mac) — session dashboard:**
+![TargetBridge Sender dashboard](images/sender-dashboard.png)
 
-**Sender — active mirrored stream (5K, HEVC):**
-![TargetBridge Sender active](images/sender-active-mirror.png)
-
-**Receiver (Intel iMac) — waiting for sender:**
-![TargetBridge Receiver](images/receiver.png)
+**Receiver — ready for a sender stream:**
+![TargetBridge Receiver dashboard](images/receiver-dashboard.png)
 
 **macOS Displays — extended desktop target:**
 ![TargetBridge extended desktop](images/display-extend.png)
