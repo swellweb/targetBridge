@@ -977,6 +977,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
             inputRelayActive = (inputControlRole == .senderMaster)
             if inputControlRole != .receiverMaster {
                 injectedRemoteMouseLocation = nil
+                injectedLeftClickTracker.reset()
                 releaseInjectedModifiersIfNeeded()
                 remoteHeldModifierKeyCodes.removeAll()
                 suppressedTriggerKeyCode = nil
@@ -1026,6 +1027,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     private var cursorDisplayID: CGDirectDisplayID = kCGNullDirectDisplay
     private var lastCursorPacket: TBMonitorCursor?
     private var injectedRemoteMouseLocation: CGPoint?
+    private var injectedLeftClickTracker = TBInjectedClickStateTracker()
     private var injectedCommandDown = false
     private var injectedShiftDown = false
     private var injectedOptionDown = false
@@ -1260,9 +1262,9 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         )
         connection = conn
 
-        conn.stateUpdateHandler = { [weak self] state in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
+        conn.stateUpdateHandler = { [weak self, weak conn] state in
+            Task { @MainActor [weak self, weak conn] in
+                guard let self, let conn, self.connection === conn else { return }
                 switch state {
                 case .ready:
                     self.connectTimeoutWorkItem?.cancel()
@@ -1471,6 +1473,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         pipeline = nil
         releaseInjectedModifiersIfNeeded()
         remoteHeldModifierKeyCodes.removeAll()
+        injectedLeftClickTracker.reset()
         suppressedTriggerKeyCode = nil
         connection?.stateUpdateHandler = nil
         connection?.cancel()
@@ -1642,7 +1645,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     private func receiveLoop(on connection: NWConnection) {
         connection.receive(minimumIncompleteLength: 1, maximumLength: 256 * 1024) { [weak self] data, _, isDone, error in
             Task { @MainActor [weak self] in
-                guard let self else { return }
+                guard let self, self.connection === connection else { return }
                 if let data, !data.isEmpty {
                     self.recvBuffer.append(data)
                     self.drainPackets()
@@ -1815,6 +1818,19 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         logLocalInputInjectionStateIfNeeded(context: "mouseButton")
         guard let current = injectedRemoteMouseLocation ?? currentLocalMouseLocation() else { return }
         guard let event = CGEvent(mouseEventSource: localInputEventSource(), mouseType: type, mouseCursorPosition: current, mouseButton: button) else { return }
+        if button == .left {
+            let clickState: Int
+            if type == .leftMouseDown {
+                clickState = injectedLeftClickTracker.registerClick(
+                    at: current,
+                    timestamp: ProcessInfo.processInfo.systemUptime,
+                    doubleClickInterval: NSEvent.doubleClickInterval
+                )
+            } else {
+                clickState = max(injectedLeftClickTracker.currentClickState, 1)
+            }
+            event.setIntegerValueField(.mouseEventClickState, value: Int64(clickState))
+        }
         event.post(tap: .cghidEventTap)
     }
 
@@ -2176,6 +2192,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
             )
             guard pipeline.start() else { return false }
             self.pipeline = pipeline
+            TBLog.connection.info("capture: pipeline started preset=\(preset.rawValue, privacy: .public) source=\(String(describing: self.captureSource), privacy: .public) codec=\(codecName, privacy: .public)")
 
             let display: SCDisplay
             if captureSource == .desktopMirror {
@@ -2903,6 +2920,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         sessionAckSent = true
         firstFrameTimer?.invalidate()
         firstFrameTimer = nil
+        TBLog.connection.info("capture: first encoded frame received")
         setStatus(.captureActive(capturePreset.description, activeCodecName ?? capturePreset.codecName, captureSource))
     }
 
@@ -2940,7 +2958,9 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
             guard let self else { return }
             MainActor.assumeIsolated {
                 guard isStreaming, !sessionAckSent else { return }
-                if capturePreset == .native5k {
+                let sentFrames = self.pipeline?.sentFramesSnapshot ?? 0
+                TBLog.connection.error("capture: first-frame timeout preset=\(self.capturePreset.rawValue, privacy: .public) source=\(String(describing: self.captureSource), privacy: .public) connected=\(self.isConnected, privacy: .public) sentFrames=\(sentFrames, privacy: .public)")
+                if self.capturePreset == .native5k {
                     setStatus(.hevcNoFrames)
                 } else {
                     setStatus(.noFirstFrame)
