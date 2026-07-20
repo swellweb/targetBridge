@@ -237,9 +237,12 @@ final class TBDisplaySenderService: ObservableObject {
 
     private static let persistedSessionsKey = "fd.tbdisplaysender.sessions.v1"
 
-    /// Snapshot of the user-configurable settings for a single session. Runtime
-    /// state (connection, input master role, FPS, …) is intentionally excluded —
-    /// only the choices the user makes in the UI are remembered across launches.
+    /// Snapshot of the user-configurable settings for a single session. Transient
+    /// runtime state (connection, FPS, …) is intentionally excluded — only the
+    /// choices the user makes in the UI are remembered across launches. The input
+    /// master role (Input Dockstation) is a user choice, so it is persisted too;
+    /// role and bindings are optional for backward compatibility with sessions
+    /// saved before either setting was added.
     private struct PersistedSession: Codable {
         var transportKind: String
         var localInterfaceIP: String
@@ -251,6 +254,8 @@ final class TBDisplaySenderService: ObservableObject {
         var brightness: Double
         var inputGestureMode: String
         var volume: Double?
+        var inputControlRole: String?
+        var inputBindings: [TBInputBinding]?
     }
 
     private var lastPersistedData: Data?
@@ -282,7 +287,9 @@ final class TBDisplaySenderService: ObservableObject {
                 audioEnabled: session.audioEnabled,
                 brightness: session.brightness,
                 inputGestureMode: session.inputGestureMode.rawValue,
-                volume: session.volume
+                volume: session.volume,
+                inputControlRole: session.inputControlRole.rawValue,
+                inputBindings: session.inputBindings
             )
         }
         guard let data = try? JSONEncoder().encode(configs) else { return }
@@ -316,6 +323,14 @@ final class TBDisplaySenderService: ObservableObject {
             attachSession(session)
             sessions.append(session)
         }
+        // Enforce the single-master invariant: only one session may hold a
+        // non-`off` input role. (Persisted data should already satisfy this, but
+        // restore sets roles directly, so guard against stale/edited defaults.)
+        if let firstMaster = sessions.first(where: { $0.inputControlRole != .off }) {
+            for session in sessions where session.id != firstMaster.id {
+                session.inputControlRole = .off
+            }
+        }
         // Drop transports/audio for addons that are no longer enabled and make
         // sure every restored interface still exists on this machine.
         normalizeAddonState()
@@ -335,6 +350,13 @@ final class TBDisplaySenderService: ObservableObject {
         }
         if let gesture = TBInputGestureMode(rawValue: config.inputGestureMode) {
             session.inputGestureMode = gesture
+        }
+        if let roleRaw = config.inputControlRole,
+           let role = TBInputControlRole(rawValue: roleRaw) {
+            session.inputControlRole = role
+        }
+        if let bindings = config.inputBindings {
+            session.inputBindings = bindings
         }
         session.receiverIP = config.receiverIP
         session.selectedReceiverID = config.selectedReceiverID

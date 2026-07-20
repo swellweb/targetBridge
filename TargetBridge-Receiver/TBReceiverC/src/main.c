@@ -47,6 +47,11 @@
 
 #define AUDIO_BUF_CAP (192000) // 1 second buffer of 48000Hz stereo 16-bit PCM
 
+/* Reap a connected sender that has gone completely silent. The sender
+ * heartbeats every 2s and streams frames continuously, so 10s of silence
+ * (5 missed heartbeats) means it died without a FIN. */
+#define TB_SENDER_IDLE_TIMEOUT_MS 10000
+
 struct app {
     struct tb_display *disp;
     struct tb_decoder *dec;
@@ -59,6 +64,7 @@ struct app {
     uint64_t last_fps_tick_ms;
     uint64_t last_fps_count;
     uint64_t last_ip_check_ms;
+    uint64_t last_recv_ms;      /* idle watchdog: last time the sender sent anything */
     int      close_requested;
     int      have_video_frame;
 
@@ -1135,6 +1141,12 @@ static void write_be32(uint8_t *dst, uint32_t value) {
 }
 
 static int send_all(int fd, const uint8_t *buf, size_t len) {
+    /* Bound the EAGAIN retry loop: this runs on the event-loop thread, so an
+     * unresponsive reader (half-open peer, saturated link) must not wedge
+     * rendering and quit handling forever. 2s of zero progress means the
+     * session is effectively dead; give up and let the caller/watchdog
+     * tear it down. */
+    const uint64_t deadline_ms = now_ms() + 2000;
     size_t off = 0;
     while (off < len) {
         ssize_t n = write(fd, buf + off, len - off);
@@ -1143,6 +1155,10 @@ static int send_all(int fd, const uint8_t *buf, size_t len) {
             continue;
         }
         if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+            if (now_ms() >= deadline_ms) {
+                fprintf(stderr, "[net] send stalled for 2s; dropping write\n");
+                return -1;
+            }
             usleep(1000);
             continue;
         }
@@ -1259,6 +1275,13 @@ static CGEventRef tb_receiver_input_tap_callback(CGEventTapProxy proxy,
     }
 
     if (strcmp(a->input_control_mode, "receiverMaster") != 0) return event;
+
+    /* Only drive the sender while the user is actually on the shared display
+     * window's Space. The global tap also sees events from other receiver
+     * Spaces; forwarding those would make the sender's cursor jump while the
+     * user is doing local work on the receiver. When the window is on a
+     * different Space, pass the event through untouched and forward nothing. */
+    if (!tb_disp_window_on_active_space(a->disp)) return event;
 
     int should_consume = 0;
 
@@ -1607,6 +1630,7 @@ static void close_client(struct app *a) {
     a->close_requested = 0;
     a->have_video_frame = 0;
     snprintf(a->input_control_mode, sizeof(a->input_control_mode), "off");
+    SDL_EnableScreenSaver();
     tb_receiver_refresh_input_capture(a);
     tb_disp_set_connection_state(a->disp, 0);
     tb_disp_set_cursor(a->disp, 0, 0, 1, 1, 0, 0);
@@ -1795,6 +1819,8 @@ int main(int argc, char **argv) {
             if (c >= 0) {
                 a.client_fd = c;
                 a.have_video_frame = 0;
+                a.last_recv_ms = t;
+                SDL_DisableScreenSaver();
                 fprintf(stderr, "[main] client connected\n");
                 tb_parser_free(&a.parser);
                 tb_parser_init(&a.parser, on_packet, &a);
@@ -1807,7 +1833,20 @@ int main(int argc, char **argv) {
                 close_client(&a);
             } else {
                 socket_activity = drain_result;
-                if (a.close_requested) close_client(&a);
+                if (drain_result > 0) a.last_recv_ms = t;
+                if (a.close_requested) {
+                    close_client(&a);
+                } else if (t - a.last_recv_ms >= TB_SENDER_IDLE_TIMEOUT_MS) {
+                    /* The sender streams frames continuously and heartbeats
+                     * every 2s. Total silence means it died without a FIN
+                     * (crash, pulled cable, force sleep). Without this reap,
+                     * the dead fd is held forever and — because the receiver
+                     * is single-client — every future connect is locked out
+                     * until the app is restarted. */
+                    fprintf(stderr, "[main] no data from sender for %llu ms; closing stale session\n",
+                            (unsigned long long)(t - a.last_recv_ms));
+                    close_client(&a);
+                }
             }
         }
 
@@ -1816,8 +1855,10 @@ int main(int argc, char **argv) {
             tb_receiver_poll_permissions(&a);
         }
 
-        if (a.client_fd < 0 || !a.have_video_frame) {
+        if (a.client_fd < 0) {
             tb_disp_render_status(a.disp, a.display_host, a.status_text, a.sender_text, a.panel_text, a.mode_text, a.language_text, a.permissions_text);
+        } else if (!a.have_video_frame) {
+            tb_disp_render_connecting(a.disp);
         }
 
         if (strcmp(a.input_control_mode, "receiverMaster") == 0 && a.client_fd >= 0) {

@@ -27,7 +27,7 @@ targets:
         # CFBundleDisplayName / NSHumanReadableCopyright / NSScreenCaptureUsageDescription now
         # live in TargetBridgeSupport/Info.plist (Xcode drops INFOPLIST_KEY_* usage strings once
         # INFOPLIST_FILE is set; the file is the single source of truth for those + the URL scheme).
-        MARKETING_VERSION: "3.1.0"
+        MARKETING_VERSION: "3.2.0"
         CURRENT_PROJECT_VERSION: "1"
         SWIFT_VERSION: "6.0"
         ENABLE_HARDENED_RUNTIME: NO
@@ -44,8 +44,38 @@ targets:
           STAMP="$(date +%Y%m%d%H%M%S)"
           cat > "${SRCROOT}/TBDisplaySender/TBDisplaySenderBuildInfo.swift" <<EOI
           enum TBDisplaySenderBuildInfo {
-              static let marketingVersion = "3.1.0"
+              static let marketingVersion = "3.2.0"
               static let buildNumber = "${STAMP}"
               static let versionDisplay = "\\(marketingVersion) + build \\(buildNumber)"
           }
           EOI
+
+  TBDisplaySenderTests:
+    type: bundle.unit-test
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: TBDisplaySenderTests
+    dependencies:
+      - target: TBDisplaySender
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.targetbridge.sender.tests
+        SWIFT_VERSION: "6.0"
+        SWIFT_STRICT_CONCURRENCY: minimal
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/TargetBridge.app/Contents/MacOS/TargetBridge"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+
+schemes:
+  TBDisplaySender:
+    build:
+      targets:
+        TBDisplaySender: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      gatherCoverageData: false
+      targets:
+        - TBDisplaySenderTests

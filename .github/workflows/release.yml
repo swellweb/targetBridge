@@ -60,7 +60,7 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          brew install ffmpeg sdl2 dylibbundler
+          brew install ffmpeg sdl2 sdl3 dylibbundler
 
       - name: Build Receiver App
         run: |

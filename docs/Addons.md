@@ -105,6 +105,7 @@ When `Receiver is Master` is active:
 - `Ctrl+Left/Right` is forwarded to the sender so the sender can switch Spaces/Desktop views
 - `Ctrl+Cmd+Left/Right` switches control between slave targets
 - `Ctrl+Option+Command+K` exits input control quickly in either direction
+- session settings can map a receiver trigger to a sender action, for example `Ctrl+Option+Left` to `Ctrl+Left`; configured actions require the sender's one-time macOS Automation permission for `System Events`
 
 The current implementation also includes:
 

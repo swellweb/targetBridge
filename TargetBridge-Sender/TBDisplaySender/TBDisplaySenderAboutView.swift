@@ -79,6 +79,9 @@ struct TBDisplaySenderAboutView: View {
         .padding(20)
         .frame(minWidth: 620, minHeight: 420)
         .background(appBackground)
+        // Fixed dark background → force dark scheme so semantic text colors stay
+        // light and don't render dark-on-dark in system Light mode.
+        .preferredColorScheme(.dark)
     }
 
     private var versionChip: some View {

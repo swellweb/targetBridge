@@ -2,9 +2,9 @@ name: CI Build Verification
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, 3.1-maint, 3.2-dev ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, 3.1-maint, 3.2-dev ]
 
 jobs:
   build-sender:
@@ -23,6 +23,11 @@ jobs:
           cd TargetBridge-Sender
           ./scripts/build_targetbridge_sender_app.sh
 
+      - name: Run Sender Unit Tests
+        run: |
+          cd TargetBridge-Sender
+          xcodebuild test -project TargetBridge.xcodeproj -scheme TBDisplaySender -destination 'platform=macOS' -derivedDataPath .build/DerivedData
+
   build-receiver:
     name: Build Receiver (${{ matrix.os }} - ${{ matrix.arch }})
     strategy:
@@ -39,7 +44,12 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          brew install ffmpeg sdl2 dylibbundler
+          brew install ffmpeg sdl2 sdl3 dylibbundler
+
+      - name: Run Receiver Parser Tests
+        run: |
+          cd TargetBridge-Receiver/TBReceiverC
+          make test
 
       - name: Build Receiver App
         run: |

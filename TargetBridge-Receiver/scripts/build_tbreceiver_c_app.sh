@@ -8,7 +8,7 @@ BUILD_DIR="${REPO_ROOT}/build"
 APP_DIR="${BUILD_DIR}/TargetBridge Receiver.app"
 BIN_NAME="TargetBridgeReceiver"
 APP_NAME="TargetBridge Receiver"
-APP_VERSION="3.1.0"
+APP_VERSION="3.2.0"
 STAMP="$(date +%Y%m%d%H%M%S)"
 ARCH="$(uname -m)"
 ICONSET_DIR="$(mktemp -d)"
@@ -27,7 +27,10 @@ cp "$ROOT/TBReceiverC/tbreceiver" "$APP_DIR/Contents/MacOS/$BIN_NAME"
 chmod +x "$APP_DIR/Contents/MacOS/$BIN_NAME"
 cp "$REPO_ROOT/TargetBridge-Shared/Languages/"*.json "$APP_DIR/Contents/Resources/Languages/"
 
-# Bundle dylib dependencies (ffmpeg, SDL2) inside the .app
+# Bundle dylib dependencies (ffmpeg and SDL) inside the .app.
+# Homebrew's SDL2 is currently sdl2-compat, which loads SDL3 at runtime via
+# dlopen. dylibbundler cannot discover that dynamic dependency, so copy it
+# explicitly to keep the released receiver self-contained.
 mkdir -p "$APP_DIR/Contents/Frameworks"
 if ! command -v dylibbundler &>/dev/null; then
   echo "Installing dylibbundler..."
@@ -38,6 +41,13 @@ dylibbundler -od -b \
   -d "$APP_DIR/Contents/Frameworks/" \
   -p @executable_path/../Frameworks/ \
   >/dev/null 2>&1
+
+SDL3_DYLIB="$(brew --prefix sdl3)/lib/libSDL3.dylib"
+if [[ ! -f "$SDL3_DYLIB" ]]; then
+  echo "SDL3 runtime library not found: $SDL3_DYLIB" >&2
+  exit 1
+fi
+cp -L "$SDL3_DYLIB" "$APP_DIR/Contents/Frameworks/libSDL3.dylib"
 
 if [[ -f "$ICON_FILE" ]]; then
   mkdir -p "${ICONSET_DIR}/TargetBridgeReceiver.iconset"

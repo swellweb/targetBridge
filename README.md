@@ -10,14 +10,22 @@ It's free and open source software, no subscription and no dongle required.
 
 If it is useful to you, spread the news and give us a ⭐ on GitHub.
 
-Sponsoring the TargetBridge project is also very welcome:
+## Support and Thanks
+
+TargetBridge is free and open source. Sponsorship is never required, but monthly
+and one-time contributions make it possible to reserve time for macOS
+compatibility, bug fixes, hardware testing, and future useful tools for Mac.
+
+Thank you to everyone supporting TargetBridge through GitHub Sponsors. Your
+contributions help keep the project moving forward.
 
 [![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-pink?logo=github)](https://github.com/sponsors/swellweb)
 
-## TargetBridge 3.1
+## TargetBridge 3.2
 
-TargetBridge 3.1 keeps the multi-Mac workspace foundation from 3.0 and adds
-scriptable remote connection controls for the Sender:
+TargetBridge 3.2 builds on the multi-Mac workspace foundation with more
+reliable display preferences, receiver-driven shortcuts, and repeatable
+hardware-free Receiver testing:
 
 - mirror mode and extended desktop mode
 - multiple receivers from one sender
@@ -30,6 +38,9 @@ scriptable remote connection controls for the Sender:
 - remote brightness control from the sender
 - automatic receiver discovery and extended-layout restore
 - remote connection automation via URL scheme, CLI wrapper, launch args, and SSH recipes
+- remembers the selected virtual-display resolution for each receiver
+- configurable Receiver Master shortcuts, including protected macOS shortcuts such as Space switching
+- mock sender, parser tests, and a loopback smoke test for Receiver resilience without a second Mac
 
 ## Feature Guides
 
@@ -38,7 +49,7 @@ scriptable remote connection controls for the Sender:
 - Multi-receiver layouts: [docs/Features.md#multi-receiver-workflows](docs/Features.md#multi-receiver-workflows)
 - Network Link (experimental): [docs/Features.md#network-link-experimental](docs/Features.md#network-link-experimental)
 - Audio Relay: [docs/Features.md#audio-relay](docs/Features.md#audio-relay)
-- Input Dockstation, clipboard sync, and master/slave roles: [docs/Features.md#input-dockstation](docs/Features.md#input-dockstation)
+- Input Dockstation, clipboard sync, master/slave roles, and Receiver Master shortcuts: [docs/Features.md#input-dockstation](docs/Features.md#input-dockstation)
 - Remote brightness control: [docs/Features.md#remote-brightness-control](docs/Features.md#remote-brightness-control)
 - Remote connection & automation (URL scheme, launch args, SSH, login/wake): [docs/Automation.md](docs/Automation.md)
 - Shared translations and language files: [docs/Features.md#shared-translations](docs/Features.md#shared-translations)
@@ -109,6 +120,7 @@ If you build from source, app outputs go into `build/` folder.
 - Audio transport internals: [docs/audio.md](docs/audio.md)
 - Hardware, cables, adapters, and Thunderbolt Bridge networking: [docs/Hardware.md](docs/Hardware.md)
 - Translation workflow: [docs/Translations.md](docs/Translations.md)
+- Testing without hardware (unit tests, mock sender, loopback smoke): [docs/Testing.md](docs/Testing.md)
 - Binary verification: [docs/verify-binaries.md](docs/verify-binaries.md)
 
 ## Licensing and brand
@@ -124,14 +136,11 @@ license. For now, the canonical source-code license is:
 
 ## Screenshots
 
-**Sender (Apple Silicon Mac) — multi-session dashboard:**
-![TargetBridge Sender](images/sender-multisession.png)
+**Sender (Apple Silicon Mac) — session dashboard:**
+![TargetBridge Sender dashboard](images/sender-dashboard.png)
 
-**Sender — active mirrored stream (5K, HEVC):**
-![TargetBridge Sender active](images/sender-active-mirror.png)
-
-**Receiver (Intel iMac) — waiting for sender:**
-![TargetBridge Receiver](images/receiver.png)
+**Receiver — ready for a sender stream:**
+![TargetBridge Receiver dashboard](images/receiver-dashboard.png)
 
 **macOS Displays — extended desktop target:**
 ![TargetBridge extended desktop](images/display-extend.png)

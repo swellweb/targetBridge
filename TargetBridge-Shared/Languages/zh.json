@@ -119,6 +119,8 @@
   "receiver.ui.help_4": "按 L 可切换接收端语言。",
   "receiver.language.auto": "自动",
   "receiver.status.waiting_for_sender": "等待发送端",
+  "receiver.splash.connecting": "正在连接你的 MacBook",
+  "receiver.splash.waiting_first_frame": "正在等待第一帧…",
   "receiver.status.waiting": "等待中",
   "receiver.status.stream_active": "码流进行中",
   "receiver.status.sender_connected": "发送端已连接",
@@ -136,5 +138,10 @@
   "receiver.mode.requested_preset_codec": "请求 %{width} x %{height} px（%{preset}，%{codec}）",
   "receiver.mode.requested_preset": "请求 %{width} x %{height} px（%{preset}）",
   "receiver.mode.requested_codec": "请求 %{width} x %{height} px（%{codec}）",
-  "receiver.mode.requested": "请求 %{width} x %{height} px"
+  "receiver.mode.requested": "请求 %{width} x %{height} px",
+  "sender.input_bindings.title": "Receiver 快捷键",
+  "sender.input_bindings.add": "添加",
+  "sender.input_bindings.empty": "尚未设置快捷键。添加一个后，可将 receiver 上按下的组合键映射为这台 Mac 上的操作。",
+  "sender.input_bindings.details": "仅在“Receiver 是 Master”时可用。触发组合键在 receiver 上按下；操作在这台 Mac 上执行。触发组合键不能是 macOS 保留快捷键，例如用于切换空间的 Ctrl+左箭头：请改用 Ctrl+Option+左箭头。操作可以使用保留快捷键，包括使用 Ctrl+左箭头切换这台 Mac 的空间。",
+  "sender.input_bindings.record": "请按快捷键..."
 }

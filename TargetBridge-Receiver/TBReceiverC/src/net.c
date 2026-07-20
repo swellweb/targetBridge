@@ -125,6 +125,17 @@ int tb_net_accept(int server_fd) {
     /* disable Nagle for low latency */
     int yes = 1;
     setsockopt(c, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(yes));
+    /* Detect half-open peers (sender crashed / cable pulled without a FIN):
+     * probe after 5s idle, every 5s, twice — the OS then errors the fd
+     * instead of leaving the session wedged. Complements the app-level
+     * idle watchdog in main.c. */
+    setsockopt(c, SOL_SOCKET, SO_KEEPALIVE, &yes, sizeof(yes));
+    int keep_idle = 5;
+    setsockopt(c, IPPROTO_TCP, TCP_KEEPALIVE, &keep_idle, sizeof(keep_idle));
+    int keep_intvl = 5;
+    setsockopt(c, IPPROTO_TCP, TCP_KEEPINTVL, &keep_intvl, sizeof(keep_intvl));
+    int keep_cnt = 2;
+    setsockopt(c, IPPROTO_TCP, TCP_KEEPCNT, &keep_cnt, sizeof(keep_cnt));
     return c;
 }
 

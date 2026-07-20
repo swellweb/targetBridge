@@ -591,6 +591,14 @@ private struct TBDisplaySenderSessionSettingsSheet: View {
                         .disabled(session.isConnected || session.isStreaming)
                     }
 
+                    if session.captureSource == .extendedDesktop {
+                        settingRow(renderMatchingTitle, details: renderMatchingDetails) {
+                            Toggle("", isOn: $session.matchRenderToStream)
+                                .labelsHidden()
+                                .disabled(session.isConnected || session.isStreaming)
+                        }
+                    }
+
                     if service.audioRelayAvailable {
                         settingRow(TBDisplaySenderL10n.streamAudio(service.language), details: audioDetails) {
                             Toggle("", isOn: $session.audioEnabled)
@@ -628,6 +636,12 @@ private struct TBDisplaySenderSessionSettingsSheet: View {
                                 }
                                 .pickerStyle(.menu)
                                 .disabled(!session.isConnected)
+                            }
+                        }
+
+                        if session.inputControlRole == .receiverMaster {
+                            SurfaceSubcard {
+                                TBInputBindingsView(session: session, language: service.language)
                             }
                         }
 
@@ -751,6 +765,10 @@ private struct TBDisplaySenderSessionSettingsSheet: View {
             )
             .ignoresSafeArea()
         )
+        // The panel uses a fixed dark background, so force the dark color scheme:
+        // otherwise in system Light mode the semantic text colors (.primary /
+        // .secondary) resolve to dark variants and render dark-on-dark.
+        .preferredColorScheme(.dark)
     }
 
     private func settingsSection<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
@@ -962,6 +980,25 @@ private struct TBDisplaySenderSessionSettingsSheet: View {
         }
     }
 
+    private var renderMatchingTitle: String {
+        switch service.language {
+        case .italian: return "Rendering alla risoluzione dello stream"
+        case .english: return "Match render to stream"
+        case .german: return "Rendern in Stream-Auflösung"
+        case .chinese: return "渲染匹配串流分辨率"
+        }
+    }
+
+    private var renderMatchingDetails: String {
+        let desktop = session.capturePreset.renderMatchedDesktopDescription
+        switch service.language {
+        case .italian: return "Dimensiona il display virtuale sul profilo dello stream: nessun ridimensionamento in cattura. Il desktop appare come \(desktop) HiDPI."
+        case .english: return "Sizes the virtual display to the stream profile so capture is 1:1 — no rescale before encoding. Desktop looks like \(desktop) HiDPI."
+        case .german: return "Passt das virtuelle Display an das Stream-Profil an, sodass die Aufnahme 1:1 erfolgt. Der Desktop erscheint als \(desktop) HiDPI."
+        case .chinese: return "使虚拟显示器匹配串流分辨率，捕获无需缩放。桌面显示为 \(desktop) HiDPI。"
+        }
+    }
+
     private var inputDockstationTitle: String {
         switch service.language {
         case .italian: return "Input Dockstation"
@@ -1044,13 +1081,13 @@ private struct TBDisplaySenderSessionSettingsSheet: View {
     private var inputPermissionWarningBody: String {
         switch service.language {
         case .italian:
-            return "Per usare 'Receiver e Master', questa app TargetBridge sul sender deve essere autorizzata in Privacy e Sicurezza > Accessibilita. Apri le impostazioni, abilita l'app che stai usando e poi riapri la sessione."
+            return "Per usare 'Receiver e Master', questa app TargetBridge sul sender deve essere autorizzata in Privacy e Sicurezza > Accessibilita. Apri le impostazioni, abilita l'app che stai usando e poi riapri la sessione. Le scorciatoie configurate richiedono inoltre una sola autorizzazione macOS per controllare System Events."
         case .english:
-            return "To use 'Receiver is Master', this TargetBridge app on the sender must be allowed under Privacy & Security > Accessibility. Open the settings, enable the app you are actually running, then reopen the session."
+            return "To use 'Receiver is Master', this TargetBridge app on the sender must be allowed under Privacy & Security > Accessibility. Open the settings, enable the app you are actually running, then reopen the session. Configured shortcuts also require a one-time macOS permission to control System Events."
         case .german:
-            return "Um 'Empfänger ist Master' zu verwenden, muss diese TargetBridge-App auf dem Sender unter Datenschutz & Sicherheit > Bedienungshilfen erlaubt sein. Öffne die Einstellungen, aktiviere die wirklich verwendete App und öffne dann die Sitzung erneut."
+            return "Um 'Empfänger ist Master' zu verwenden, muss diese TargetBridge-App auf dem Sender unter Datenschutz & Sicherheit > Bedienungshilfen erlaubt sein. Öffne die Einstellungen, aktiviere die wirklich verwendete App und öffne dann die Sitzung erneut. Konfigurierte Kurzbefehle benötigen außerdem einmalig die macOS-Erlaubnis, System Events zu steuern."
         case .chinese:
-            return "要使用“Receiver 是 Master”，sender 上这份 TargetBridge 必须在“隐私与安全性 > 辅助功能”中被允许。打开设置，启用你当前运行的这份应用，然后重新打开会话。"
+            return "要使用“Receiver 是 Master”，sender 上这份 TargetBridge 必须在“隐私与安全性 > 辅助功能”中被允许。打开设置，启用你当前运行的这份应用，然后重新打开会话。已配置的快捷键还需要一次性授权 TargetBridge 控制 System Events。"
         }
     }
 

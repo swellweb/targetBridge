@@ -220,6 +220,21 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
             return 48
         }
     }
+
+    /// Virtual display mode that makes the render resolution equal the stream
+    /// resolution. macOS HiDPI is strictly 2x, so a (w/2, h/2) mode backs onto a
+    /// (w, h) framebuffer, which ScreenCaptureKit then captures 1:1.
+    ///
+    /// Costs screen real estate: the desktop reports "looks like w/2 x h/2" rather
+    /// than the receiver's default 2560 x 1440.
+    var renderMatchedDisplayMode: TBVirtualDisplayModeSize {
+        TBVirtualDisplayModeSize(width: width / 2, height: height / 2)
+    }
+
+    /// Logical desktop size the user ends up with under render matching.
+    var renderMatchedDesktopDescription: String {
+        "\(width / 2) × \(height / 2)"
+    }
 }
 
 enum TBDisplayCaptureSource: String, CaseIterable, Identifiable {
@@ -931,6 +946,11 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
             }
         }
     }
+    /// When enabled, the virtual display's backing store is sized to the capture
+    /// preset instead of the receiver-advertised 5120x2880. Removes the capture-side
+    /// downsample and the GPU cost of rendering pixels that get thrown away.
+    @Published var matchRenderToStream: Bool = false
+
     @Published var capturePreset: TBDisplayCapturePreset = .standard1440p {
         didSet {
             if !isStreaming {
@@ -957,11 +977,17 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
             inputRelayActive = (inputControlRole == .senderMaster)
             if inputControlRole != .receiverMaster {
                 injectedRemoteMouseLocation = nil
+                injectedLeftClickTracker.reset()
                 releaseInjectedModifiersIfNeeded()
+                remoteHeldModifierKeyCodes.removeAll()
+                suppressedTriggerKeyCode = nil
             }
         }
     }
     @Published var inputGestureMode: TBInputGestureMode = .native
+    /// User-defined receiver-master shortcuts for this session. See
+    /// TBInputBinding.
+    @Published var inputBindings: [TBInputBinding] = []
 
     private var connection: NWConnection?
     private let connectionQueue = DispatchQueue(label: "fd.tbmonitor.sender.connection", qos: .userInteractive)
@@ -985,6 +1011,13 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     private var firstFrameTimer: Timer?
     private var cursorTimer: Timer?
     private var connectTimeoutWorkItem: DispatchWorkItem?
+    /// Name of the local interface the current connect attempt is bound to
+    /// (e.g. "bridge0"), resolved when dialing. Diagnostic context only.
+    private var connectInterfaceName: String?
+    /// Last state reported by NWConnection for the current attempt (e.g.
+    /// "waiting(No route to host)") — surfaced when a connect fails or times
+    /// out so the real reason is not lost.
+    private var lastConnectionStateDetail: String?
     private var heartbeatSequence: UInt64 = 0
     private var statusState: TBDisplaySenderStatusState = .ready
     private var streamingActivity: NSObjectProtocol?
@@ -994,11 +1027,18 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     private var cursorDisplayID: CGDirectDisplayID = kCGNullDirectDisplay
     private var lastCursorPacket: TBMonitorCursor?
     private var injectedRemoteMouseLocation: CGPoint?
+    private var injectedLeftClickTracker = TBInjectedClickStateTracker()
     private var injectedCommandDown = false
     private var injectedShiftDown = false
     private var injectedOptionDown = false
     private var injectedControlDown = false
     private var injectedCapsDown = false
+    // Tracks the actual modifier keys still held on the receiver while a
+    // System Events shortcut is running, so released keys are never restored.
+    private var remoteHeldModifierKeyCodes = Set<UInt16>()
+    /// While a binding trigger key is held (matched), swallow its key-up so the
+    /// raw trigger key never reaches the slave.
+    private var suppressedTriggerKeyCode: UInt16?
     private static var cachedSupportsHEVCHardwareEncode: Bool?
     private var receivedInputEventCount: UInt64 = 0
     var onRemoteSwitchRequest: ((Int) -> Void)?
@@ -1184,6 +1224,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         activeProfile = nil
         activeCodecType = nil
         activeCodecName = nil
+        lastConnectionStateDetail = nil
         setStatus(.connecting(receiverDisplayName))
 
         let tcpOptions = NWProtocolTCP.Options()
@@ -1194,21 +1235,42 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         if let localPort = NWEndpoint.Port(rawValue: 0) {
             params.requiredLocalEndpoint = .hostPort(host: NWEndpoint.Host(localInterfaceIP), port: localPort)
         }
+
+        // Scope link-local dials to the interface that owns the local IP.
+        // requiredLocalEndpoint pins the source address but NOT the egress
+        // interface — the routing table keeps 169.254/16 on the primary
+        // interface (usually Wi-Fi), so an unscoped dial to a Thunderbolt
+        // Bridge peer leaves via the wrong link and times out.
+        let interfaces = TBConnectionDiagnostics.currentIPv4Interfaces()
+        connectInterfaceName = TBConnectionDiagnostics.interfaceName(forLocalIP: localInterfaceIP, in: interfaces)
+        let scopedHost = TBConnectionDiagnostics.scopedReceiverHost(
+            receiverIP: receiverIP,
+            localIP: localInterfaceIP,
+            interfaces: interfaces
+        )
+        let dialHost: NWEndpoint.Host
+        if scopedHost != receiverIP, let scopedAddress = IPv4Address(scopedHost) {
+            dialHost = .ipv4(scopedAddress)
+        } else {
+            dialHost = NWEndpoint.Host(receiverIP)
+        }
+        TBLog.connection.info("connect: dialing \(scopedHost, privacy: .public):\(TBMonitorProtocol.port) from \(self.localInterfaceIP, privacy: .public) (\(self.connectInterfaceName ?? "unknown interface", privacy: .public)) transport=\(self.transportKind.rawValue, privacy: .public)")
         let conn = NWConnection(
-            host: NWEndpoint.Host(receiverIP),
+            host: dialHost,
             port: NWEndpoint.Port(integerLiteral: TBMonitorProtocol.port),
             using: params
         )
         connection = conn
 
-        conn.stateUpdateHandler = { [weak self] state in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
+        conn.stateUpdateHandler = { [weak self, weak conn] state in
+            Task { @MainActor [weak self, weak conn] in
+                guard let self, let conn, self.connection === conn else { return }
                 switch state {
                 case .ready:
                     self.connectTimeoutWorkItem?.cancel()
                     self.connectTimeoutWorkItem = nil
                     self.isConnected = true
+                    TBLog.connection.info("connect: ready — \(self.receiverIP, privacy: .public) via \(self.connectInterfaceName ?? "?", privacy: .public)")
                     self.setStatus(.waitingDisplayProfile)
                     self.startHeartbeat()
                     self.sendHello()
@@ -1216,8 +1278,25 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
                     self.sendBrightnessUpdate()
                     self.sendVolumeUpdate()
                     self.receiveLoop(on: conn)
+                case .waiting(let error):
+                    // The dial cannot proceed yet (no route, host down, cable
+                    // unplugged, firewall drop, …). Record and log the real
+                    // reason so a later timeout can report it instead of a
+                    // bare "Connection timed out".
+                    self.lastConnectionStateDetail = "waiting(\(error.localizedDescription))"
+                    TBLog.connection.warning("connect: waiting — \(error.localizedDescription, privacy: .public)")
                 case .failed(let error):
-                    self.setStatus(.connectionFailed(error.localizedDescription))
+                    self.lastConnectionStateDetail = "failed(\(error.localizedDescription))"
+                    let detail = TBConnectionDiagnostics.failureDetail(
+                        receiverHost: self.receiverIP,
+                        port: TBMonitorProtocol.port,
+                        localIP: self.localInterfaceIP,
+                        interfaceName: self.connectInterfaceName,
+                        transport: self.transportKind.rawValue,
+                        lastNetworkState: nil
+                    )
+                    TBLog.connection.error("connect: failed — \(error.localizedDescription, privacy: .public); \(detail, privacy: .public)")
+                    self.setStatus(.connectionFailed("\(error.localizedDescription) — \(detail)"))
                     self.stop(resetStatusTo: nil)
                 case .cancelled:
                     self.isConnected = false
@@ -1392,6 +1471,10 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         }
         pipeline?.stop()
         pipeline = nil
+        releaseInjectedModifiersIfNeeded()
+        remoteHeldModifierKeyCodes.removeAll()
+        injectedLeftClickTracker.reset()
+        suppressedTriggerKeyCode = nil
         connection?.stateUpdateHandler = nil
         connection?.cancel()
         connection = nil
@@ -1562,7 +1645,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     private func receiveLoop(on connection: NWConnection) {
         connection.receive(minimumIncompleteLength: 1, maximumLength: 256 * 1024) { [weak self] data, _, isDone, error in
             Task { @MainActor [weak self] in
-                guard let self else { return }
+                guard let self, self.connection === connection else { return }
                 if let data, !data.isEmpty {
                     self.recvBuffer.append(data)
                     self.drainPackets()
@@ -1584,7 +1667,20 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     }
 
     private func drainPackets() {
-        while let (type, payload) = TBMonitorProtocol.drainPacket(from: &recvBuffer) {
+        do {
+            try drainPacketsOrThrow()
+        } catch {
+            // Corrupt length prefix: the framing is unrecoverable, so tear the
+            // connection down instead of buffering inbound data forever.
+            TBLog.connection.error("corrupt inbound stream (\(String(describing: error), privacy: .public)); closing connection")
+            recvBuffer.removeAll(keepingCapacity: false)
+            setStatus(.connectionClosed(String(describing: error)))
+            stop(resetStatusTo: nil)
+        }
+    }
+
+    private func drainPacketsOrThrow() throws {
+        while let (type, payload) = try TBMonitorProtocol.drainPacket(from: &recvBuffer) {
             switch type {
             case .displayProfile:
                 handleDisplayProfile(payload)
@@ -1722,6 +1818,19 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         logLocalInputInjectionStateIfNeeded(context: "mouseButton")
         guard let current = injectedRemoteMouseLocation ?? currentLocalMouseLocation() else { return }
         guard let event = CGEvent(mouseEventSource: localInputEventSource(), mouseType: type, mouseCursorPosition: current, mouseButton: button) else { return }
+        if button == .left {
+            let clickState: Int
+            if type == .leftMouseDown {
+                clickState = injectedLeftClickTracker.registerClick(
+                    at: current,
+                    timestamp: ProcessInfo.processInfo.systemUptime,
+                    doubleClickInterval: NSEvent.doubleClickInterval
+                )
+            } else {
+                clickState = max(injectedLeftClickTracker.currentClickState, 1)
+            }
+            event.setIntegerValueField(.mouseEventClickState, value: Int64(clickState))
+        }
         event.post(tap: .cghidEventTap)
     }
 
@@ -1847,12 +1956,110 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         case "scroll":
             postLocalScroll(scrollX: event.scrollX ?? 0, scrollY: event.scrollY ?? 0)
         case "keyDown":
-            if let keyCode = event.keyCode { postLocalKey(keyCode: keyCode, isDown: true) }
+            if let keyCode = event.keyCode {
+                updateRemoteModifierState(keyCode: keyCode, isDown: true)
+                if handleIncomingTriggerKeyDown(keyCode) { return }
+                postLocalKey(keyCode: keyCode, isDown: true)
+            }
         case "keyUp":
-            if let keyCode = event.keyCode { postLocalKey(keyCode: keyCode, isDown: false) }
+            if let keyCode = event.keyCode {
+                updateRemoteModifierState(keyCode: keyCode, isDown: false)
+                if keyCode == suppressedTriggerKeyCode {
+                    suppressedTriggerKeyCode = nil
+                    return
+                }
+                postLocalKey(keyCode: keyCode, isDown: false)
+            }
         default:
             break
         }
+    }
+
+    /// receiverMaster: if the incoming key-down completes a binding trigger,
+    /// inject the action locally and swallow the trigger. Returns true if handled.
+    private func handleIncomingTriggerKeyDown(_ keyCode: UInt16) -> Bool {
+        guard !TBInputBindingEngine.isModifierKeyCode(keyCode), !inputBindings.isEmpty else { return false }
+        // Debounce key-repeat: ignore repeats while the trigger is still held.
+        if keyCode == suppressedTriggerKeyCode { return true }
+        let held = currentHeldModifierBits()
+        guard let binding = TBInputBindingEngine.match(keyCode: keyCode, modifiers: held, in: inputBindings) else {
+            return false
+        }
+        suppressedTriggerKeyCode = keyCode
+        TBInputDebugLog.log("binding MATCH: trigger=\(binding.trigger.displayString) -> inject \(binding.action.displayString)")
+        injectActionViaSystemEvents(binding.action)
+        return true
+    }
+
+    /// Inject a binding action through System Events (AppleScript) rather than a
+    /// raw CGEvent. The WindowServer ignores synthetic CGEvent presses for
+    /// protected symbolic hotkeys (e.g. ⌃← to switch Spaces), but honors the same
+    /// shortcut when it comes from the trusted System Events process.
+    ///
+    /// The user may be holding the trigger's modifiers, which we inject as held
+    /// CGEvent state — that would contaminate the action (e.g. a stray ⌥). So we
+    /// release the held modifiers first so System Events sees a clean combo. On
+    /// completion, restore only modifiers that the receiver still holds.
+    private func injectActionViaSystemEvents(_ action: TBInputShortcut) {
+        let heldKeyCodes = currentlyHeldRemoteModifierKeyCodes()
+        for keyCode in heldKeyCodes { postLocalKey(keyCode: keyCode, isDown: false) }
+
+        // Run the AppleScript in-process (NSAppleScript), NOT via /usr/bin/osascript:
+        // when spawned, osascript is the keystroke-sending client and lacks
+        // Accessibility (error 1002). In-process, this app is the client and it
+        // already holds Accessibility + Automation, so System Events is allowed
+        // to post the shortcut.
+        let source = "tell application \"System Events\" to key code \(action.keyCode)\(Self.appleScriptModifierClause(action.modifiers))"
+        DispatchQueue.global(qos: .userInitiated).async {
+            var errorInfo: NSDictionary?
+            NSAppleScript(source: source)?.executeAndReturnError(&errorInfo)
+            let failure: String? = errorInfo.map { "\($0)" }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if let failure { TBInputDebugLog.log("system-events inject error: \(failure)") }
+                guard self.inputControlRole == .receiverMaster else { return }
+                for keyCode in self.currentlyHeldRemoteModifierKeyCodes() {
+                    self.postLocalKey(keyCode: keyCode, isDown: true)
+                }
+            }
+        }
+    }
+
+    private func updateRemoteModifierState(keyCode: UInt16, isDown: Bool) {
+        guard TBInputBindingEngine.modifierBit(for: keyCode) != nil else { return }
+        if isDown {
+            remoteHeldModifierKeyCodes.insert(keyCode)
+        } else {
+            remoteHeldModifierKeyCodes.remove(keyCode)
+        }
+    }
+
+    private func currentlyHeldRemoteModifierKeyCodes() -> [UInt16] {
+        TBInputShortcut.modifierTable.compactMap { modifier in
+            remoteHeldModifierKeyCodes.first {
+                TBInputBindingEngine.modifierBit(for: $0) == modifier.bit
+            }
+        }
+    }
+
+    private static func appleScriptModifierClause(_ modifiers: UInt32) -> String {
+        var parts: [String] = []
+        if modifiers & TBInputShortcut.control != 0 { parts.append("control down") }
+        if modifiers & TBInputShortcut.option  != 0 { parts.append("option down") }
+        if modifiers & TBInputShortcut.shift   != 0 { parts.append("shift down") }
+        if modifiers & TBInputShortcut.command != 0 { parts.append("command down") }
+        guard !parts.isEmpty else { return "" }
+        return " using {" + parts.joined(separator: ", ") + "}"
+    }
+
+    /// Current held modifier state (our bitmask) reconstructed from injected keys.
+    private func currentHeldModifierBits() -> UInt32 {
+        var m: UInt32 = 0
+        if injectedControlDown { m |= TBInputShortcut.control }
+        if injectedOptionDown  { m |= TBInputShortcut.option }
+        if injectedShiftDown   { m |= TBInputShortcut.shift }
+        if injectedCommandDown { m |= TBInputShortcut.command }
+        return m
     }
 
     private func handleDisplayProfile(_ payload: Data) {
@@ -1896,10 +2103,23 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
             self.setStatus(.creatingVirtualDisplay)
             self.baselineDisplayIDs = await self.fetchShareableDisplayIDs()
             let receiverKey = self.extendedDisplayIdentityKey(for: profile)
+            let modeOverride: TBVirtualDisplayModeSize? = (self.matchRenderToStream && self.captureSource == .extendedDesktop)
+                ? self.capturePreset.renderMatchedDisplayMode
+                : nil
+            if let modeOverride {
+                NSLog(
+                    "TargetBridge: render matching on, virtual display mode %dx%d (backing %dx%d) for %dx%d stream",
+                    modeOverride.width, modeOverride.height,
+                    modeOverride.backingWidth, modeOverride.backingHeight,
+                    self.capturePreset.width, self.capturePreset.height
+                )
+            }
             guard self.session.create(
                 from: profile,
                 refreshRate: self.capturePreset.virtualDisplayRefreshRate,
-                identity: self.captureSource.virtualDisplayIdentity(receiverKey: receiverKey)
+                modeOverride: modeOverride,
+                identity: self.captureSource.virtualDisplayIdentity(receiverKey: receiverKey),
+                receiverKey: receiverKey
             ) else {
                 self.setStatus(.virtualDisplayCreationFailed)
                 self.stop(resetStatusTo: nil)
@@ -1972,6 +2192,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
             )
             guard pipeline.start() else { return false }
             self.pipeline = pipeline
+            TBLog.connection.info("capture: pipeline started preset=\(preset.rawValue, privacy: .public) source=\(String(describing: self.captureSource), privacy: .public) codec=\(codecName, privacy: .public)")
 
             let display: SCDisplay
             if captureSource == .desktopMirror {
@@ -2699,6 +2920,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         sessionAckSent = true
         firstFrameTimer?.invalidate()
         firstFrameTimer = nil
+        TBLog.connection.info("capture: first encoded frame received")
         setStatus(.captureActive(capturePreset.description, activeCodecName ?? capturePreset.codecName, captureSource))
     }
 
@@ -2736,7 +2958,9 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
             guard let self else { return }
             MainActor.assumeIsolated {
                 guard isStreaming, !sessionAckSent else { return }
-                if capturePreset == .native5k {
+                let sentFrames = self.pipeline?.sentFramesSnapshot ?? 0
+                TBLog.connection.error("capture: first-frame timeout preset=\(self.capturePreset.rawValue, privacy: .public) source=\(String(describing: self.captureSource), privacy: .public) connected=\(self.isConnected, privacy: .public) sentFrames=\(sentFrames, privacy: .public)")
+                if self.capturePreset == .native5k {
                     setStatus(.hevcNoFrames)
                 } else {
                     setStatus(.noFirstFrame)
@@ -2762,7 +2986,19 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
                 case .chinese: timeoutMessage = "连接超时"
                 }
 
-                self.setStatus(.connectionFailed(timeoutMessage))
+                // Attach where we dialed, from which interface, and the last
+                // state the network stack reported — previously all of this
+                // was discarded and the user saw only the bare timeout.
+                let detail = TBConnectionDiagnostics.failureDetail(
+                    receiverHost: self.receiverIP,
+                    port: TBMonitorProtocol.port,
+                    localIP: self.localInterfaceIP,
+                    interfaceName: self.connectInterfaceName,
+                    transport: self.transportKind.rawValue,
+                    lastNetworkState: self.lastConnectionStateDetail
+                )
+                TBLog.connection.error("connect: timed out — \(detail, privacy: .public)")
+                self.setStatus(.connectionFailed("\(timeoutMessage) — \(detail)"))
                 self.stop(resetStatusTo: nil)
             }
         }
@@ -2783,10 +3019,8 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     }
 
     func sendInputEvent(_ event: TBMonitorInputEvent) {
-        guard isConnected,
-              let packet = TBMonitorProtocol.makeJSONPacket(type: .inputEvent, value: event)
-        else { return }
-        send(packet)
+        guard isConnected else { return }
+        send(TBMonitorProtocol.makeInputEventPacket(event))
     }
 
     func updateInputControlMode() {

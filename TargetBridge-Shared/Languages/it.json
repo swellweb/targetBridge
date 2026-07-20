@@ -119,6 +119,8 @@
   "receiver.ui.help_4": "Premi L per cambiare la lingua del receiver.",
   "receiver.language.auto": "Automatico",
   "receiver.status.waiting_for_sender": "in attesa del sender",
+  "receiver.splash.connecting": "Connessione al MacBook in corso",
+  "receiver.splash.waiting_first_frame": "In attesa del primo frame…",
   "receiver.status.waiting": "in attesa",
   "receiver.status.stream_active": "stream attivo",
   "receiver.status.sender_connected": "sender connesso",
@@ -136,5 +138,10 @@
   "receiver.mode.requested_preset_codec": "%{width} x %{height} px richiesti (%{preset}, %{codec})",
   "receiver.mode.requested_preset": "%{width} x %{height} px richiesti (%{preset})",
   "receiver.mode.requested_codec": "%{width} x %{height} px richiesti (%{codec})",
-  "receiver.mode.requested": "%{width} x %{height} px richiesti"
+  "receiver.mode.requested": "%{width} x %{height} px richiesti",
+  "sender.input_bindings.title": "Scorciatoie del receiver",
+  "sender.input_bindings.add": "Aggiungi",
+  "sender.input_bindings.empty": "Nessuna scorciatoia. Aggiungine una per trasformare una combinazione premuta sul receiver in un'azione su questo Mac.",
+  "sender.input_bindings.details": "Disponibile quando Receiver e Master. Il trigger viene premuto sul receiver; l'azione viene eseguita su questo Mac. Il trigger non puo essere una scorciatoia riservata da macOS, come Ctrl+Freccia Sinistra per gli Spazi: usa invece Ctrl+Option+Freccia Sinistra. L'azione puo usare anche scorciatoie riservate, incluso Ctrl+Freccia Sinistra per cambiare Spazio su questo Mac.",
+  "sender.input_bindings.record": "Premi i tasti..."
 }
