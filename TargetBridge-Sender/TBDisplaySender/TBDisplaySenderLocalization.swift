@@ -327,6 +327,24 @@ enum TBDisplaySenderL10n {
         text("sender.toggle.show_menu_bar_icon", language)
     }
 
+    static func volumeKeysControlReceiver(_ language: TBDisplaySenderLanguage) -> String {
+        switch language {
+        case .italian: return "I tasti volume controllano il ricevitore durante lo streaming"
+        case .english: return "Volume keys control the receiver while streaming"
+        case .german: return "Lautstärketasten steuern den Empfänger beim Streamen"
+        case .chinese: return "串流时音量键控制接收端"
+        }
+    }
+
+    static func volumeKeysAccessibilityHint(_ language: TBDisplaySenderLanguage) -> String {
+        switch language {
+        case .italian: return "Richiede l'autorizzazione Accessibilità (Impostazioni di Sistema → Privacy e Sicurezza → Accessibilità)."
+        case .english: return "Requires Accessibility permission (System Settings → Privacy & Security → Accessibility)."
+        case .german: return "Erfordert die Berechtigung Bedienungshilfen (Systemeinstellungen → Datenschutz & Sicherheit → Bedienungshilfen)."
+        case .chinese: return "需要辅助功能权限（系统设置 → 隐私与安全性 → 辅助功能）。"
+        }
+    }
+
     static func showSettings(_ language: TBDisplaySenderLanguage) -> String {
         switch language {
         case .italian: return "Mostra impostazioni"

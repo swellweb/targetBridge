@@ -39,6 +39,8 @@
 		C1A77120267A12D9E355DCEA /* network-link.json in Resources */ = {isa = PBXBuildFile; fileRef = 6579B499CBC11196966318EA /* network-link.json */; };
 		C2CCAB017BC3CAB1DCFA5CCC /* TBMonitorProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA01317B43B46B1B323A7008 /* TBMonitorProtocol.swift */; };
 		CBA7C2F0FA57CC475E2307AF /* TBInputRelayController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E3DC447E3E8E522565E725B /* TBInputRelayController.swift */; };
+		A1C3E5B7D9F80B2C4D6E8F0A /* TBLocalAudioMute.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3D5F7A9C1E20D4E6F8A0B2C /* TBLocalAudioMute.swift */; };
+		D4E5F6A7B8C90A1B2C3D4E5F /* TBVolumeKeyRelayController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6A7B8C9D0E1A2B3C4D5E6F7 /* TBVolumeKeyRelayController.swift */; };
 		D5E6B5B7B49E740C92010C6F /* TBInputDebugLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80543A7A5A3B583C1543ABC7 /* TBInputDebugLog.swift */; };
 		E4967472D5CB13242FE2F288 /* TBDisplaySenderAboutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 374B5A5AA247C6922BD9AF72 /* TBDisplaySenderAboutView.swift */; };
 		E6A3663426721C75734F5BC5 /* zh.json in Resources */ = {isa = PBXBuildFile; fileRef = C9AA5BB4EE39D2C6FB37B90F /* zh.json */; };
@@ -79,6 +81,8 @@
 		6630386DB9C3D210849E6211 /* TBVirtualDisplayModeMemory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBVirtualDisplayModeMemory.swift; sourceTree = "<group>"; };
 		6AC1AF99431D4889F947CE1B /* TBDisplaySenderStatusItemController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBDisplaySenderStatusItemController.swift; sourceTree = "<group>"; };
 		7E3DC447E3E8E522565E725B /* TBInputRelayController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBInputRelayController.swift; sourceTree = "<group>"; };
+		B3D5F7A9C1E20D4E6F8A0B2C /* TBLocalAudioMute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBLocalAudioMute.swift; sourceTree = "<group>"; };
+		F6A7B8C9D0E1A2B3C4D5E6F7 /* TBVolumeKeyRelayController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBVolumeKeyRelayController.swift; sourceTree = "<group>"; };
 		80543A7A5A3B583C1543ABC7 /* TBInputDebugLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBInputDebugLog.swift; sourceTree = "<group>"; };
 		9CEA5EB707F01E1708DA9170 /* TBDisplaySenderAutomation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBDisplaySenderAutomation.swift; sourceTree = "<group>"; };
 		9D063CAADA68CC48C54157FB /* TBDisplaySenderLocalization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBDisplaySenderLocalization.swift; sourceTree = "<group>"; };
@@ -130,6 +134,8 @@
 				4A72C42968FA2A6B2A0515B9 /* TBInputBinding.swift */,
 				20FE01BF2EA2F329442890AD /* TBInputBindingsView.swift */,
 				7E3DC447E3E8E522565E725B /* TBInputRelayController.swift */,
+				B3D5F7A9C1E20D4E6F8A0B2C /* TBLocalAudioMute.swift */,
+				F6A7B8C9D0E1A2B3C4D5E6F7 /* TBVolumeKeyRelayController.swift */,
 				06BABA1447D1E8DD50A6C2F0 /* TBReceiverDiscovery.swift */,
 				6630386DB9C3D210849E6211 /* TBVirtualDisplayModeMemory.swift */,
 			);
@@ -360,6 +366,8 @@
 				8D544352D7E2E226D551E46E /* TBInputBindingsView.swift in Sources */,
 				D5E6B5B7B49E740C92010C6F /* TBInputDebugLog.swift in Sources */,
 				CBA7C2F0FA57CC475E2307AF /* TBInputRelayController.swift in Sources */,
+				A1C3E5B7D9F80B2C4D6E8F0A /* TBLocalAudioMute.swift in Sources */,
+				D4E5F6A7B8C90A1B2C3D4E5F /* TBVolumeKeyRelayController.swift in Sources */,
 				8A729C68ECAC4642FA20A284 /* TBLocalizationStore.swift in Sources */,
 				C2CCAB017BC3CAB1DCFA5CCC /* TBMonitorProtocol.swift in Sources */,
 				06E4F7B33C77762A5E2CB616 /* TBReceiverDiscovery.swift in Sources */,

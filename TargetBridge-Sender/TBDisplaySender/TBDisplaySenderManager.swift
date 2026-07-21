@@ -97,10 +97,21 @@ final class TBDisplaySenderService: ObservableObject {
             objectWillChange.send()
         }
     }
+    @Published var volumeKeysControlReceiver: Bool = UserDefaults.standard.object(forKey: "fd.tbdisplaysender.volumeKeysControlReceiver") as? Bool ?? true {
+        didSet {
+            UserDefaults.standard.set(volumeKeysControlReceiver, forKey: "fd.tbdisplaysender.volumeKeysControlReceiver")
+            // A manual enable is the one place a permission prompt is expected.
+            refreshVolumeKeyRelay(promptForAccessibility: volumeKeysControlReceiver)
+            objectWillChange.send()
+        }
+    }
     private var sessionCancellables: [UUID: AnyCancellable] = [:]
     private let receiverDiscovery = TBReceiverDiscovery()
     private let addonStore = TBAddonStore.shared
     private let inputRelayController = TBInputRelayController()
+    private let volumeKeyRelayController = TBVolumeKeyRelayController()
+    private var preMuteVolumes: [UUID: Double] = [:]
+    private var activationObserver: NSObjectProtocol?
     private var discoveryCancellable: AnyCancellable?
     private var addonCancellable: AnyCancellable?
     private var clipboardTimer: Timer?
@@ -123,6 +134,81 @@ final class TBDisplaySenderService: ObservableObject {
         addonStore.refresh()
         restorePersistedSessions()
         startClipboardMonitoring()
+        refreshVolumeKeyRelay()
+        // Retry after the user grants Accessibility in System Settings and
+        // switches back — tap creation fails silently until trust is granted.
+        activationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.refreshVolumeKeyRelay()
+        }
+    }
+
+    // MARK: - Volume key relay
+
+    /// True when the feature is enabled but the event tap could not be installed,
+    /// i.e. Accessibility trust is missing. Drives the settings hint.
+    var volumeKeyRelayNeedsAccessibility: Bool {
+        volumeKeysControlReceiver && !volumeKeyRelayController.isActive
+    }
+
+    /// Redirects the hardware volume keys to connected audio sessions. The tap
+    /// stays installed whenever the feature is on; per event, keys are consumed
+    /// only while at least one connected session streams audio, so local volume
+    /// behavior is untouched the rest of the time.
+    private func refreshVolumeKeyRelay(promptForAccessibility: Bool = false) {
+        guard volumeKeysControlReceiver else {
+            volumeKeyRelayController.stop()
+            return
+        }
+        guard !volumeKeyRelayController.isActive else { return }
+        let started = volumeKeyRelayController.start { [weak self] key, isKeyDown, fineStep in
+            guard let self else { return false }
+            return self.handleVolumeKey(key, isKeyDown: isKeyDown, fineStep: fineStep)
+        }
+        if !started {
+            NSLog("TargetBridge: volume key relay needs Accessibility permission; tap not installed")
+            if promptForAccessibility {
+                // Literal key: the kAXTrustedCheckOptionPrompt global trips Swift 6
+                // concurrency checking.
+                let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
+                _ = AXIsProcessTrustedWithOptions(options)
+            }
+        } else {
+            // The permission hint in settings keys off tap state.
+            objectWillChange.send()
+        }
+    }
+
+    private func handleVolumeKey(_ key: TBVolumeKeyRelayController.Key, isKeyDown: Bool, fineStep: Bool) -> Bool {
+        let targets = sessions.filter { $0.isConnected && $0.audioEnabled }
+        guard !targets.isEmpty else { return false }
+        // Swallow the release of a claimed key too; only the press adjusts volume.
+        guard isKeyDown else { return true }
+
+        // macOS moves the hardware volume in 1/16 steps, 1/64 with shift+option.
+        let step = fineStep ? 1.0 / 64.0 : 1.0 / 16.0
+        for session in targets {
+            switch key {
+            case .up:
+                preMuteVolumes[session.id] = nil
+                session.volume = min(1.0, session.volume + step)
+            case .down:
+                preMuteVolumes[session.id] = nil
+                session.volume = max(0.0, session.volume - step)
+            case .mute:
+                if session.volume > 0 {
+                    preMuteVolumes[session.id] = session.volume
+                    session.volume = 0
+                } else {
+                    session.volume = preMuteVolumes[session.id] ?? 0.5
+                    preMuteVolumes[session.id] = nil
+                }
+            }
+        }
+        return true
     }
 
     var anyConnected: Bool {

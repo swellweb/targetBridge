@@ -58,6 +58,13 @@ struct TBDisplaySenderSettingsView: View {
                     Toggle(TBDisplaySenderL10n.preventDisplaySleep(service.language), isOn: $service.preventDisplaySleep)
                     Toggle(TBDisplaySenderL10n.autoRestartOnWake(service.language), isOn: $service.autoRestartOnWake)
                     Toggle(TBDisplaySenderL10n.verboseDisplayLogging(service.language), isOn: $service.verboseDisplayLogging)
+                    Toggle(TBDisplaySenderL10n.volumeKeysControlReceiver(service.language), isOn: $service.volumeKeysControlReceiver)
+                    if service.volumeKeyRelayNeedsAccessibility {
+                        Text(TBDisplaySenderL10n.volumeKeysAccessibilityHint(service.language))
+                            .font(.footnote)
+                            .foregroundStyle(.orange)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
 
                 settingsSection(title: behaviorTitle) {
