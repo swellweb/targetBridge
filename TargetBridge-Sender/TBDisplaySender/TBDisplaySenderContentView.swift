@@ -571,6 +571,18 @@ private struct TBDisplaySenderSessionSettingsSheet: View {
                 }
 
                 settingsSection(title: outputSettingsTitle) {
+                    settingRow(TBDisplaySenderL10n.displayProfiles(service.language), details: TBDisplaySenderL10n.displayProfilesHint(service.language)) {
+                        HStack(spacing: 8) {
+                            ForEach(TBDisplayProfile.allCases) { profile in
+                                Button(TBDisplaySenderL10n.displayProfileTitle(profile, language: service.language)) {
+                                    service.applyDisplayProfile(profile, to: session)
+                                }
+                                .buttonStyle(.bordered)
+                                .disabled(session.isConnected || session.isStreaming)
+                            }
+                        }
+                    }
+
                     settingRow(TBDisplaySenderL10n.captureSource(service.language), details: captureModeDetails) {
                         Picker(TBDisplaySenderL10n.captureSource(service.language), selection: $session.captureSource) {
                             ForEach(TBDisplayCaptureSource.allCases) { source in

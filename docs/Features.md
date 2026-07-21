@@ -19,6 +19,18 @@ Related reading:
 - [docs/QuickStart-IT.md](docs/QuickStart-IT.md)
 - [docs/QuickStart-ZH.md](docs/QuickStart-ZH.md)
 
+## Display Profiles
+
+Each sender session offers three ready-to-use display profiles before connecting:
+
+- `Work 5K` creates an extended desktop at 5K with render matching enabled.
+- `Low latency` mirrors the desktop at 1440p and 60 FPS without audio relay.
+- `Presentation` mirrors the desktop at 1440p with audio relay enabled.
+
+TargetBridge remembers the last selected profile for each discovered receiver, so
+choosing that receiver again restores the matching setup before the next connection.
+Profiles never change an active stream; stop the session before applying another one.
+
 ## Multi-Receiver Workflows
 
 One sender can connect to multiple receivers at the same time, using multiple cables or links. Each session keeps its own transport, stream profile, display mode, and addon state.

@@ -236,6 +236,7 @@ final class TBDisplaySenderService: ObservableObject {
     // MARK: - Session persistence
 
     private static let persistedSessionsKey = "fd.tbdisplaysender.sessions.v1"
+    private static let receiverDisplayProfilesKey = "fd.tbdisplaysender.receiverDisplayProfiles.v1"
 
     /// Snapshot of the user-configurable settings for a single session. Transient
     /// runtime state (connection, FPS, …) is intentionally excluded — only the
@@ -256,6 +257,7 @@ final class TBDisplaySenderService: ObservableObject {
         var volume: Double?
         var inputControlRole: String?
         var inputBindings: [TBInputBinding]?
+        var matchRenderToStream: Bool?
     }
 
     private var lastPersistedData: Data?
@@ -289,7 +291,8 @@ final class TBDisplaySenderService: ObservableObject {
                 inputGestureMode: session.inputGestureMode.rawValue,
                 volume: session.volume,
                 inputControlRole: session.inputControlRole.rawValue,
-                inputBindings: session.inputBindings
+                inputBindings: session.inputBindings,
+                matchRenderToStream: session.matchRenderToStream
             )
         }
         guard let data = try? JSONEncoder().encode(configs) else { return }
@@ -364,6 +367,7 @@ final class TBDisplaySenderService: ObservableObject {
         session.audioEnabled = config.audioEnabled && audioRelayAvailable
         session.brightness = config.brightness
         session.volume = config.volume ?? 0.5
+        session.matchRenderToStream = config.matchRenderToStream ?? false
     }
 
     func refreshLocalInterfaces() {
@@ -381,7 +385,47 @@ final class TBDisplaySenderService: ObservableObject {
                 ?? availableInterfaces(for: session.transportKind).first?.ip
                 ?? ""
         }
+        restoreDisplayProfile(for: session)
         objectWillChange.send()
+    }
+
+    func applyDisplayProfile(_ profile: TBDisplayProfile, to session: TBDisplaySenderSession) {
+        guard !session.isConnected, !session.isStreaming else { return }
+
+        let settings = profile.settings
+        session.captureSource = settings.captureSource
+        session.capturePreset = settings.capturePreset
+        session.matchRenderToStream = settings.matchRenderToStream
+        session.audioEnabled = settings.audioEnabled && audioRelayAvailable
+
+        guard let receiverKey = receiverProfileKey(for: session) else { return }
+        var profiles = persistedDisplayProfiles
+        profiles[receiverKey] = profile.rawValue
+        UserDefaults.standard.set(profiles, forKey: Self.receiverDisplayProfilesKey)
+    }
+
+    private var persistedDisplayProfiles: [String: String] {
+        UserDefaults.standard.dictionary(forKey: Self.receiverDisplayProfilesKey) as? [String: String] ?? [:]
+    }
+
+    private func receiverProfileKey(for session: TBDisplaySenderSession) -> String? {
+        if !session.selectedReceiverID.isEmpty {
+            return "id:\(session.selectedReceiverID)"
+        }
+
+        let receiverIP = session.receiverIP.trimmingCharacters(in: .whitespacesAndNewlines)
+        return receiverIP.isEmpty ? nil : "ip:\(receiverIP)"
+    }
+
+    private func restoreDisplayProfile(for session: TBDisplaySenderSession) {
+        guard let receiverKey = receiverProfileKey(for: session),
+              let rawValue = persistedDisplayProfiles[receiverKey],
+              let profile = TBDisplayProfile(rawValue: rawValue)
+        else {
+            return
+        }
+
+        applyDisplayProfile(profile, to: session)
     }
 
     func sessionTitle(for session: TBDisplaySenderSession) -> String {

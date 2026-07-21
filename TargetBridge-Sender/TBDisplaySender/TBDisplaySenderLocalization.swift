@@ -243,6 +243,25 @@ enum TBDisplaySenderL10n {
         text("sender.group.stream_profile", language)
     }
 
+    static func displayProfiles(_ language: TBDisplaySenderLanguage) -> String {
+        text("sender.group.display_profiles", language)
+    }
+
+    static func displayProfilesHint(_ language: TBDisplaySenderLanguage) -> String {
+        text("sender.display_profiles.hint", language)
+    }
+
+    static func displayProfileTitle(_ profile: TBDisplayProfile, language: TBDisplaySenderLanguage) -> String {
+        switch profile {
+        case .work5K:
+            return text("sender.display_profiles.work_5k", language)
+        case .lowLatency:
+            return text("sender.display_profiles.low_latency", language)
+        case .presentation:
+            return text("sender.display_profiles.presentation", language)
+        }
+    }
+
     static func captureSource(_ language: TBDisplaySenderLanguage) -> String {
         text("sender.group.capture_source", language)
     }
