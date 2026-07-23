@@ -7,6 +7,7 @@ enum TBMonitorPacketType: UInt8 {
     case uiLanguage = 0x13
     case paramSets = 0x20
     case frame = 0x21
+    case rawFrame = 0x22   // Uncompressed NV12 planes (raw passthrough mode)
     case audioFrame = 0x23
     case heartbeat = 0x30
     case teardown = 0x31

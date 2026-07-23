@@ -504,9 +504,24 @@ private final class TBVideoPipeline: @unchecked Sendable {
 
     // MARK: - Encode paths (on `queue`)
 
+    /// Opt-in raw passthrough (`RAW=1`): ScreenCaptureKit already captures NV12,
+    /// so we can forward the planes uncompressed and skip the encoder entirely.
+    /// This removes all decode cost on the receiver — useful when the receiver is
+    /// an older Intel Mac whose HEVC decoder struggles at high resolutions — at
+    /// the price of much higher bandwidth (~10.6 Gb/s for 5K@60 4:2:0), which a
+    /// direct Thunderbolt Bridge link comfortably sustains.
+    private var rawEnabled: Bool {
+        guard let v = ProcessInfo.processInfo.environment["RAW"] else { return false }
+        return v == "1" || v.lowercased() == "true"
+    }
+
     /// SCStream capture path. Must be dispatched onto `queue` by the caller.
     func encode(_ sampleBuffer: CMSampleBuffer) {
         markCaptureFrame()
+        if rawEnabled {
+            sendRawFrame(sampleBuffer)
+            return
+        }
         guard running, let encoder = vtEncoder,
               let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer)
         else { return }
@@ -620,6 +635,66 @@ private final class TBVideoPipeline: @unchecked Sendable {
             }))
             lock.lock(); _sentFrames += 1; lock.unlock()
         }
+    }
+
+    /// Raw passthrough: package the two NV12 planes of the captured pixel buffer
+    /// and send them uncompressed. The receiver blits them directly (no decode).
+    /// Payload: [1: format=1(NV12)][BE32 w][BE32 h][BE32 yStride][BE32 uvStride]
+    ///          [Y plane: yStride*h][CbCr plane: uvStride*(h/2)]
+    private func sendRawFrame(_ sampleBuffer: CMSampleBuffer) {
+        guard running,
+              let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer)
+        else { return }
+        // Backpressure: never pile frames on top of a network that can't keep up.
+        if pendingVideoPackets >= preset.maxPendingVideoPackets { return }
+        guard CVPixelBufferGetPlaneCount(pixelBuffer) >= 2 else { return }
+
+        CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }
+
+        guard let yBase = CVPixelBufferGetBaseAddressOfPlane(pixelBuffer, 0),
+              let uvBase = CVPixelBufferGetBaseAddressOfPlane(pixelBuffer, 1)
+        else { return }
+        let width = CVPixelBufferGetWidthOfPlane(pixelBuffer, 0)
+        let height = CVPixelBufferGetHeightOfPlane(pixelBuffer, 0)
+        let yStride = CVPixelBufferGetBytesPerRowOfPlane(pixelBuffer, 0)
+        let uvStride = CVPixelBufferGetBytesPerRowOfPlane(pixelBuffer, 1)
+        let uvHeight = CVPixelBufferGetHeightOfPlane(pixelBuffer, 1)
+        let ySize = yStride * height
+        let uvSize = uvStride * uvHeight
+
+        // Send the session ack on the first frame, mirroring the encoded path.
+        if !ackSent {
+            ackSent = true
+            let ack = TBMonitorCreateSessionAck(
+                accepted: true,
+                displayName: displayName,
+                displayID: displayID
+            )
+            if let packet = TBMonitorProtocol.makeJSONPacket(type: .createSessionAck, value: ack) {
+                connection.send(content: packet, completion: .contentProcessed({ _ in }))
+            }
+            onFirstFrame()
+        }
+
+        var payload = Data(capacity: 17 + ySize + uvSize)
+        payload.append(1) // format: NV12
+        TBMonitorProtocol.appendBE32(&payload, UInt32(width))
+        TBMonitorProtocol.appendBE32(&payload, UInt32(height))
+        TBMonitorProtocol.appendBE32(&payload, UInt32(yStride))
+        TBMonitorProtocol.appendBE32(&payload, UInt32(uvStride))
+        payload.append(UnsafeBufferPointer(start: yBase.assumingMemoryBound(to: UInt8.self), count: ySize))
+        payload.append(UnsafeBufferPointer(start: uvBase.assumingMemoryBound(to: UInt8.self), count: uvSize))
+
+        let packet = TBMonitorProtocol.makePacket(type: .rawFrame, payload: payload)
+        pendingVideoPackets += 1
+        connection.send(content: packet, completion: .contentProcessed({ [weak self] _ in
+            guard let self else { return }
+            self.queue.async {
+                self.pendingVideoPackets = max(0, self.pendingVideoPackets - 1)
+            }
+        }))
+        lock.lock(); _sentFrames += 1; lock.unlock()
     }
 
     private func buildParamSetsPacket(from format: CMVideoFormatDescription, codecType: CMVideoCodecType) -> Data? {
