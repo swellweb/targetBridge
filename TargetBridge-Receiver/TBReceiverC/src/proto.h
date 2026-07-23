@@ -15,6 +15,12 @@
  * type 0x21 = video frame
  *   payload = AVCC-formatted NAL units, 4-byte BE length prefixes (no start codes)
  *
+ * type 0x22 = raw video frame (uncompressed NV12, "raw passthrough" mode)
+ *   payload = [1 byte format: 1=NV12][4 BE uint32 width][4 BE uint32 height]
+ *             [4 BE uint32 yStride][4 BE uint32 uvStride]
+ *             [Y plane: yStride*height][CbCr plane: uvStride*(height/2)]
+ *   (see handle_raw_frame in main.c; sender-side sendRawFrame)
+ *
  * type 0x30 = heartbeat (JSON)
  * type 0x31 = teardown (JSON)
  * type 0x32 = cursor position (JSON)
@@ -39,6 +45,7 @@
 #define TB_PKT_UI_LANGUAGE      0x13
 #define TB_PKT_PARAM_SETS       0x20
 #define TB_PKT_FRAME            0x21
+#define TB_PKT_RAW_FRAME        0x22  /* uncompressed NV12 planes (raw passthrough) */
 #define TB_PKT_AUDIO_FRAME      0x23
 #define TB_PKT_HEARTBEAT        0x30
 #define TB_PKT_TEARDOWN         0x31

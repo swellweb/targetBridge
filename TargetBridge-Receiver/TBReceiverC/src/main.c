@@ -885,6 +885,40 @@ static void on_frame(const uint8_t *y, int y_stride,
     a->frames++;
 }
 
+/* Raw passthrough: render received NV12 planes directly, bypassing the decoder.
+ * Payload: [1: format=1(NV12)][BE32 w][BE32 h][BE32 yStride][BE32 uvStride]
+ *          [Y plane: yStride*h][CbCr plane: uvStride*(h/2)] */
+static void handle_raw_frame(struct app *a, const uint8_t *p, size_t len) {
+    if (len < 17) return;
+    if (p[0] != 1) return; /* only NV12 is supported */
+    uint32_t w  = ((uint32_t)p[1]  << 24) | ((uint32_t)p[2]  << 16) | ((uint32_t)p[3]  << 8) | (uint32_t)p[4];
+    uint32_t h  = ((uint32_t)p[5]  << 24) | ((uint32_t)p[6]  << 16) | ((uint32_t)p[7]  << 8) | (uint32_t)p[8];
+    uint32_t ys = ((uint32_t)p[9]  << 24) | ((uint32_t)p[10] << 16) | ((uint32_t)p[11] << 8) | (uint32_t)p[12];
+    uint32_t us = ((uint32_t)p[13] << 24) | ((uint32_t)p[14] << 16) | ((uint32_t)p[15] << 8) | (uint32_t)p[16];
+    if (w == 0 || h == 0 || ys < w || us < w) return;
+    size_t y_size  = (size_t)ys * h;
+    size_t uv_size = (size_t)us * (h / 2);
+    if (len < (size_t)17 + y_size + uv_size) return;
+    const uint8_t *y  = p + 17;
+    const uint8_t *uv = y + y_size;
+
+    a->have_video_frame = 1;
+    tb_copy_i18n(a->status_text, sizeof(a->status_text), "receiver.status.stream_active");
+    {
+        char width_text[16];
+        char height_text[16];
+        struct tb_i18n_pair pairs[] = {
+            { "width", width_text },
+            { "height", height_text }
+        };
+        snprintf(width_text, sizeof(width_text), "%u", w);
+        snprintf(height_text, sizeof(height_text), "%u", h);
+        tb_format_i18n(a->mode_text, sizeof(a->mode_text), "receiver.mode.receiving", pairs, 2);
+    }
+    tb_disp_render_nv12(a->disp, y, (int)ys, uv, (int)us, (int)w, (int)h);
+    a->frames++;
+}
+
 static void ring_read(struct app *a, Uint8 *dst, int len) {
     int first = AUDIO_BUF_CAP - a->audio_buf_tail;
     if (first >= len) {
@@ -1023,6 +1057,9 @@ static void on_packet(uint8_t type, const uint8_t *payload, size_t len, void *ud
         break;
     case TB_PKT_FRAME:
         tb_dec_feed_frame(a->dec, payload, len);
+        break;
+    case TB_PKT_RAW_FRAME:
+        handle_raw_frame(a, payload, len);
         break;
     case TB_PKT_CURSOR:
         {
