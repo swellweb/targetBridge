@@ -1,0 +1,65 @@
+{
+    "class": "Stream",
+    "base_class": "Object",
+    "class_tree": [
+        "kAudioStreamClassID",
+        "kAudioObjectClassID"
+    ],
+    "setter_mutex": "writeMutex_",
+    "properties": {
+        "IsActive": {
+            "id": "kAudioStreamPropertyIsActive",
+            "type": "UInt32",
+            "user_type": "bool",
+            "is_settable": true
+        },
+        "Direction": {
+            "id": "kAudioStreamPropertyDirection",
+            "type": "UInt32"
+        },
+        "TerminalType": {
+            "id": "kAudioStreamPropertyTerminalType",
+            "type": "UInt32"
+        },
+        "StartingChannel": {
+            "id": "kAudioStreamPropertyStartingChannel",
+            "type": "UInt32"
+        },
+        "Latency": {
+            "id": "kAudioStreamPropertyLatency",
+            "type": "UInt32",
+            "is_user_settable": true,
+            "is_async": true
+        },
+        "PhysicalFormat": {
+            "id": "kAudioStreamPropertyPhysicalFormat",
+            "type": "AudioStreamBasicDescription",
+            "is_settable": true,
+            "is_async": true,
+            "is_checked": true
+        },
+        "VirtualFormat": {
+            "id": "kAudioStreamPropertyVirtualFormat",
+            "type": "AudioStreamBasicDescription",
+            "is_settable": true,
+            "is_async": true,
+            "is_checked": true
+        },
+        "AvailablePhysicalFormats": {
+            "id": "kAudioStreamPropertyAvailablePhysicalFormats",
+            "type": "AudioStreamRangedDescription",
+            "user_type": "std::vector<AudioStreamRangedDescription>",
+            "is_array": true,
+            "is_user_settable": true,
+            "is_async": true
+        },
+        "AvailableVirtualFormats": {
+            "id": "kAudioStreamPropertyAvailableVirtualFormats",
+            "type": "AudioStreamRangedDescription",
+            "user_type": "std::vector<AudioStreamRangedDescription>",
+            "is_array": true,
+            "is_user_settable": true,
+            "is_async": true
+        }
+    }
+}

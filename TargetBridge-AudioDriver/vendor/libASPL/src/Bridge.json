@@ -1,0 +1,184 @@
+{
+    "HasProperty": {
+        "object_type": "Object",
+        "return": "Boolean",
+        "args": {
+            "driverRef": "AudioServerPlugInDriverRef",
+            "objectID": "AudioObjectID",
+            "clientPID": "pid_t",
+            "propertyAddress": "const AudioObjectPropertyAddress*"
+        }
+    },
+    "IsPropertySettable": {
+        "object_type": "Object",
+        "return": "OSStatus",
+        "args": {
+            "driverRef": "AudioServerPlugInDriverRef",
+            "objectID": "AudioObjectID",
+            "clientPID": "pid_t",
+            "propertyAddress": "const AudioObjectPropertyAddress*",
+            "outData": "Boolean*"
+        }
+    },
+    "GetPropertyDataSize": {
+        "object_type": "Object",
+        "return": "OSStatus",
+        "args": {
+            "driverRef": "AudioServerPlugInDriverRef",
+            "objectID": "AudioObjectID",
+            "clientPID": "pid_t",
+            "propertyAddress": "const AudioObjectPropertyAddress*",
+            "qualifierDataSize": "UInt32",
+            "qualifierData": "const void*",
+            "outDataSize": "UInt32*"
+        }
+    },
+    "GetPropertyData": {
+        "object_type": "Object",
+        "return": "OSStatus",
+        "args": {
+            "driverRef": "AudioServerPlugInDriverRef",
+            "objectID": "AudioObjectID",
+            "clientPID": "pid_t",
+            "propertyAddress": "const AudioObjectPropertyAddress*",
+            "qualifierDataSize": "UInt32",
+            "qualifierData": "const void*",
+            "inDataSize": "UInt32",
+            "outDataSize": "UInt32*",
+            "outData": "void*"
+        }
+    },
+    "SetPropertyData": {
+        "object_type": "Object",
+        "return": "OSStatus",
+        "args": {
+            "driverRef": "AudioServerPlugInDriverRef",
+            "objectID": "AudioObjectID",
+            "clientPID": "pid_t",
+            "propertyAddress": "const AudioObjectPropertyAddress*",
+            "qualifierDataSize": "UInt32",
+            "qualifierData": "const void*",
+            "inDataSize": "UInt32",
+            "inData": "const void*"
+        }
+    },
+    "AddClient": {
+        "object_type": "Device",
+        "return": "OSStatus",
+        "args": {
+            "driverRef": "AudioServerPlugInDriverRef",
+            "objectID": "AudioObjectID",
+            "clientInfo": "const AudioServerPlugInClientInfo*"
+        }
+    },
+    "RemoveClient": {
+        "object_type": "Device",
+        "return": "OSStatus",
+        "args": {
+            "driverRef": "AudioServerPlugInDriverRef",
+            "objectID": "AudioObjectID",
+            "clientInfo": "const AudioServerPlugInClientInfo*"
+        }
+    },
+    "StartIO": {
+        "object_type": "Device",
+        "return": "OSStatus",
+        "args": {
+            "driverRef": "AudioServerPlugInDriverRef",
+            "objectID": "AudioObjectID",
+            "clientID": "UInt32"
+        }
+    },
+    "StopIO": {
+        "object_type": "Device",
+        "return": "OSStatus",
+        "args": {
+            "driverRef": "AudioServerPlugInDriverRef",
+            "objectID": "AudioObjectID",
+            "clientID": "UInt32"
+        }
+    },
+    "GetZeroTimeStamp": {
+        "object_type": "Device",
+        "return": "OSStatus",
+        "args": {
+            "driverRef": "AudioServerPlugInDriverRef",
+            "objectID": "AudioObjectID",
+            "clientID": "UInt32",
+            "outSampleTime": "Float64*",
+            "outHostTime": "UInt64*",
+            "outSeed": "UInt64*"
+        }
+    },
+    "WillDoIOOperation": {
+        "object_type": "Device",
+        "return": "OSStatus",
+        "args": {
+            "driverRef": "AudioServerPlugInDriverRef",
+            "objectID": "AudioObjectID",
+            "clientID": "UInt32",
+            "operationID": "UInt32",
+            "outWillDo": "Boolean*",
+            "outWillDoInPlace": "Boolean*"
+        }
+    },
+    "BeginIOOperation": {
+        "object_type": "Device",
+        "return": "OSStatus",
+        "args": {
+            "driverRef": "AudioServerPlugInDriverRef",
+            "objectID": "AudioObjectID",
+            "clientID": "UInt32",
+            "operationID": "UInt32",
+            "ioBufferFrameSize": "UInt32",
+            "ioCycleInfo": "const AudioServerPlugInIOCycleInfo*"
+        }
+    },
+    "DoIOOperation": {
+        "object_type": "Device",
+        "return": "OSStatus",
+        "args": {
+            "driverRef": "AudioServerPlugInDriverRef",
+            "objectID": "AudioObjectID",
+            "streamID": "AudioObjectID",
+            "clientID": "UInt32",
+            "operationID": "UInt32",
+            "ioBufferFrameSize": "UInt32",
+            "ioCycleInfo": "const AudioServerPlugInIOCycleInfo*",
+            "ioMainBuffer": "void*",
+            "ioSecondaryBuffer": "void*"
+        }
+    },
+    "EndIOOperation": {
+        "object_type": "Device",
+        "return": "OSStatus",
+        "args": {
+            "driverRef": "AudioServerPlugInDriverRef",
+            "objectID": "AudioObjectID",
+            "clientID": "UInt32",
+            "operationID": "UInt32",
+            "ioBufferFrameSize": "UInt32",
+            "ioCycleInfo": "const AudioServerPlugInIOCycleInfo*"
+        }
+    },
+    "PerformConfigurationChange": {
+        "object_type": "Device",
+        "return": "OSStatus",
+        "args": {
+            "driverRef": "AudioServerPlugInDriverRef",
+            "objectID": "AudioObjectID",
+            "changeAction": "UInt64",
+            "changeInfo": "void*"
+        }
+    },
+    "AbortConfigurationChange": {
+        "object_type": "Device",
+        "return": "OSStatus",
+        "args": {
+            "driverRef": "AudioServerPlugInDriverRef",
+            "objectID": "AudioObjectID",
+            "changeAction": "UInt64",
+            "changeInfo": "void*"
+        }
+    }
+}

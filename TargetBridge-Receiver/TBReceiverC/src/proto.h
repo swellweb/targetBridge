@@ -59,4 +59,33 @@
 
 #define TB_HDR_BYTES        5   /* 4 length + 1 type */
 
+/* Receiver's microphone, flowing receiver -> sender: raw PCM in the audio wire
+ * format below, no JSON wrapper. The sender feeds it into the virtual audio
+ * device's input stream so the receiver's mic appears as an input there. */
+#define TB_PKT_MIC_FRAME        0x38
+
+/* ---- Audio wire format -------------------------------------------------
+ *
+ * 48 kHz, stereo, 32-bit float, interleaved, native endian — CoreAudio's
+ * canonical format, matched end to end so nothing quantises along the way.
+ * Senders older than this negotiate down to Int16; see "audioFormat" in the
+ * hello and "supportsFloat32Audio" in the display profile.
+ *
+ * Sizes are derived, never written out: a literal byte count silently changes
+ * meaning when the sample size does, which is how a 150 ms backlog cap became
+ * 75 ms when this path moved from Int16 to Float32.
+ *
+ * Must agree with TBAudioWireFormat.swift and TargetBridge-AudioDriver/Driver.cpp.
+ */
+#define AUDIO_SAMPLE_RATE      48000
+#define AUDIO_CHANNELS         2
+#define AUDIO_BYTES_PER_SAMPLE ((int)sizeof(float))
+#define AUDIO_BYTES_PER_FRAME  (AUDIO_CHANNELS * AUDIO_BYTES_PER_SAMPLE)
+#define AUDIO_BYTES_PER_MS     (AUDIO_SAMPLE_RATE * AUDIO_BYTES_PER_FRAME / 1000)
+
+/* Int16 fallback scaling. Asymmetric on purpose: two's-complement Int16 runs
+ * -32768..+32767, so widening divides by 32768 to map the full negative rail to
+ * -1.0, and narrowing multiplies by 32767 so +1.0 cannot wrap. */
+#define AUDIO_INT16_TO_FLOAT   32768.0f
+
 #endif

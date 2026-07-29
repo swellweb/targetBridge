@@ -1,0 +1,13 @@
+{
+  "id": "targetbridge.audio-driver",
+  "name": "Audio Driver",
+  "version": "3.3",
+  "summary": "Use the receiver's speakers and microphone as ordinary macOS audio devices. Installs a system audio driver, which needs your password, and routes session audio through it.",
+  "author": "TargetBridge",
+  "minimumSenderVersion": "3.3",
+  "capabilities": [
+    "audio-driver"
+  ],
+  "experimental": true,
+  "defaultEnabled": false
+}

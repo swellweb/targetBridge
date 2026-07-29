@@ -184,6 +184,21 @@ final class TBDisplaySenderService: ObservableObject {
         isAddonCapabilityEnabled(.audioRelay)
     }
 
+    /// The virtual audio driver. Separate from Audio Relay because it installs a
+    /// system component rather than just streaming: off by default, and worth an
+    /// explicit decision.
+    var audioDriverAvailable: Bool {
+        isAddonCapabilityEnabled(.audioDriver)
+    }
+
+    /// Either addon carries audio to the receiver, and they share the wire
+    /// format and the receiver's playback. So the transport follows both — the
+    /// driver has to work with Audio Relay switched off, or it would not be
+    /// independently installable.
+    var audioTransportAvailable: Bool {
+        audioRelayAvailable || audioDriverAvailable
+    }
+
     var inputDockstationAvailable: Bool {
         isAddonCapabilityEnabled(.inputDockstation)
     }
@@ -240,17 +255,18 @@ final class TBDisplaySenderService: ObservableObject {
             largeCursor: largeCursor,
             preventDisplaySleep: preventDisplaySleep,
             autoRestartOnWake: autoRestartOnWake,
-            audioEnabled: audioEnabled && audioRelayAvailable,
+            audioEnabled: audioEnabled && audioTransportAvailable,
             verboseDisplayLogging: verboseDisplayLogging
         )
         if let previous = sessions.last {
             session.capturePreset = previous.capturePreset
             session.captureSource = previous.captureSource
             session.transportKind = previous.transportKind
-            session.audioEnabled = audioRelayAvailable && previous.audioEnabled
+            session.audioEnabled = audioTransportAvailable && previous.audioEnabled
             session.inputGestureMode = previous.inputGestureMode
         }
-        session.audioAddonAvailable = audioRelayAvailable
+        session.audioAddonAvailable = audioTransportAvailable
+        session.audioDriverAvailable = audioDriverAvailable
         if let suggestedInterface = suggestedInterfaceForNewSession(transportKind: session.transportKind) {
             session.localInterfaceIP = suggestedInterface.ip
         }
@@ -361,11 +377,12 @@ final class TBDisplaySenderService: ObservableObject {
                 largeCursor: largeCursor,
                 preventDisplaySleep: preventDisplaySleep,
                 autoRestartOnWake: autoRestartOnWake,
-                audioEnabled: audioEnabled && audioRelayAvailable,
+                audioEnabled: audioEnabled && audioTransportAvailable,
                 verboseDisplayLogging: verboseDisplayLogging
             )
             apply(config, to: session)
-            session.audioAddonAvailable = audioRelayAvailable
+            session.audioAddonAvailable = audioTransportAvailable
+        session.audioDriverAvailable = audioDriverAvailable
             attachSession(session)
             sessions.append(session)
         }
@@ -407,7 +424,7 @@ final class TBDisplaySenderService: ObservableObject {
         session.receiverIP = config.receiverIP
         session.selectedReceiverID = config.selectedReceiverID
         session.localInterfaceIP = config.localInterfaceIP
-        session.audioEnabled = config.audioEnabled && audioRelayAvailable
+        session.audioEnabled = config.audioEnabled && audioTransportAvailable
         session.brightness = config.brightness
         session.volume = config.volume ?? 0.5
         session.matchRenderToStream = config.matchRenderToStream ?? false
@@ -439,7 +456,7 @@ final class TBDisplaySenderService: ObservableObject {
         session.captureSource = settings.captureSource
         session.capturePreset = settings.capturePreset
         session.matchRenderToStream = settings.matchRenderToStream
-        session.audioEnabled = settings.audioEnabled && audioRelayAvailable
+        session.audioEnabled = settings.audioEnabled && audioTransportAvailable
 
         guard let receiverKey = receiverProfileKey(for: session) else { return }
         var profiles = persistedDisplayProfiles
@@ -535,7 +552,8 @@ final class TBDisplaySenderService: ObservableObject {
     }
 
     private func attachSession(_ session: TBDisplaySenderSession) {
-        session.audioAddonAvailable = audioRelayAvailable
+        session.audioAddonAvailable = audioTransportAvailable
+        session.audioDriverAvailable = audioDriverAvailable
         session.onRemoteSwitchRequest = { [weak self, weak session] direction in
             guard let self, let session else { return }
             self.switchReceiverMasterTarget(from: session, direction: direction)
@@ -615,7 +633,7 @@ final class TBDisplaySenderService: ObservableObject {
 
     private func normalizeAddonState() {
         let networkLinkEnabled = isAddonCapabilityEnabled(.networkLink)
-        let audioEnabled = audioRelayAvailable
+        let audioEnabled = audioTransportAvailable
         let inputEnabled = inputDockstationAvailable
 
         for session in sessions {

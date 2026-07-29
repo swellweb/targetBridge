@@ -12,6 +12,11 @@
     <string>TargetBridge requires screen recording permission to capture the virtual display or mirror the desktop to the iMac.</string>
     <key>NSAppleEventsUsageDescription</key>
     <string>TargetBridge uses System Events to run shortcuts selected for Receiver is Master.</string>
+    <!-- Capturing any CoreAudio input device counts as microphone access, including
+         a loopback device such as BlackHole. Without this key macOS denies the
+         capture silently rather than prompting. -->
+    <key>NSMicrophoneUsageDescription</key>
+    <string>TargetBridge captures a selected audio device so the sound routed to it plays on the receiver Mac.</string>
     <key>CFBundleURLTypes</key>
     <array>
         <dict>

@@ -1,0 +1,197 @@
+{
+    "class": "Device",
+    "base_class": "Object",
+    "class_tree": [
+        "kAudioDeviceClassID",
+        "kAudioObjectClassID"
+    ],
+    "setter_mutex": "writeMutex_",
+    "properties": {
+        "Name": {
+            "id": "kAudioObjectPropertyName",
+            "type": "CFStringRef"
+        },
+        "Manufacturer": {
+            "id": "kAudioObjectPropertyManufacturer",
+            "type": "CFStringRef"
+        },
+        "DeviceUID": {
+            "id": "kAudioDevicePropertyDeviceUID",
+            "type": "CFStringRef"
+        },
+        "ModelUID": {
+            "id": "kAudioDevicePropertyModelUID",
+            "type": "CFStringRef"
+        },
+        "SerialNumber": {
+            "id": "kAudioObjectPropertySerialNumber",
+            "type": "CFStringRef"
+        },
+        "FirmwareVersion": {
+            "id": "kAudioObjectPropertyFirmwareVersion",
+            "type": "CFStringRef"
+        },
+        "IconURL": {
+            "id": "kAudioDevicePropertyIcon",
+            "type": "CFURLRef"
+        },
+        "ConfigurationApplicationBundleID": {
+            "id": "kAudioDevicePropertyConfigurationApplication",
+            "type": "CFStringRef"
+        },
+        "TransportType": {
+            "id": "kAudioDevicePropertyTransportType",
+            "type": "UInt32"
+        },
+        "RelatedDeviceIDs": {
+            "id": "kAudioDevicePropertyRelatedDevices",
+            "type": "AudioObjectID",
+            "is_array": true
+        },
+        "ClockIsStable": {
+            "id": "kAudioDevicePropertyClockIsStable",
+            "type": "UInt32"
+        },
+        "ClockAlgorithm": {
+            "id": "kAudioDevicePropertyClockAlgorithm",
+            "type": "UInt32"
+        },
+        "ClockDomain": {
+            "id": "kAudioDevicePropertyClockDomain",
+            "type": "UInt32"
+        },
+        "Latency": {
+            "id": "kAudioDevicePropertyLatency",
+            "type": "UInt32",
+            "is_user_settable": true,
+            "is_async": true,
+            "allowed_scopes": [
+                "kAudioObjectPropertyScopeInput",
+                "kAudioObjectPropertyScopeOutput"
+            ]
+        },
+        "SafetyOffset": {
+            "id": "kAudioDevicePropertySafetyOffset",
+            "type": "UInt32",
+            "is_user_settable": true,
+            "is_async": true,
+            "allowed_scopes": [
+                "kAudioObjectPropertyScopeInput",
+                "kAudioObjectPropertyScopeOutput"
+            ]
+        },
+        "ZeroTimeStampPeriod": {
+            "id": "kAudioDevicePropertyZeroTimeStampPeriod",
+            "type": "UInt32",
+            "is_user_settable": true,
+            "is_async": true
+        },
+        "NominalSampleRate": {
+            "id": "kAudioDevicePropertyNominalSampleRate",
+            "type": "Float64",
+            "is_settable": true,
+            "is_async": true,
+            "is_checked": true
+        },
+        "AvailableSampleRates": {
+            "id": "kAudioDevicePropertyAvailableNominalSampleRates",
+            "type": "AudioValueRange",
+            "user_type": "std::vector<AudioValueRange>",
+            "is_array": true,
+            "is_user_settable": true,
+            "is_async": true
+        },
+        "PreferredChannelsForStereo": {
+            "id": "kAudioDevicePropertyPreferredChannelsForStereo",
+            "type": "UInt32",
+            "user_type": "std::array<UInt32, 2>",
+            "is_array": true,
+            "is_user_settable": true,
+            "is_async": true,
+            "allowed_scopes": [
+                "kAudioObjectPropertyScopeInput",
+                "kAudioObjectPropertyScopeOutput"
+            ]
+        },
+        "PreferredChannelCount": {
+            "user_type": "UInt32",
+            "is_gettable": false,
+            "is_settable": false,
+            "is_user_settable": true,
+            "is_async": true
+        },
+        "PreferredChannels": {
+            "user_type": "std::vector<AudioChannelDescription>",
+            "is_gettable": false,
+            "is_settable": false,
+            "is_user_settable": true,
+            "is_async": true
+        },
+        "PreferredChannelLayout": {
+            "id": "kAudioDevicePropertyPreferredChannelLayout",
+            "type": "UInt8",
+            "user_type": "std::vector<UInt8>",
+            "is_array": true,
+            "is_truncatable": false,
+            "is_user_settable": true,
+            "is_async": true,
+            "allowed_scopes": [
+                "kAudioObjectPropertyScopeInput",
+                "kAudioObjectPropertyScopeOutput"
+            ]
+        },
+        "IsRunning": {
+            "id": "kAudioDevicePropertyDeviceIsRunning",
+            "type": "UInt32"
+        },
+        "IsIdentifying": {
+            "id": "kAudioObjectPropertyIdentify",
+            "type": "UInt32",
+            "user_type": "bool",
+            "is_settable": true
+        },
+        "IsAlive": {
+            "id": "kAudioDevicePropertyDeviceIsAlive",
+            "type": "UInt32",
+            "user_type": "bool",
+            "is_user_settable": true
+        },
+        "IsHidden": {
+            "id": "kAudioDevicePropertyIsHidden",
+            "type": "UInt32",
+            "user_type": "bool",
+            "is_user_settable": true
+        },
+        "CanBeDefaultDevice": {
+            "id": "kAudioDevicePropertyDeviceCanBeDefaultDevice",
+            "type": "UInt32",
+            "user_type": "bool",
+            "is_user_settable": true,
+            "allowed_scopes": [
+                "kAudioObjectPropertyScopeInput",
+                "kAudioObjectPropertyScopeOutput"
+            ]
+        },
+        "CanBeDefaultSystemDevice": {
+            "id": "kAudioDevicePropertyDeviceCanBeDefaultSystemDevice",
+            "type": "UInt32",
+            "user_type": "bool",
+            "is_user_settable": true,
+            "allowed_scopes": [
+                "kAudioObjectPropertyScopeInput",
+                "kAudioObjectPropertyScopeOutput"
+            ]
+        },
+        "StreamIDs": {
+            "id": "kAudioDevicePropertyStreams",
+            "type": "AudioObjectID",
+            "is_array": true,
+            "scoped_getter": true
+        },
+        "ControlIDs": {
+            "id": "kAudioObjectPropertyControlList",
+            "type": "AudioObjectID",
+            "is_array": true
+        }
+    }
+}

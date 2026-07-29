@@ -3,6 +3,7 @@ import Foundation
 enum TBAddonCapability: String, Codable, CaseIterable, Hashable {
     case networkLink = "network-link"
     case audioRelay = "audio-relay"
+    case audioDriver = "audio-driver"
     case inputDockstation = "input-dockstation"
 }
 

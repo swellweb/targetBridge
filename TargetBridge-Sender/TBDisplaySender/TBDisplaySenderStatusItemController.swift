@@ -202,6 +202,11 @@ final class TBDisplaySenderStatusItemController: NSObject {
     @objc
     private func quitApp() {
         runAfterMenuDismissal {
+            // Quitting with our device still selected would leave the Mac
+            // pointed at a device that no longer carries audio. The driver
+            // notices within a few seconds on its own, but there is no reason
+            // to make the user hear the gap.
+            TBDefaultOutputGuard.shared.restoreIfSelected()
             NSApp.terminate(nil)
         }
     }

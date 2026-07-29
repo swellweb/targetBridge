@@ -528,6 +528,8 @@ private struct TBDisplaySenderSessionSettingsSheet: View {
     @ObservedObject var session: TBDisplaySenderSession
     @Environment(\.dismiss) private var dismiss
     @State private var configurationChecks: [TBConfigurationCheck] = []
+    @State private var audioDriverStatus = TBAudioDriverInstaller.status()
+    @State private var audioDriverError: String?
 
     var body: some View {
         ScrollView {
@@ -613,6 +615,17 @@ private struct TBDisplaySenderSessionSettingsSheet: View {
                         }
                         .pickerStyle(.menu)
                         .disabled(session.isConnected || session.isStreaming)
+                    }
+
+
+                    // Not disabled while streaming: installing the driver is
+                    // independent of the session, and someone who has just
+                    // discovered the audio source is missing should not have to
+                    // stop casting to fix it.
+                    if service.audioDriverAvailable {
+                        settingRow(audioDriverTitle, details: audioDriverDetails) {
+                            audioDriverControl
+                        }
                     }
 
                     if session.captureSource == .extendedDesktop {
@@ -820,6 +833,13 @@ private struct TBDisplaySenderSessionSettingsSheet: View {
         // otherwise in system Light mode the semantic text colors (.primary /
         // .secondary) resolve to dark variants and render dark-on-dark.
         .preferredColorScheme(.dark)
+        .alert(audioDriverTitle,
+               isPresented: Binding(get: { audioDriverError != nil },
+                                    set: { if !$0 { audioDriverError = nil } })) {
+            Button("OK", role: .cancel) { audioDriverError = nil }
+        } message: {
+            Text(audioDriverError ?? "")
+        }
     }
 
     private func settingsSection<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
@@ -1039,6 +1059,132 @@ private struct TBDisplaySenderSessionSettingsSheet: View {
         case .german: return "Überträgt für diese Sitzung auch den Systemton des Senders an den Empfänger."
         case .french: return "Envoie aussi l’audio système du sender au receiver pour cette session."
         case .chinese: return "同时将 sender 的系统音频传到此会话的 receiver。"
+        }
+    }
+
+    // MARK: - Audio driver
+
+    /// Status plus the one action that makes sense for it. The driver lives in
+    /// /Library, so installing needs an admin prompt; the app handles that
+    /// itself rather than sending people to a terminal.
+    @ViewBuilder
+    private var audioDriverControl: some View {
+        switch audioDriverStatus {
+        case .notBundled:
+            Text(audioDriverMissingLabel)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+
+        case .installed(let version):
+            HStack(spacing: 8) {
+                Label(audioDriverInstalledLabel, systemImage: "checkmark.circle.fill")
+                    .font(.footnote)
+                    .foregroundStyle(.green)
+                    .help(version)
+                Button(audioDriverRemoveLabel) { runAudioDriver(install: false) }
+                    .controlSize(.small)
+            }
+
+        case .notInstalled:
+            Button(audioDriverInstallLabel) { runAudioDriver(install: true) }
+                .controlSize(.small)
+
+        case .outdated:
+            HStack(spacing: 8) {
+                Text(audioDriverOutdatedLabel)
+                    .font(.footnote)
+                    .foregroundStyle(.orange)
+                Button(audioDriverUpdateLabel) { runAudioDriver(install: true) }
+                    .controlSize(.small)
+            }
+        }
+    }
+
+    private func runAudioDriver(install: Bool) {
+        do {
+            if install {
+                try TBAudioDriverInstaller.install()
+            } else {
+                try TBAudioDriverInstaller.uninstall()
+            }
+        } catch TBAudioDriverInstaller.InstallError.cancelled {
+            // Dismissing the password prompt is a decision, not a failure.
+        } catch {
+            audioDriverError = "\(error)"
+        }
+        audioDriverStatus = TBAudioDriverInstaller.status()
+    }
+
+    private var audioDriverTitle: String {
+        switch service.language {
+        case .italian: return "Driver audio iMac"
+        case .english: return "iMac audio driver"
+        case .german: return "iMac-Audiotreiber"
+        case .chinese: return "iMac 音频驱动"
+        case .french: return "Pilote audio iMac"
+        }
+    }
+    private var audioDriverDetails: String {
+        switch service.language {
+        case .english: return "Optional. Adds the iMac's speakers and microphone as ordinary macOS devices, so any app can use them from the Sound menu. Installing asks for your password and briefly interrupts audio."
+        case .french: return "Facultatif. Ajoute les haut-parleurs et le micro de l'iMac comme périphériques macOS ordinaires. L'installation demande votre mot de passe et interrompt brièvement l'audio."
+        case .german: return "Optional. Fügt Lautsprecher und Mikrofon des iMac als normale macOS-Geräte hinzu. Die Installation fragt nach dem Passwort und unterbricht kurz die Audiowiedergabe."
+        case .chinese: return "可选。将 iMac 的扬声器和麦克风添加为标准 macOS 设备。安装需要输入密码，并会短暂中断音频。"
+        case .italian: return "Facoltativo. Aggiunge altoparlanti e microfono dell'iMac come normali dispositivi macOS. L'installazione richiede la password e interrompe brevemente l'audio."
+        }
+    }
+    private var audioDriverInstallLabel: String {
+        switch service.language {
+        case .italian: return "Installa"
+        case .english: return "Install"
+        case .german: return "Installieren"
+        case .chinese: return "安装"
+        case .french: return "Installer"
+        }
+    }
+    private var audioDriverRemoveLabel: String {
+        switch service.language {
+        case .italian: return "Rimuovi"
+        case .english: return "Remove"
+        case .german: return "Entfernen"
+        case .chinese: return "移除"
+        case .french: return "Supprimer"
+        }
+    }
+    private var audioDriverUpdateLabel: String {
+        switch service.language {
+        case .italian: return "Aggiorna"
+        case .english: return "Update"
+        case .german: return "Aktualisieren"
+        case .chinese: return "更新"
+        case .french: return "Mettre à jour"
+        }
+    }
+    private var audioDriverInstalledLabel: String {
+        switch service.language {
+        case .italian: return "Installato"
+        case .english: return "Installed"
+        case .german: return "Installiert"
+        case .chinese: return "已安装"
+        case .french: return "Installé"
+        }
+    }
+    private var audioDriverOutdatedLabel: String {
+        switch service.language {
+        case .italian: return "Versione obsoleta"
+        case .english: return "Out of date"
+        case .german: return "Veraltet"
+        case .chinese: return "版本过旧"
+        case .french: return "Obsolète"
+        }
+    }
+    private var audioDriverMissingLabel: String {
+        switch service.language {
+        case .italian: return "Non incluso in questa build"
+        case .english: return "Not included in this build"
+        case .german: return "In diesem Build nicht enthalten"
+        case .chinese: return "此版本未包含"
+        case .french: return "Non inclus dans cette version"
         }
     }
 

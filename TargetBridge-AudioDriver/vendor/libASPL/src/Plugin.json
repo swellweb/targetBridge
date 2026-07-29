@@ -1,0 +1,29 @@
+{
+    "class": "Plugin",
+    "base_class": "Object",
+    "class_tree": [
+        "kAudioPlugInClassID",
+        "kAudioObjectClassID"
+    ],
+    "properties": {
+        "Manufacturer": {
+            "id": "kAudioObjectPropertyManufacturer",
+            "type": "CFStringRef"
+        },
+        "ResourceBundlePath": {
+            "id": "kAudioPlugInPropertyResourceBundle",
+            "type": "CFStringRef"
+        },
+        "DeviceIDs": {
+            "id": "kAudioPlugInPropertyDeviceList",
+            "type": "AudioObjectID",
+            "is_array": true
+        },
+        "DeviceIDByUID": {
+            "id": "kAudioPlugInPropertyTranslateUIDToDevice",
+            "type": "AudioObjectID",
+            "is_qualified": true,
+            "qualifier_type": "CFStringRef"
+        }
+    }
+}

@@ -17,6 +17,7 @@
 #include "decoder.h"
 #include "display.h"
 #include "proto.h"
+#include "tb_mic_capture.h"
 #include "tb_gesture_bridge.h"
 #include "tb_i18n.h"
 
@@ -45,7 +46,15 @@
 #include <time.h>
 #include <unistd.h>
 
-#define AUDIO_BUF_CAP (192000) // 1 second buffer of 48000Hz stereo 16-bit PCM
+/* Format constants live in proto.h, next to the packet definitions they
+ * describe. Only the buffer policy is local. */
+#define AUDIO_BUF_CAP          (1000 * AUDIO_BYTES_PER_MS)   /* 1 second capacity */
+
+/* Playout backlog ceiling. Cushions network and scheduling jitter without
+ * letting delay accumulate; the excess is dropped oldest-first, which is the
+ * standard jitter-buffer behaviour and what keeps latency from ratcheting up
+ * as the two ends' clocks drift apart. */
+#define AUDIO_BACKLOG_MAX_MS   150
 
 /* Reap a connected sender that has gone completely silent. The sender
  * heartbeats every 2s and streams frames continuously, so 10s of silence
@@ -97,6 +106,10 @@ struct app {
 
     SDL_AudioDeviceID audio_device;
 
+    /* Senders older than the Float32 change send Int16 and do not say so in
+     * their hello. Assume Int16 until told otherwise, so such a sender plays
+     * correctly instead of as noise. */
+    int     audio_input_is_s16;
     uint8_t audio_buf[AUDIO_BUF_CAP];
     int     audio_buf_head;
     int     audio_buf_tail;
@@ -1058,6 +1071,15 @@ static void on_packet(uint8_t type, const uint8_t *payload, size_t len, void *ud
 
             tb_set_receiver_mode_requested(a->mode_text, sizeof(a->mode_text), capture_w, capture_h, source, preset, codec);
         }
+        {
+            char audio_format[8] = {0};
+            extract_json_string_field(payload, len, "\"audioFormat\"",
+                                      audio_format, sizeof(audio_format));
+            a->audio_input_is_s16 = (strcmp(audio_format, "f32") != 0);
+            if (a->audio_input_is_s16) {
+                fprintf(stderr, "[main] sender sends Int16 audio; converting\n");
+            }
+        }
         a->session_active = 1;
         fprintf(stderr, "[main] hello from sender\n");
         tb_copy_i18n(a->status_text, sizeof(a->status_text), "receiver.status.sender_connected_profile_sent");
@@ -1121,11 +1143,30 @@ static void on_packet(uint8_t type, const uint8_t *payload, size_t len, void *ud
         break;
     case TB_PKT_AUDIO_FRAME:
         if (a->audio_device != 0) {
+            /* The output device is opened as float. Widen an older sender's
+             * Int16 rather than reopening the device mid-session. */
+            const uint8_t *audio = payload;
+            size_t audio_len = len;
+            float *widened = NULL;
+            if (a->audio_input_is_s16) {
+                const size_t samples = len / sizeof(int16_t);
+                widened = (float *)malloc(samples * sizeof(float));
+                if (!widened) break;
+                const int16_t *src = (const int16_t *)payload;
+                for (size_t i = 0; i < samples; ++i) {
+                    widened[i] = (float)src[i] / AUDIO_INT16_TO_FLOAT;
+                }
+                audio = (const uint8_t *)widened;
+                audio_len = samples * sizeof(float);
+            }
+            payload = audio;
+            len = audio_len;
+
             SDL_LockAudioDevice(a->audio_device);
 
-            // Limit audio backlog to 150ms (150 * 192 = 28800 bytes) to cushion
-            // against network / scheduling jitter while still keeping playout tight.
-            const int cap_bytes = 28800;
+            // Cap the backlog so playout stays tight, cushioning network and
+            // scheduling jitter without letting delay accumulate.
+            const int cap_bytes = AUDIO_BACKLOG_MAX_MS * AUDIO_BYTES_PER_MS;
             if (a->audio_buf_size + len > cap_bytes) {
                 int excess = (a->audio_buf_size + len) - cap_bytes;
                 a->audio_buf_tail = (a->audio_buf_tail + excess) % AUDIO_BUF_CAP;
@@ -1146,6 +1187,7 @@ static void on_packet(uint8_t type, const uint8_t *payload, size_t len, void *ud
             }
 
             SDL_UnlockAudioDevice(a->audio_device);
+            free(widened);
         }
         break;
     case TB_PKT_INPUT_EVENT:
@@ -1651,7 +1693,7 @@ static void send_receiver_info(struct app *a) {
         "{\"receiverName\":\"%s\",\"panelWidth\":%u,\"panelHeight\":%u,"
         "\"modeWidth\":%u,\"modeHeight\":%u,\"refreshRate\":60,"
         "\"hiDPI\":true,\"captureWidth\":%u,\"captureHeight\":%u,"
-        "\"supportsHEVCDecode\":%s,\"supportsRawNV12\":true,\"inputMonitoringTrusted\":%s,\"accessibilityTrusted\":%s}",
+        "\"supportsHEVCDecode\":%s,\"supportsRawNV12\":true,\"supportsFloat32Audio\":true,\"inputMonitoringTrusted\":%s,\"accessibilityTrusted\":%s}",
         escaped_name,
         panel_w,
         panel_h,
@@ -1681,7 +1723,40 @@ static void send_receiver_info(struct app *a) {
     free(pkt);
 }
 
+static struct app *g_mic_app = NULL;
+
+static void tb_mic_frame_cb(const uint8_t *pcm, size_t bytes, void *user_data) {
+    struct app *a = (struct app *)user_data;
+    if (!a || a->client_fd < 0 || bytes == 0) return;
+    /* Cap per packet so one oversized buffer cannot stall the link. */
+    const size_t kMax = 8192;
+    while (bytes > 0) {
+        const size_t chunk = bytes > kMax ? kMax : bytes;
+        uint8_t header[5];
+        write_be32(header, (uint32_t)(1 + chunk));
+        header[4] = TB_PKT_MIC_FRAME;
+        if (send_all(a->client_fd, header, sizeof(header)) < 0) return;
+        if (send_all(a->client_fd, pcm, chunk) < 0) return;
+        pcm += chunk;
+        bytes -= chunk;
+    }
+}
+
+static void tb_mic_start_if_possible(struct app *a) {
+    if (!tb_mic_capture_available()) return;
+    g_mic_app = a;
+    if (tb_mic_capture_start(tb_mic_frame_cb, a) != 0) {
+        /* Permission not granted yet; the prompt has been raised and the next
+         * session will retry. */
+        fprintf(stderr, "[mic] not started (microphone permission pending)\n");
+    } else {
+        fprintf(stderr, "[mic] capturing and streaming to sender\n");
+    }
+}
+
 static void close_client(struct app *a) {
+    tb_mic_capture_stop();
+    g_mic_app = NULL;
     if (a->client_fd >= 0) close(a->client_fd);
     a->client_fd = -1;
     a->session_active = 0;
@@ -1769,6 +1844,9 @@ int main(int argc, char **argv) {
 
     struct app a;
     memset(&a, 0, sizeof(a));
+    // Int16 until a hello says otherwise — zeroed would mean "float", which is
+    // the wrong way to guess about a sender we have not heard from yet.
+    a.audio_input_is_s16 = 1;
     a.server_fd = -1;
     a.client_fd = -1;
     {
@@ -1797,10 +1875,13 @@ int main(int argc, char **argv) {
     /* Open SDL Audio Device */
     SDL_AudioSpec spec;
     SDL_zero(spec);
-    spec.freq = 48000;
-    spec.format = AUDIO_S16LSB; // 16-bit signed, little-endian PCM
-    spec.channels = 2;          // Stereo
-    spec.samples = 1024;        // Buffer size (approx 21.3ms)
+    spec.freq = AUDIO_SAMPLE_RATE;
+    spec.format = AUDIO_F32SYS; // 32-bit float, native endian — CoreAudio's own format
+    spec.channels = AUDIO_CHANNELS;          // Stereo
+    /* Frames per callback. A power of two, as SDL expects, and ~21 ms at
+     * 48 kHz: small enough that output latency stays tight, large enough that a
+     * scheduling hiccup does not underrun. */
+    spec.samples = 1024;
     spec.callback = audio_callback;
     spec.userdata = &a;
     SDL_AudioSpec obtained;
@@ -1878,12 +1959,14 @@ int main(int argc, char **argv) {
                 a.client_fd = c;
                 a.have_video_frame = 0;
                 a.session_active = 0;
+                a.audio_input_is_s16 = 1;   // re-learned from the next hello
                 a.last_recv_ms = t;
                 SDL_DisableScreenSaver();
                 fprintf(stderr, "[main] client connected\n");
                 tb_parser_free(&a.parser);
                 tb_parser_init(&a.parser, on_packet, &a);
                 tb_receiver_refresh_input_capture(&a);
+                tb_mic_start_if_possible(&a);
                 send_receiver_info(&a);
             }
         } else {
