@@ -36,8 +36,8 @@ struct TBVirtualDisplayIdentity {
         // `receiverKey` must uniquely identify the receiver (the caller derives it
         // from the connection address, matching the saved-arrangement key). Keying
         // on the receiver-reported display name alone is not enough: identical iMac
-        // models report the same SDL display name and the same hard-coded panel
-        // size, so two of them would derive the same identity and macOS would
+        // models can report the same SDL display name and panel size, so two of
+        // them would derive the same identity and macOS would
         // refuse to create the second virtual display.
         let hash = djb2(receiverKey)
         let productLow = (hash & 0x00FF) | 0x01
@@ -59,12 +59,34 @@ struct TBVirtualDisplayIdentity {
     }
 }
 
+/// Identifies displays created by this Sender. On recent macOS releases a
+/// virtual-display proxy can remain online after its owning Swift object is
+/// released. While that proxy exists, `CGVirtualDisplay(descriptor:)` refuses
+/// a replacement with `KERN_FAILURE`. Reusing only our exact deterministic
+/// identity lets a headless automatic session recover without restarting
+/// WindowServer.
+enum TBVirtualDisplayReuse {
+    static let vendorID: UInt32 = 0xEEEE
+
+    static func matches(
+        vendorID: UInt32,
+        productID: UInt32,
+        serialNumber: UInt32,
+        identity: TBVirtualDisplayIdentity
+    ) -> Bool {
+        vendorID == Self.vendorID &&
+            productID == identity.productID &&
+            serialNumber == identity.serialNumber
+    }
+}
+
 @MainActor
 final class ReceiverBackedVirtualDisplaySession {
     private var virtualDisplay: CGVirtualDisplay?
     private(set) var displayID: CGDirectDisplayID = kCGNullDirectDisplay
     private(set) var displayName: String = ""
     private(set) var identityDescription: String = ""
+    private(set) var reusedExistingDisplay = false
 
     func create(
         from profile: TBMonitorDisplayProfile,
@@ -76,12 +98,11 @@ final class ReceiverBackedVirtualDisplaySession {
         destroy()
         let preferredRefreshRate = refreshRate ?? profile.refreshRate
 
-        // The receiver hard-codes mode 2560x1440 + hiDPI, i.e. a 5120x2880 backing
-        // store, regardless of which capture preset the sender is running. Any preset
-        // below 5K therefore makes ScreenCaptureKit resample 5120x2880 down to the
-        // stream size, and the receiver resample back up to the panel: two non-integer
-        // passes. `modeOverride` lets the sender size the backing store to match the
-        // stream exactly, so capture is 1:1 and only the panel-side scale remains.
+        // The receiver advertises its native HiDPI mode. A lower-resolution
+        // capture preset would otherwise make ScreenCaptureKit resample the
+        // backing store down to the stream and the receiver scale it back to
+        // the panel. `modeOverride` keeps capture 1:1 when the requested mode
+        // fits within the advertised panel.
         var resolvedMode = modeOverride ?? TBVirtualDisplayModeSize(
             width: profile.modeWidth,
             height: profile.modeHeight
@@ -98,9 +119,34 @@ final class ReceiverBackedVirtualDisplaySession {
             resolvedMode = TBVirtualDisplayModeSize(width: profile.modeWidth, height: profile.modeHeight)
         }
 
+        let preferenceKey = TBVirtualDisplayModeMemory.preferenceKey(
+            for: identity,
+            receiverKey: receiverKey
+        )
+
+        // A previous proxy can survive CGVirtualDisplay destruction. Adopt only
+        // our exact vendor/product/serial identity; never borrow an arbitrary
+        // third-party virtual or physical display.
+        if let existingDisplayID = reusableDisplayID(matching: identity) {
+            // Do not reapply its mode here. The proxy already has the retained
+            // mode, while CGDisplaySetDisplayMode can block on a stale proxy.
+            virtualDisplay = nil
+            displayID = existingDisplayID
+            displayName = profile.receiverName
+            reusedExistingDisplay = true
+            identityDescription = "vendor=0x\(String(TBVirtualDisplayReuse.vendorID, radix: 16)) product=0x\(String(identity.productID, radix: 16)) serial=0x\(String(identity.serialNumber, radix: 16)) reused=yes"
+            TBVirtualDisplayModeMemory.shared.track(displayID: existingDisplayID, key: preferenceKey)
+            NSLog(
+                "TargetBridge: reusing existing virtual display %u after stale-proxy recovery (%@)",
+                existingDisplayID,
+                identityDescription
+            )
+            return true
+        }
+
         let descriptor = CGVirtualDisplayDescriptor()
         descriptor.name = "\(identity.displayNamePrefix) - \(profile.receiverName)"
-        descriptor.vendorID = 0xEEEE
+        descriptor.vendorID = TBVirtualDisplayReuse.vendorID
         descriptor.productID = identity.productID
         descriptor.serialNum = identity.serialNumber
         descriptor.serialNumber = identity.serialNumber
@@ -146,10 +192,6 @@ final class ReceiverBackedVirtualDisplaySession {
         // one; otherwise fall back to the receiver-advertised profile default.
         // An explicit render-matching override outranks the remembered choice: a
         // stale manual pick would silently break the 1:1 capture the user asked for.
-        let preferenceKey = TBVirtualDisplayModeMemory.preferenceKey(
-            for: identity,
-            receiverKey: receiverKey
-        )
         let savedChoice = modeOverride == nil
             ? TBVirtualDisplayModeMemory.shared.load(forKey: preferenceKey)
             : nil
@@ -169,6 +211,28 @@ final class ReceiverBackedVirtualDisplaySession {
         return true
     }
 
+    private func reusableDisplayID(matching identity: TBVirtualDisplayIdentity) -> CGDirectDisplayID? {
+        var displayCount: UInt32 = 0
+        guard CGGetOnlineDisplayList(0, nil, &displayCount) == .success,
+              displayCount > 0
+        else { return nil }
+
+        var displayIDs = Array(repeating: kCGNullDirectDisplay, count: Int(displayCount))
+        guard CGGetOnlineDisplayList(displayCount, &displayIDs, &displayCount) == .success else {
+            return nil
+        }
+
+        return displayIDs.prefix(Int(displayCount)).first { candidateID in
+            candidateID != kCGNullDirectDisplay &&
+                TBVirtualDisplayReuse.matches(
+                    vendorID: CGDisplayVendorNumber(candidateID),
+                    productID: CGDisplayModelNumber(candidateID),
+                    serialNumber: CGDisplaySerialNumber(candidateID),
+                    identity: identity
+                )
+        }
+    }
+
     func destroy() {
         if displayID != kCGNullDirectDisplay {
             TBVirtualDisplayModeMemory.shared.untrack(displayID: displayID)
@@ -177,6 +241,7 @@ final class ReceiverBackedVirtualDisplaySession {
         displayID = kCGNullDirectDisplay
         displayName = ""
         identityDescription = ""
+        reusedExistingDisplay = false
     }
 
     @discardableResult

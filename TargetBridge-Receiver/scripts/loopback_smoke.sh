@@ -18,8 +18,10 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 SRC="$ROOT/TBReceiverC"
+TEST_ROOT="$(mktemp -d /private/tmp/targetbridge-loopback-smoke.XXXXXX)"
 LOG="$(mktemp -t tb_smoke_receiver.err)"
 MOCK="$SRC/tests/mock_sender.py"
+RECEIVER_BIN="${TB_RECEIVER_EXECUTABLE:-}"
 NO_STREAM=0
 [[ "${1:-}" == "--no-stream" ]] && NO_STREAM=1
 
@@ -29,6 +31,19 @@ RECEIVER_PID=""
 phase() { print -P "%B== $1 ==%b"; }
 pass()  { print -P "%F{green}PASS%f  $1"; }
 fail()  { print -P "%F{red}FAIL%f  $1"; FAILURES=$((FAILURES + 1)); }
+
+wait_for_listener() {
+    local pid="$1" tries=0
+    while (( tries < 100 )); do
+        if /usr/sbin/lsof -nP -a -p "$pid" -iTCP:54321 -sTCP:LISTEN >/dev/null 2>&1; then
+            return 0
+        fi
+        kill -0 "$pid" >/dev/null 2>&1 || return 1
+        sleep 0.1
+        tries=$((tries + 1))
+    done
+    return 1
+}
 
 expect_log() {
     local needle="$1" what="$2" tries=0
@@ -43,20 +58,26 @@ expect_log() {
 cleanup() {
     [[ -n "$RECEIVER_PID" ]] && kill "$RECEIVER_PID" 2>/dev/null
     wait 2>/dev/null
+    /bin/rm -R "$TEST_ROOT" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT INT TERM
 
-phase "Build receiver"
-if ! make -C "$SRC" >/dev/null; then
-    print "receiver build failed"; exit 1
+phase "Build Receiver app"
+if [[ -z "$RECEIVER_BIN" ]]; then
+    if ! TB_BUILD_DIR="$TEST_ROOT/build" \
+        TB_SKIP_BUNDLE_DYLIBS=1 \
+        "$SCRIPT_DIR/build_tbreceiver_c_app.sh" >/dev/null; then
+        print "receiver app build failed"; exit 1
+    fi
+    RECEIVER_BIN="$TEST_ROOT/build/TargetBridge Receiver.app/Contents/MacOS/TargetBridgeReceiver"
 fi
-pass "build"
+[[ -x "$RECEIVER_BIN" ]] || { print "receiver executable missing: $RECEIVER_BIN"; exit 1; }
+pass "self-contained app build"
 
 phase "Launch receiver (windowed, log -> $LOG)"
-TB_LANG=en "$SRC/tbreceiver" --windowed 2>"$LOG" &
+TB_LANG=en "$RECEIVER_BIN" --windowed 2>"$LOG" &
 RECEIVER_PID=$!
-sleep 2
-if ! kill -0 "$RECEIVER_PID" 2>/dev/null; then
+if ! wait_for_listener "$RECEIVER_PID"; then
     print "receiver exited early:"; tail -5 "$LOG"; exit 1
 fi
 pass "receiver running (pid $RECEIVER_PID)"

@@ -18,8 +18,11 @@
 #include "display.h"
 #include "proto.h"
 #include "tb_gesture_bridge.h"
+#include "tb_clipboard_bridge.h"
 #include "tb_display_tweaks.h"
 #include "tb_i18n.h"
+#include "sender_control.h"
+#include "receiver_state.h"
 
 #include <SDL.h>
 #include <ApplicationServices/ApplicationServices.h>
@@ -30,7 +33,7 @@
 
 /* kAudioObjectPropertyElementMain is the macOS 12+ SDK spelling; older SDKs
  * only define kAudioObjectPropertyElementMaster (both are numerically 0). */
-#ifndef kAudioObjectPropertyElementMain
+#if defined(__MAC_OS_X_VERSION_MAX_ALLOWED) && __MAC_OS_X_VERSION_MAX_ALLOWED < 120000
 #define kAudioObjectPropertyElementMain kAudioObjectPropertyElementMaster
 #endif
 
@@ -52,6 +55,8 @@
  * heartbeats every 2s and streams frames continuously, so 10s of silence
  * (5 missed heartbeats) means it died without a FIN. */
 #define TB_SENDER_IDLE_TIMEOUT_MS 10000
+#define TB_INPUT_LOG_MAX_BYTES (5 * 1024 * 1024)
+#define TB_LAUNCH_LOG_MAX_BYTES (20 * 1024 * 1024)
 
 struct app {
     struct tb_display *disp;
@@ -82,7 +87,10 @@ struct app {
 
     char     ip_text[64];
     char     tb_ip_text[64];
+    char     usb_ip_text[64];
     char     net_ip_text[64];
+    char     ethernet_ip_text[64];
+    char     wifi_ip_text[64];
     char     display_host[128]; /* short hostname (or hostname+IP), cached at startup */
     char     status_text[128];
     char     sender_text[128];
@@ -91,11 +99,25 @@ struct app {
     char     language_pref[8];
     char     language_text[96];
     char     permissions_text[160];
+    char     control_text[192];
+    char     control_status_key[96];
+    char     selected_path_text[64];
+    char     selected_path_key[96];
+    char     selected_path_id[24];
+    char     preferred_sender_action[32];
     char     sender_ui_language[8];
     char     input_control_mode[32];
     int      last_input_monitoring_trusted;
     int      last_accessibility_trusted;
+    int      sender_accessibility_trusted;
+    int      sender_accessibility_known;
     uint64_t last_permissions_poll_ms;
+    struct tb_sender_control sender_control;
+    uint64_t next_sender_control_ms;
+    int      auto_sender_enabled;
+    int      input_enabled;
+    int      input_sync_pending;
+    int      zero_frame_disconnects;
 
     DNSServiceRef bonjour_ref;
     char     bonjour_name[128];
@@ -122,11 +144,28 @@ struct app {
     int      sent_control_down;
     int      sent_caps_down;
     uint64_t last_clipboard_poll_ms;
+    int64_t  last_clipboard_change_count;
     char     last_clipboard_text[4096];
+    uint64_t last_local_ui_check_ms;
+    int      local_ui_passthrough;
+    unsigned int local_pointer_buttons;
+    unsigned int remote_pointer_buttons;
+    char     local_ui_owner[96];
+    volatile sig_atomic_t local_stop_requested;
+    volatile sig_atomic_t local_release_requested;
 };
 
 static int tb_should_log_input_event(uint64_t count) {
     return count <= 20 || (count % 100) == 0;
+}
+
+static void tb_trim_regular_stream(FILE *stream, off_t maximum_bytes) {
+    if (!stream) return;
+    int fd = fileno(stream);
+    struct stat status;
+    if (fd < 0 || fstat(fd, &status) != 0 || !S_ISREG(status.st_mode) ||
+        status.st_size <= maximum_bytes) return;
+    (void)ftruncate(fd, 0);
 }
 
 static void tb_receiver_input_log(const char *fmt, ...) {
@@ -149,6 +188,12 @@ static void tb_receiver_input_log(const char *fmt, ...) {
     snprintf(path, sizeof(path), "%s/input-debug.log", dir);
     FILE *f = fopen(path, "a");
     if (!f) return;
+    struct stat status;
+    if (fstat(fileno(f), &status) == 0 && status.st_size > TB_INPUT_LOG_MAX_BYTES) {
+        fclose(f);
+        f = fopen(path, "w");
+        if (!f) return;
+    }
 
     time_t now = time(NULL);
     struct tm tm_now;
@@ -188,15 +233,28 @@ static void tb_receiver_apply_language_preference(struct app *a);
 static void tb_receiver_cycle_language_preference(struct app *a);
 static void tb_receiver_refresh_language_text(struct app *a);
 static void tb_receiver_refresh_permissions_text(struct app *a);
+static int  tb_receiver_sender_input_ready(const struct app *a);
+static int  tb_receiver_input_capture_ready(const struct app *a);
+static int  tb_receiver_input_setup_needed(const struct app *a);
 static void tb_receiver_poll_permissions(struct app *a);
+static void tb_receiver_refresh_control_text(struct app *a);
+static void tb_receiver_set_control_status(struct app *a, const char *key);
+static void tb_receiver_set_selected_path(struct app *a, const char *key, const char *path_id);
+static int  tb_receiver_save_diagnostics(struct app *a, char *saved_path, size_t saved_path_size);
+static void tb_receiver_start_remote_action(struct app *a, const char *action, uint64_t now);
+static void tb_receiver_start_input_action(struct app *a,
+                                           int enabled,
+                                           uint64_t now,
+                                           int request_permissions);
+static void tb_receiver_poll_remote_action(struct app *a, uint64_t now);
+static void tb_receiver_persist_monitor_state(const struct app *a);
 static int tb_receiver_input_monitoring_trusted(void);
 static int tb_receiver_accessibility_trusted(void);
 static void send_receiver_info(struct app *a);
 static void tb_receiver_apply_input_event(const uint8_t *payload, size_t len);
 static void tb_receiver_apply_input_control_mode(struct app *a, const uint8_t *payload, size_t len);
 static void tb_receiver_refresh_input_capture(struct app *a);
-static void tb_receiver_set_clipboard_text(const char *text);
-static int tb_receiver_get_clipboard_text(char *dest, size_t size);
+static void tb_receiver_set_clipboard_text(struct app *a, const char *text);
 static void tb_receiver_send_clipboard_if_changed(struct app *a);
 static void write_be32(uint8_t *dst, uint32_t value);
 static void tb_receiver_send_display_tweaks_if_changed(struct app *a);
@@ -316,39 +374,112 @@ static void tb_receiver_refresh_permissions_text(struct app *a) {
         : tb_receiver_accessibility_trusted();
     const char *lang = tb_i18n_current_language();
 
+    if (!a->input_enabled) {
+        if (lang && strncmp(lang, "it", 2) == 0) {
+            snprintf(a->permissions_text, sizeof(a->permissions_text),
+                     "Mouse e tastiera dell'iMac: funzione opzionale disattivata");
+        } else if (lang && strncmp(lang, "de", 2) == 0) {
+            snprintf(a->permissions_text, sizeof(a->permissions_text),
+                     "iMac-Maus und -Tastatur: optionale Steuerung deaktiviert");
+        } else if (lang && strncmp(lang, "fr", 2) == 0) {
+            snprintf(a->permissions_text, sizeof(a->permissions_text),
+                     "Souris et clavier de l’iMac : commande optionnelle désactivée");
+        } else if (lang && strncmp(lang, "zh", 2) == 0) {
+            snprintf(a->permissions_text, sizeof(a->permissions_text),
+                     "iMac 鼠标和键盘：可选控制已关闭");
+        } else {
+            snprintf(a->permissions_text, sizeof(a->permissions_text),
+                     "iMac mouse and keyboard: optional control is off");
+        }
+        return;
+    }
+
+    const char *mini_state = a->sender_accessibility_known
+        ? (a->sender_accessibility_trusted ? "OK" : "Missing")
+        : "Check pending";
+
     if (lang && strncmp(lang, "it", 2) == 0) {
         snprintf(
             a->permissions_text,
             sizeof(a->permissions_text),
-            "Monitoraggio input: %s   Accessibilità: %s",
-            input_monitoring ? "OK" : "Mancante",
-            accessibility ? "OK" : "Mancante"
+            "Mac mini Accessibilità: %s · Controllo globale iMac: %s",
+            a->sender_accessibility_known
+                ? (a->sender_accessibility_trusted ? "OK" : "Mancante")
+                : "Da verificare",
+            input_monitoring && accessibility ? "OK" : "Opzionale"
         );
     } else if (lang && strncmp(lang, "de", 2) == 0) {
         snprintf(
             a->permissions_text,
             sizeof(a->permissions_text),
-            "Input-Monitoring: %s   Bedienungshilfen: %s",
-            input_monitoring ? "OK" : "Fehlt",
-            accessibility ? "OK" : "Fehlt"
+            "Mac mini Bedienungshilfen: %s · Globale iMac-Steuerung: %s",
+            a->sender_accessibility_known
+                ? (a->sender_accessibility_trusted ? "OK" : "Fehlt")
+                : "Prüfung ausstehend",
+            input_monitoring && accessibility ? "OK" : "Optional"
         );
     } else if (lang && strncmp(lang, "zh", 2) == 0) {
         snprintf(
             a->permissions_text,
             sizeof(a->permissions_text),
-            "输入监控：%s   辅助功能：%s",
-            input_monitoring ? "正常" : "缺失",
-            accessibility ? "正常" : "缺失"
+            "Mac mini 辅助功能：%s · iMac 全局控制：%s",
+            a->sender_accessibility_known
+                ? (a->sender_accessibility_trusted ? "正常" : "缺失")
+                : "待检查",
+            input_monitoring && accessibility ? "正常" : "可选"
         );
     } else {
         snprintf(
             a->permissions_text,
             sizeof(a->permissions_text),
-            "Input Monitoring: %s   Accessibility: %s",
-            input_monitoring ? "OK" : "Missing",
-            accessibility ? "OK" : "Missing"
+            "Mac mini Accessibility: %s · Global iMac control: %s",
+            mini_state,
+            input_monitoring && accessibility ? "OK" : "Optional"
         );
     }
+}
+
+static int tb_receiver_sender_input_ready(const struct app *a) {
+    return a &&
+           a->input_enabled &&
+           a->sender_accessibility_known &&
+           a->sender_accessibility_trusted;
+}
+
+/* Basic fullscreen control uses SDL window events and needs no receiver-side
+ * privacy permission. The two iMac permissions only upgrade that path to a
+ * global event tap, which can safely coexist with local notifications/UI. */
+static int tb_receiver_input_capture_ready(const struct app *a) {
+    return tb_receiver_sender_input_ready(a);
+}
+
+static int tb_receiver_input_setup_needed(const struct app *a) {
+    return a && a->input_enabled && !tb_receiver_input_capture_ready(a);
+}
+
+static void tb_receiver_refresh_control_text(struct app *a) {
+    if (!a) return;
+    tb_copy_i18n(a->control_text, sizeof(a->control_text),
+                 a->control_status_key[0]
+                     ? a->control_status_key
+                     : "receiver.control.ready");
+    tb_copy_i18n(a->selected_path_text, sizeof(a->selected_path_text),
+                 a->selected_path_key[0]
+                     ? a->selected_path_key
+                     : "receiver.control.path_auto");
+}
+
+static void tb_receiver_set_control_status(struct app *a, const char *key) {
+    if (!a || !key) return;
+    snprintf(a->control_status_key, sizeof(a->control_status_key), "%s", key);
+    tb_copy_i18n(a->control_text, sizeof(a->control_text), key);
+}
+
+static void tb_receiver_set_selected_path(struct app *a, const char *key, const char *path_id) {
+    if (!a || !key || !path_id) return;
+    snprintf(a->selected_path_key, sizeof(a->selected_path_key), "%s", key);
+    snprintf(a->selected_path_id, sizeof(a->selected_path_id), "%s", path_id);
+    tb_copy_i18n(a->selected_path_text, sizeof(a->selected_path_text), key);
 }
 
 static void tb_receiver_poll_permissions(struct app *a) {
@@ -392,6 +523,7 @@ static void tb_receiver_apply_language_preference(struct app *a) {
     tb_refresh_idle_localized_strings(a);
     tb_receiver_refresh_language_text(a);
     tb_receiver_refresh_permissions_text(a);
+    tb_receiver_refresh_control_text(a);
 }
 
 static int tb_receiver_input_monitoring_trusted(void) {
@@ -434,6 +566,217 @@ static void tb_refresh_idle_localized_strings(struct app *a) {
     }
 }
 
+static const char *tb_receiver_path_key_for_action(const char *action) {
+    if (!action) return "receiver.control.path_auto";
+    if (strcmp(action, "path thunderbolt") == 0) return "receiver.control.path_thunderbolt";
+    if (strcmp(action, "path usb") == 0) return "receiver.control.path_usb";
+    if (strcmp(action, "path ethernet") == 0) return "receiver.control.path_ethernet";
+    if (strcmp(action, "path wifi") == 0) return "receiver.control.path_wifi";
+    return "receiver.control.path_auto";
+}
+
+static const char *tb_receiver_path_id_for_action(const char *action) {
+    if (!action) return "auto";
+    if (strcmp(action, "path thunderbolt") == 0) return "thunderbolt";
+    if (strcmp(action, "path usb") == 0) return "usb";
+    if (strcmp(action, "path ethernet") == 0) return "ethernet";
+    if (strcmp(action, "path wifi") == 0) return "wifi";
+    return "auto";
+}
+
+static void tb_receiver_start_remote_action(struct app *a, const char *action, uint64_t now) {
+    if (!a || !action) return;
+
+    /* Stop must win immediately over an automatic retry already in flight. */
+    if (tb_sender_control_busy(&a->sender_control)) {
+        tb_sender_control_cancel(&a->sender_control);
+    }
+
+    if (strcmp(action, "stop") == 0) {
+        a->auto_sender_enabled = 0;
+        a->next_sender_control_ms = 0;
+        tb_receiver_set_control_status(a, "receiver.control.stopping");
+    } else {
+        a->auto_sender_enabled = 1;
+        snprintf(a->preferred_sender_action, sizeof(a->preferred_sender_action), "%s", action);
+        tb_receiver_set_selected_path(a,
+                                      tb_receiver_path_key_for_action(action),
+                                      tb_receiver_path_id_for_action(action));
+        tb_receiver_set_control_status(a, "receiver.control.starting");
+    }
+    tb_receiver_persist_monitor_state(a);
+
+    int start_result = tb_sender_control_start(&a->sender_control, action);
+    if (start_result != 0) {
+        tb_receiver_set_control_status(a, "receiver.control.unavailable");
+        if (a->auto_sender_enabled) a->next_sender_control_ms = now + 10000;
+        return;
+    }
+    fprintf(stderr, "[control] action started: %s\n", action);
+}
+
+static void tb_receiver_persist_monitor_state(const struct app *a) {
+    if (!a) return;
+    struct tb_receiver_monitor_state state;
+    state.auto_sender_enabled = a->auto_sender_enabled ? 1 : 0;
+    state.input_enabled = a->input_enabled ? 1 : 0;
+    snprintf(state.preferred_action, sizeof(state.preferred_action), "%s",
+             tb_receiver_monitor_action_is_valid(a->preferred_sender_action)
+                 ? a->preferred_sender_action
+                 : "path auto");
+    if (tb_receiver_monitor_state_save(&state) != 0) {
+        fprintf(stderr, "[control] warning: unable to persist monitor-mode state\n");
+    }
+}
+
+static void tb_receiver_start_input_action(struct app *a,
+                                           int enabled,
+                                           uint64_t now,
+                                           int request_permissions) {
+    if (!a) return;
+    if (tb_sender_control_busy(&a->sender_control)) {
+        tb_sender_control_cancel(&a->sender_control);
+    }
+
+    a->input_enabled = enabled ? 1 : 0;
+    a->input_sync_pending = 1;
+    tb_receiver_persist_monitor_state(a);
+    tb_receiver_refresh_permissions_text(a);
+    /* The default fullscreen SDL path needs no iMac privacy permission. The
+     * helper restarts the Sender, which presents the only mandatory prompt:
+     * Accessibility on the Mac mini. Receiver global-control permissions stay
+     * an optional advanced upgrade instead of blocking first-time setup. */
+    (void)request_permissions;
+    if (a->input_enabled) {
+        tb_receiver_set_control_status(a, "receiver.control.input_enabling");
+    } else {
+        snprintf(a->input_control_mode, sizeof(a->input_control_mode), "%s", "off");
+        tb_receiver_refresh_input_capture(a);
+        tb_receiver_set_control_status(a, "receiver.control.input_disabling");
+    }
+
+    const char *action = a->input_enabled ? "input on" : "input off";
+    if (tb_sender_control_start(&a->sender_control, action) != 0) {
+        tb_receiver_set_control_status(a, "receiver.control.input_unavailable");
+        if (a->auto_sender_enabled) a->next_sender_control_ms = now + 10000;
+        return;
+    }
+    fprintf(stderr, "[control] input action started: %s\n", action);
+    (void)now;
+}
+
+static void tb_receiver_poll_remote_action(struct app *a, uint64_t now) {
+    if (!a || !tb_sender_control_poll(&a->sender_control)) return;
+
+    const int was_stop = strcmp(a->sender_control.action, "stop") == 0;
+    const int was_input = strncmp(a->sender_control.action, "input ", 6) == 0;
+    if (a->sender_control.state == TB_SENDER_CONTROL_SUCCEEDED) {
+        if (was_input) {
+            a->input_sync_pending = 0;
+            tb_receiver_set_control_status(a,
+                a->input_enabled
+                    ? "receiver.control.input_enabled"
+                    : "receiver.control.input_disabled");
+            if (a->auto_sender_enabled && a->client_fd < 0) {
+                a->next_sender_control_ms = now + 500;
+            }
+        } else {
+            tb_receiver_set_control_status(a,
+                was_stop ? "receiver.control.stopped" : "receiver.control.started");
+            a->next_sender_control_ms = was_stop ? 0 : now + 30000;
+        }
+        fprintf(stderr, "[control] action succeeded: %s\n", a->sender_control.action);
+    } else {
+        tb_receiver_set_control_status(a,
+            was_input ? "receiver.control.input_unavailable" : "receiver.control.unavailable");
+        if (a->auto_sender_enabled) a->next_sender_control_ms = now + 10000;
+        fprintf(stderr, "[control] action failed: %s output=%s\n",
+                a->sender_control.action,
+                a->sender_control.output[0] ? a->sender_control.output : "(empty)");
+    }
+}
+
+static int tb_receiver_save_diagnostics(struct app *a,
+                                        char *saved_path,
+                                        size_t saved_path_size) {
+    if (!a || !saved_path || saved_path_size == 0) return -1;
+    saved_path[0] = '\0';
+
+    const char *diagnostics_dir = getenv("TB_DIAGNOSTICS_DIR");
+    char default_diagnostics_dir[PATH_MAX];
+    if (!diagnostics_dir || !*diagnostics_dir) {
+        const char *home = getenv("HOME");
+        if (!home || !*home) return -1;
+        int dir_written = snprintf(default_diagnostics_dir,
+                                   sizeof(default_diagnostics_dir),
+                                   "%s/Desktop", home);
+        if (dir_written <= 0 || (size_t)dir_written >= sizeof(default_diagnostics_dir)) {
+            return -1;
+        }
+        diagnostics_dir = default_diagnostics_dir;
+    }
+
+    time_t wall_time = time(NULL);
+    struct tm local_time;
+    if (!localtime_r(&wall_time, &local_time)) return -1;
+
+    char stamp[32];
+    if (strftime(stamp, sizeof(stamp), "%Y%m%d-%H%M%S", &local_time) == 0) {
+        return -1;
+    }
+
+    int written = snprintf(saved_path, saved_path_size,
+                           "%s/TargetBridge-Diagnostica-%s.txt",
+                           diagnostics_dir, stamp);
+    if (written <= 0 || (size_t)written >= saved_path_size) {
+        saved_path[0] = '\0';
+        return -1;
+    }
+
+    FILE *report = fopen(saved_path, "w");
+    if (!report) {
+        saved_path[0] = '\0';
+        return -1;
+    }
+
+    char readable_time[64] = {0};
+    (void)strftime(readable_time, sizeof(readable_time), "%Y-%m-%d %H:%M:%S %Z", &local_time);
+    fprintf(report, "TargetBridge Receiver — diagnostica locale\n");
+    fprintf(report, "Data: %s\n", readable_time[0] ? readable_time : "non disponibile");
+    fprintf(report, "Versione: %s (%s)\n", TB_RECEIVER_VERSION, TB_RECEIVER_BUILD);
+    fprintf(report, "Receiver: %s\n", a->display_host[0] ? a->display_host : "non rilevato");
+    fprintf(report, "Stato: %s\n", a->status_text);
+    fprintf(report, "Controllo Mac mini: %s\n", a->control_text);
+    fprintf(report, "Percorso selezionato: %s [%s]\n",
+            a->selected_path_text, a->selected_path_id);
+    fprintf(report, "Azione automatica: %s\n", a->preferred_sender_action);
+    fprintf(report, "Avvio automatico: %s\n", a->auto_sender_enabled ? "attivo" : "sospeso");
+    fprintf(report, "\nInterfacce Receiver\n");
+    fprintf(report, "Thunderbolt Bridge: %s\n", a->tb_ip_text[0] ? a->tb_ip_text : "non rilevato");
+    fprintf(report, "USB diretto: %s\n", a->usb_ip_text[0] ? a->usb_ip_text : "non rilevato");
+    fprintf(report, "Ethernet: %s\n", a->ethernet_ip_text[0] ? a->ethernet_ip_text : "non rilevato");
+    fprintf(report, "Wi-Fi: %s\n", a->wifi_ip_text[0] ? a->wifi_ip_text : "non rilevato");
+    fprintf(report, "Rete preferita pubblicata: %s\n", a->net_ip_text[0] ? a->net_ip_text : "non rilevata");
+    fprintf(report, "\nSessione\n");
+    fprintf(report, "Client collegato: %s\n", a->client_fd >= 0 ? "sì" : "no");
+    fprintf(report, "Sessione attiva: %s\n", a->session_active ? "sì" : "no");
+    fprintf(report, "Primo frame ricevuto: %s\n", a->have_video_frame ? "sì" : "no");
+    fprintf(report, "Frame totali: %llu\n", (unsigned long long)a->frames);
+    fprintf(report, "Disconnessioni senza frame: %d\n", a->zero_frame_disconnects);
+    fprintf(report, "Sender: %s\n", a->sender_text);
+    fprintf(report, "Display: %s\n", a->panel_text);
+    fprintf(report, "Profilo: %s\n", a->mode_text);
+    fprintf(report, "Permessi iMac: %s\n", a->permissions_text);
+    fprintf(report, "\nUltimo risultato controllo remoto\n%s\n",
+            a->sender_control.output[0] ? a->sender_control.output : "nessun risultato disponibile");
+
+    if (fclose(report) != 0) {
+        saved_path[0] = '\0';
+        return -1;
+    }
+    return 0;
+}
+
 static void tb_copy_i18n(char *dest, size_t size, const char *key) {
     if (!dest || size == 0) return;
     snprintf(dest, size, "%s", tb_i18n_get(key));
@@ -470,38 +813,22 @@ static void tb_json_escape_string(const char *src, char *dest, size_t size) {
     dest[j] = '\0';
 }
 
-static void tb_receiver_set_clipboard_text(const char *text) {
-    FILE *pipe = popen("pbcopy", "w");
-    if (!pipe) return;
-    if (text && *text) {
-        fwrite(text, 1, strlen(text), pipe);
-    }
-    pclose(pipe);
-}
-
-static int tb_receiver_get_clipboard_text(char *dest, size_t size) {
-    if (!dest || size == 0) return 0;
-    dest[0] = '\0';
-
-    FILE *pipe = popen("pbpaste", "r");
-    if (!pipe) return 0;
-
-    size_t total = 0;
-    while (!feof(pipe) && total + 1 < size) {
-        size_t n = fread(dest + total, 1, size - total - 1, pipe);
-        total += n;
-        if (n == 0) break;
-    }
-    dest[total] = '\0';
-    pclose(pipe);
-    return 1;
+static void tb_receiver_set_clipboard_text(struct app *a, const char *text) {
+    if (!a || !tb_clipboard_write_text(text ? text : "")) return;
+    a->last_clipboard_change_count = tb_clipboard_change_count();
+    snprintf(a->last_clipboard_text, sizeof(a->last_clipboard_text), "%s",
+             text ? text : "");
 }
 
 static void tb_receiver_send_clipboard_if_changed(struct app *a) {
     if (!a || strcmp(a->input_control_mode, "receiverMaster") != 0 || a->client_fd < 0) return;
 
+    int64_t change_count = tb_clipboard_change_count();
+    if (change_count == a->last_clipboard_change_count) return;
+    a->last_clipboard_change_count = change_count;
+
     char text[4096];
-    if (!tb_receiver_get_clipboard_text(text, sizeof(text))) return;
+    if (!tb_clipboard_read_text(text, sizeof(text))) return;
     if (strcmp(text, a->last_clipboard_text) == 0) return;
 
     snprintf(a->last_clipboard_text, sizeof(a->last_clipboard_text), "%s", text);
@@ -597,8 +924,17 @@ static void bonjour_update(struct app *a, uint16_t port) {
     if (a->tb_ip_text[0] != '\0') {
         TXTRecordSetValue(&txt, "tbIP", (uint8_t)strlen(a->tb_ip_text), a->tb_ip_text);
     }
+    if (a->usb_ip_text[0] != '\0') {
+        TXTRecordSetValue(&txt, "usbIP", (uint8_t)strlen(a->usb_ip_text), a->usb_ip_text);
+    }
     if (a->net_ip_text[0] != '\0') {
         TXTRecordSetValue(&txt, "netIP", (uint8_t)strlen(a->net_ip_text), a->net_ip_text);
+    }
+    if (a->ethernet_ip_text[0] != '\0') {
+        TXTRecordSetValue(&txt, "ethernetIP", (uint8_t)strlen(a->ethernet_ip_text), a->ethernet_ip_text);
+    }
+    if (a->wifi_ip_text[0] != '\0') {
+        TXTRecordSetValue(&txt, "wifiIP", (uint8_t)strlen(a->wifi_ip_text), a->wifi_ip_text);
     }
     TXTRecordSetValue(&txt, "panel", (uint8_t)strlen(a->panel_text), a->panel_text);
     TXTRecordSetValue(&txt, "version", (uint8_t)strlen(TB_RECEIVER_VERSION), TB_RECEIVER_VERSION);
@@ -864,7 +1200,7 @@ static void tb_receiver_apply_input_control_mode(struct app *a, const uint8_t *p
     char mode[32];
     mode[0] = '\0';
     extract_json_string_field(payload, len, "\"mode\"", mode, sizeof(mode));
-    if (mode[0] == '\0') {
+    if (mode[0] == '\0' || (!a->input_enabled && strcmp(mode, "receiverMaster") == 0)) {
         snprintf(a->input_control_mode, sizeof(a->input_control_mode), "off");
     } else {
         snprintf(a->input_control_mode, sizeof(a->input_control_mode), "%s", mode);
@@ -887,6 +1223,7 @@ static void on_frame(const uint8_t *y, int y_stride,
                      int w, int h, void *ud) {
     struct app *a = (struct app *)ud;
     a->have_video_frame = 1;
+    a->zero_frame_disconnects = 0;
     tb_copy_i18n(a->status_text, sizeof(a->status_text), "receiver.status.stream_active");
     {
         char width_text[16];
@@ -927,6 +1264,7 @@ static void handle_raw_frame(struct app *a, const uint8_t *p, size_t len) {
     const uint8_t *uv = y + y_size;
 
     a->have_video_frame = 1;
+    a->zero_frame_disconnects = 0;
     tb_copy_i18n(a->status_text, sizeof(a->status_text), "receiver.status.stream_active");
     {
         char width_text[16];
@@ -1017,6 +1355,7 @@ static void tb_set_system_volume(double level) {
 
 static void on_packet(uint8_t type, const uint8_t *payload, size_t len, void *ud) {
     struct app *a = (struct app *)ud;
+    if (!a || !payload) return;
     switch (type) {
     case TB_PKT_UI_LANGUAGE:
         {
@@ -1049,6 +1388,18 @@ static void on_packet(uint8_t type, const uint8_t *payload, size_t len, void *ud
         }
         if (a->sender_text[0] == '\0') {
             tb_copy_i18n(a->sender_text, sizeof(a->sender_text), "receiver.status.sender_connected");
+        }
+        {
+            int sender_accessibility = 0;
+            if (extract_json_bool_field(payload, len, "\"accessibilityTrusted\"",
+                                        &sender_accessibility)) {
+                a->sender_accessibility_known = 1;
+                a->sender_accessibility_trusted = sender_accessibility ? 1 : 0;
+                fprintf(stderr, "[input] Mac mini accessibility=%s\n",
+                        a->sender_accessibility_trusted ? "true" : "false");
+                tb_receiver_refresh_permissions_text(a);
+                tb_receiver_refresh_input_capture(a);
+            }
         }
         {
             char preset[64];
@@ -1129,9 +1480,9 @@ static void on_packet(uint8_t type, const uint8_t *payload, size_t len, void *ud
         break;
     case TB_PKT_CLIPBOARD:
         {
-            char text[4096];
+            char text[4096] = {0};
             extract_json_string_field(payload, len, "\"text\"", text, sizeof(text));
-            tb_receiver_set_clipboard_text(text);
+            tb_receiver_set_clipboard_text(a, text);
         }
         break;
     case TB_PKT_VOLUME:
@@ -1148,23 +1499,29 @@ static void on_packet(uint8_t type, const uint8_t *payload, size_t len, void *ud
             // Limit audio backlog to 150ms (150 * 192 = 28800 bytes) to cushion
             // against network / scheduling jitter while still keeping playout tight.
             const int cap_bytes = 28800;
-            if (a->audio_buf_size + len > cap_bytes) {
-                int excess = (a->audio_buf_size + len) - cap_bytes;
+            size_t audio_len = len;
+            const uint8_t *audio_payload = payload;
+            if (audio_len > (size_t)cap_bytes) {
+                audio_payload += audio_len - (size_t)cap_bytes;
+                audio_len = (size_t)cap_bytes;
+            }
+            if (a->audio_buf_size + (int)audio_len > cap_bytes) {
+                int excess = a->audio_buf_size + (int)audio_len - cap_bytes;
                 a->audio_buf_tail = (a->audio_buf_tail + excess) % AUDIO_BUF_CAP;
                 a->audio_buf_size -= excess;
             }
 
             // Write payload to circular buffer
-            if (a->audio_buf_size + (int)len <= AUDIO_BUF_CAP) {
+            if (a->audio_buf_size + (int)audio_len <= AUDIO_BUF_CAP) {
                 int first = AUDIO_BUF_CAP - a->audio_buf_head;
-                if (first >= (int)len) {
-                    memcpy(a->audio_buf + a->audio_buf_head, payload, len);
+                if (first >= (int)audio_len) {
+                    memcpy(a->audio_buf + a->audio_buf_head, audio_payload, audio_len);
                 } else {
-                    memcpy(a->audio_buf + a->audio_buf_head, payload, first);
-                    memcpy(a->audio_buf, payload + first, len - first);
+                    memcpy(a->audio_buf + a->audio_buf_head, audio_payload, (size_t)first);
+                    memcpy(a->audio_buf, audio_payload + first, audio_len - (size_t)first);
                 }
-                a->audio_buf_head = (a->audio_buf_head + (int)len) % AUDIO_BUF_CAP;
-                a->audio_buf_size += (int)len;
+                a->audio_buf_head = (a->audio_buf_head + (int)audio_len) % AUDIO_BUF_CAP;
+                a->audio_buf_size += (int)audio_len;
             }
 
             SDL_UnlockAudioDevice(a->audio_device);
@@ -1181,11 +1538,25 @@ static void on_packet(uint8_t type, const uint8_t *payload, size_t len, void *ud
     case TB_PKT_TEST_DATA:
         /* Performance test data; discard */
         break;
-    case TB_PKT_TEARDOWN:
-        fprintf(stderr, "[main] teardown requested by sender\n");
+    case TB_PKT_TEARDOWN: {
+        char reason[64] = {0};
+        extract_json_string_field(payload, len, "\"reason\"", reason, sizeof(reason));
+        fprintf(stderr, "[main] teardown requested by sender reason=%s\n",
+                reason[0] ? reason : "unspecified");
+        if (tb_receiver_teardown_requests_suspend(reason)) {
+            /* A user who presses Stop on the Mac mini is explicitly asking to
+             * regain the iMac. Persist that choice before closing the socket,
+             * so neither side's crash-recovery loop can undo it. */
+            a->auto_sender_enabled = 0;
+            a->next_sender_control_ms = 0;
+            tb_receiver_persist_monitor_state(a);
+            tb_receiver_set_control_status(a, "receiver.control.stopped");
+            fprintf(stderr, "[control] user stop received from sender; automatic restart suspended\n");
+        }
         tb_copy_i18n(a->status_text, sizeof(a->status_text), "receiver.status.session_closed_by_sender");
         a->close_requested = 1;
         break;
+    }
     default:
         fprintf(stderr, "[main] unknown pkt type=0x%02x\n", type);
         break;
@@ -1375,6 +1746,81 @@ static void tb_receiver_send_deactivate_control(struct app *a) {
                                  0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 }
 
+static unsigned int tb_receiver_pointer_button_bit(CGEventType type) {
+    switch (type) {
+    case kCGEventLeftMouseDown:
+    case kCGEventLeftMouseUp:
+        return 1u;
+    case kCGEventRightMouseDown:
+    case kCGEventRightMouseUp:
+        return 2u;
+    case kCGEventOtherMouseDown:
+    case kCGEventOtherMouseUp:
+        return 4u;
+    default:
+        return 0u;
+    }
+}
+
+static int tb_receiver_pointer_event_is_down(CGEventType type) {
+    return type == kCGEventLeftMouseDown ||
+           type == kCGEventRightMouseDown ||
+           type == kCGEventOtherMouseDown;
+}
+
+static int tb_receiver_pointer_event_is_up(CGEventType type) {
+    return type == kCGEventLeftMouseUp ||
+           type == kCGEventRightMouseUp ||
+           type == kCGEventOtherMouseUp;
+}
+
+static int tb_receiver_pointer_event(CGEventType type) {
+    return type == kCGEventMouseMoved ||
+           type == kCGEventLeftMouseDragged ||
+           type == kCGEventRightMouseDragged ||
+           type == kCGEventOtherMouseDragged ||
+           tb_receiver_pointer_button_bit(type) != 0 ||
+           type == kCGEventScrollWheel;
+}
+
+static int tb_receiver_update_local_ui_gate(struct app *a,
+                                            CGEventRef event,
+                                            int force_refresh) {
+    if (!a || !event) return 0;
+    uint64_t now = now_ms();
+    if (!force_refresh && now - a->last_local_ui_check_ms < 80) {
+        return a->local_ui_passthrough;
+    }
+    a->last_local_ui_check_ms = now;
+
+    char owner[96] = {0};
+    int passthrough = 0;
+    if (!tb_receiver_app_is_active()) {
+        passthrough = 1;
+        snprintf(owner, sizeof(owner), "%s", "applicazione locale");
+    } else {
+        CGPoint location = CGEventGetLocation(event);
+        passthrough = tb_local_ui_above_receiver_at_point(
+            a->disp, location.x, location.y, owner, sizeof(owner));
+    }
+
+    if (passthrough != a->local_ui_passthrough ||
+        (passthrough && strcmp(owner, a->local_ui_owner) != 0)) {
+        a->local_ui_passthrough = passthrough;
+        snprintf(a->local_ui_owner, sizeof(a->local_ui_owner), "%s", owner);
+        tb_disp_set_local_ui_passthrough(a->disp, passthrough);
+        if (passthrough) {
+            /* Never leave Command/Option/etc. logically held on the Mini when
+             * the pointer moves to a local notification or alert. */
+            tb_receiver_sync_modifier_state(a, 0, 0, 0, 0, 0);
+        }
+        tb_receiver_input_log("[input] local UI passthrough=%s owner=%s",
+                              passthrough ? "true" : "false",
+                              owner[0] ? owner : "none");
+    }
+    return passthrough;
+}
+
 static CGEventRef tb_receiver_input_tap_callback(CGEventTapProxy proxy,
                                                  CGEventType type,
                                                  CGEventRef event,
@@ -1396,6 +1842,37 @@ static CGEventRef tb_receiver_input_tap_callback(CGEventTapProxy proxy,
      * user is doing local work on the receiver. When the window is on a
      * different Space, pass the event through untouched and forward nothing. */
     if (!tb_disp_window_on_active_space(a->disp)) return event;
+
+    if (tb_receiver_pointer_event(type)) {
+        const unsigned int button_bit = tb_receiver_pointer_button_bit(type);
+        const int force_refresh = button_bit != 0 || type == kCGEventScrollWheel;
+        const int local_ui = tb_receiver_update_local_ui_gate(a, event, force_refresh);
+
+        if (tb_receiver_pointer_event_is_down(type)) {
+            if (local_ui) {
+                a->local_pointer_buttons |= button_bit;
+                return event;
+            }
+            a->remote_pointer_buttons |= button_bit;
+        } else if (tb_receiver_pointer_event_is_up(type)) {
+            if (a->local_pointer_buttons & button_bit) {
+                a->local_pointer_buttons &= ~button_bit;
+                return event;
+            }
+            if (a->remote_pointer_buttons & button_bit) {
+                a->remote_pointer_buttons &= ~button_bit;
+                /* Complete the remote click/drag even if an overlay appeared
+                 * after the corresponding mouse-down. */
+            } else if (local_ui) {
+                return event;
+            }
+        } else if (a->local_pointer_buttons != 0 ||
+                   (a->remote_pointer_buttons == 0 && local_ui)) {
+            return event;
+        }
+    } else if (!tb_receiver_app_is_active()) {
+        return event;
+    }
 
     int should_consume = 0;
 
@@ -1533,8 +2010,18 @@ static CGEventRef tb_receiver_input_tap_callback(CGEventTapProxy proxy,
         if ((flags & kCGEventFlagMaskControl) &&
             (flags & kCGEventFlagMaskAlternate) &&
             (flags & kCGEventFlagMaskCommand) &&
+            key_code == 53) {
+            fprintf(stderr, "[input] local stop requested\n");
+            a->local_stop_requested = 1;
+            should_consume = a->input_tap_consumes_events;
+            break;
+        }
+        if ((flags & kCGEventFlagMaskControl) &&
+            (flags & kCGEventFlagMaskAlternate) &&
+            (flags & kCGEventFlagMaskCommand) &&
             key_code == 40) {
             tb_receiver_send_deactivate_control(a);
+            a->local_release_requested = 1;
             should_consume = a->input_tap_consumes_events;
             break;
         }
@@ -1565,6 +2052,13 @@ static CGEventRef tb_receiver_input_tap_callback(CGEventTapProxy proxy,
                                         (effective_flags & kCGEventFlagMaskAlternate) != 0,
                                         (effective_flags & kCGEventFlagMaskControl) != 0,
                                         (effective_flags & kCGEventFlagMaskAlphaShift) != 0);
+        if ((flags & kCGEventFlagMaskControl) &&
+            (flags & kCGEventFlagMaskAlternate) &&
+            (flags & kCGEventFlagMaskCommand) &&
+            key_code == 53) {
+            should_consume = a->input_tap_consumes_events;
+            break;
+        }
         if ((flags & kCGEventFlagMaskControl) &&
             (flags & kCGEventFlagMaskAlternate) &&
             (flags & kCGEventFlagMaskCommand) &&
@@ -1613,16 +2107,22 @@ static void tb_receiver_stop_input_tap(struct app *a) {
         a->input_tap = NULL;
     }
     a->input_tap_consumes_events = 0;
+    a->local_pointer_buttons = 0;
+    a->remote_pointer_buttons = 0;
+    a->local_ui_passthrough = 0;
+    a->local_ui_owner[0] = '\0';
+    tb_disp_set_local_ui_passthrough(a->disp, 0);
 }
 
 static void tb_receiver_start_input_tap(struct app *a) {
     if (!a || a->input_tap) return;
 
-    if (!tb_receiver_input_monitoring_trusted()) {
+    if (a->last_input_monitoring_trusted != 1 ||
+        a->last_accessibility_trusted != 1) {
         return;
     }
 
-    const int can_consume = tb_receiver_accessibility_trusted() ? 1 : 0;
+    const int can_consume = 1;
     CGEventTapOptions tap_options = can_consume ? kCGEventTapOptionDefault : kCGEventTapOptionListenOnly;
 
     CGEventMask mask =
@@ -1669,15 +2169,18 @@ static void tb_receiver_start_input_tap(struct app *a) {
 
 static void tb_receiver_refresh_input_capture(struct app *a) {
     if (!a) return;
-    if (strcmp(a->input_control_mode, "receiverMaster") == 0 && a->client_fd >= 0) {
-        const int wants_global_tap = tb_receiver_input_monitoring_trusted() ? 1 : 0;
-        const int wants_consume = tb_receiver_accessibility_trusted() ? 1 : 0;
-        if (a->input_tap && (!wants_global_tap || a->input_tap_consumes_events != wants_consume)) {
+    if (strcmp(a->input_control_mode, "receiverMaster") == 0 &&
+        a->client_fd >= 0 &&
+        tb_receiver_input_capture_ready(a)) {
+        const int wants_global_tap =
+            a->last_input_monitoring_trusted == 1 &&
+            a->last_accessibility_trusted == 1;
+        if (a->input_tap && !wants_global_tap) {
             tb_receiver_stop_input_tap(a);
         }
-        tb_receiver_start_input_tap(a);
+        if (wants_global_tap) tb_receiver_start_input_tap(a);
         tb_disp_set_input_intercept_active(a->disp, 1);
-        tb_disp_set_input_capture_active(a->disp, a->input_tap == NULL ? 1 : 0);
+        tb_disp_set_input_capture_active(a->disp, wants_global_tap && a->input_tap ? 0 : 1);
         tb_gesture_bridge_set_active(1);
         tb_receiver_input_log("[input] receiverMaster capture path = %s",
                               a->input_tap ? "global-tap" : "sdl-fallback");
@@ -1686,7 +2189,11 @@ static void tb_receiver_refresh_input_capture(struct app *a) {
         tb_disp_set_input_intercept_active(a->disp, 0);
         tb_disp_set_input_capture_active(a->disp, 0);
         tb_gesture_bridge_set_active(0);
-        tb_receiver_input_log("[input] input capture disabled");
+        if (strcmp(a->input_control_mode, "receiverMaster") == 0 && a->input_enabled) {
+            tb_receiver_input_log("[input] capture blocked until Mac mini Accessibility is ready");
+        } else {
+            tb_receiver_input_log("[input] input capture disabled");
+        }
     }
 }
 
@@ -1721,17 +2228,25 @@ static void send_receiver_info(struct app *a) {
     struct tb_display_info info;
     if (tb_disp_get_info(a->disp, &info) < 0) return;
 
-    /* Always advertise the intended iMac target panel, not the transient
-     * SDL window/debug drawable size. Using the drawable here breaks the
-     * sender's virtual display creation path when running windowed or on
-     * scaled desktops because macOS rejects a HiDPI mode larger than the
-     * advertised backing panel. */
-    const uint32_t panel_w = 5120;
-    const uint32_t panel_h = 2880;
-    const uint32_t mode_w = 2560;
-    const uint32_t mode_h = 1440;
-    const uint32_t capture_w = 2560;
-    const uint32_t capture_h = 1440;
+    /* Preserve the upstream 5K profile unless the receiver is clearly running
+     * on a 4096x2304 Retina panel. SDL's drawable size exposes the physical
+     * backing pixels on scaled Retina desktops, so this keeps both 21.5-inch
+     * 4K and 27-inch 5K iMacs working without a machine-specific build. */
+    uint32_t panel_w = 5120;
+    uint32_t panel_h = 2880;
+    uint32_t mode_w = 2560;
+    uint32_t mode_h = 1440;
+    uint32_t capture_w = 2560;
+    uint32_t capture_h = 1440;
+    if (info.active_w >= 3840 && info.active_w < 4800 &&
+        info.active_h >= 2160 && info.active_h < 2700) {
+        panel_w = 4096;
+        panel_h = 2304;
+        mode_w = 2048;
+        mode_h = 1152;
+        capture_w = 4096;
+        capture_h = 2304;
+    }
 
     char escaped_name[256];
     size_t out = 0;
@@ -1763,8 +2278,8 @@ static void send_receiver_info(struct app *a) {
         capture_w,
         capture_h,
         tb_dec_supports_hevc_hwdecode() ? "true" : "false",
-        tb_receiver_input_monitoring_trusted() ? "true" : "false",
-        tb_receiver_accessibility_trusted() ? "true" : "false",
+        a->last_input_monitoring_trusted == 1 ? "true" : "false",
+        a->last_accessibility_trusted == 1 ? "true" : "false",
         tb_night_shift_supported() ? "true" : "false",
         tb_true_tone_supported() ? "true" : "false");
     if (json_len <= 0 || (size_t)json_len >= sizeof(json)) return;
@@ -1786,6 +2301,12 @@ static void send_receiver_info(struct app *a) {
 }
 
 static void close_client(struct app *a) {
+    const int session_failed_without_frame = a->session_active && !a->have_video_frame;
+    if (session_failed_without_frame) {
+        a->zero_frame_disconnects++;
+    } else if (a->have_video_frame) {
+        a->zero_frame_disconnects = 0;
+    }
     if (a->client_fd >= 0) close(a->client_fd);
     a->client_fd = -1;
     a->session_active = 0;
@@ -1797,6 +2318,9 @@ static void close_client(struct app *a) {
     tb_disp_set_connection_state(a->disp, 0);
     tb_disp_set_cursor(a->disp, 0, 0, 1, 1, 0, 0);
     tb_refresh_idle_localized_strings(a);
+    if (a->zero_frame_disconnects >= 2) {
+        tb_receiver_set_control_status(a, "receiver.control.no_frames_permission");
+    }
     a->last_clipboard_text[0] = '\0';
     tb_parser_free(&a->parser);
     tb_parser_init(&a->parser, on_packet, a);
@@ -1809,6 +2333,7 @@ static void close_client(struct app *a) {
         SDL_UnlockAudioDevice(a->audio_device);
     }
     fprintf(stderr, "[main] client disconnected\n");
+    a->last_clipboard_change_count = -1;
 }
 
 /* Build the display string for the host/IP line of the status screen.
@@ -1841,10 +2366,33 @@ static void build_display_host(char *buf, size_t bufsz, const char *ip_fallback,
 /* ---- Main ------------------------------------------------------------ */
 
 int main(int argc, char **argv) {
+    tb_trim_regular_stream(stdout, TB_LAUNCH_LOG_MAX_BYTES);
+    tb_trim_regular_stream(stderr, TB_LAUNCH_LOG_MAX_BYTES);
     int fullscreen = 1;
+    int auto_start_sender = 1;
+    int diagnostics_on_start = 0;
+    int exit_code = 0;
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--windowed") == 0) fullscreen = 0;
+        else if (strcmp(argv[i], "--no-auto-start") == 0) auto_start_sender = 0;
+        else if (strcmp(argv[i], "--diagnostics-on-start") == 0) diagnostics_on_start = 1;
     }
+
+    int instance_lock_fd = tb_receiver_single_instance_lock();
+    if (instance_lock_fd == -2) {
+        fprintf(stderr, "TBReceiver: another Receiver instance is already running\n");
+        return 0;
+    }
+    if (instance_lock_fd < 0) {
+        fprintf(stderr, "TBReceiver: warning, unable to create the single-instance lock\n");
+    }
+
+    struct tb_receiver_monitor_state startup_monitor_state;
+    if (tb_receiver_monitor_state_load(&startup_monitor_state) != 0) {
+        tb_receiver_monitor_state_default(&startup_monitor_state);
+        fprintf(stderr, "TBReceiver: warning, unable to load monitor-mode state; using defaults\n");
+    }
+    if (!auto_start_sender) startup_monitor_state.auto_sender_enabled = 0;
 
     char startup_language_pref[8];
     tb_receiver_load_language_preference(startup_language_pref, sizeof(startup_language_pref));
@@ -1858,16 +2406,30 @@ int main(int argc, char **argv) {
     signal(SIGPIPE, SIG_IGN);
 
     char tb_ip[64] = {0};
+    char usb_ip[64] = {0};
     char net_ip[64] = {0};
+    char ethernet_ip[64] = {0};
+    char wifi_ip[64] = {0};
     if (tb_net_get_tb_ip(tb_ip, sizeof(tb_ip)) == 0) {
         printf("TBReceiver: Thunderbolt Bridge IP = %s\n", tb_ip);
     } else {
         printf("TBReceiver: warning, no bridge IP detected (169.254.x.x)\n");
     }
+    if (tb_net_get_link_local_ip(usb_ip, sizeof(usb_ip)) == 0) {
+        printf("TBReceiver: Direct USB-NCM IP = %s\n", usb_ip);
+    } else {
+        printf("TBReceiver: warning, no direct USB-NCM/link-local IP detected\n");
+    }
     if (tb_net_get_lan_ip(net_ip, sizeof(net_ip)) == 0) {
         printf("TBReceiver: Local network IP = %s\n", net_ip);
     } else {
         printf("TBReceiver: warning, no LAN IP detected (RFC1918 IPv4)\n");
+    }
+    if (tb_net_get_ethernet_ip(ethernet_ip, sizeof(ethernet_ip)) == 0) {
+        printf("TBReceiver: Ethernet IP = %s\n", ethernet_ip);
+    }
+    if (tb_net_get_wifi_ip(wifi_ip, sizeof(wifi_ip)) == 0) {
+        printf("TBReceiver: Wi-Fi IP = %s\n", wifi_ip);
     }
     printf("TBReceiver: listening on TCP port %d\n", TB_PORT);
 
@@ -1875,6 +2437,20 @@ int main(int argc, char **argv) {
     memset(&a, 0, sizeof(a));
     a.server_fd = -1;
     a.client_fd = -1;
+    a.last_clipboard_change_count = -1;
+    tb_sender_control_init(&a.sender_control);
+    a.auto_sender_enabled = startup_monitor_state.auto_sender_enabled;
+    a.input_enabled = startup_monitor_state.input_enabled;
+    a.input_sync_pending = 1;
+    a.next_sender_control_ms = a.auto_sender_enabled ? now_ms() + 1500 : 0;
+    snprintf(a.preferred_sender_action, sizeof(a.preferred_sender_action), "%s",
+             startup_monitor_state.preferred_action);
+    snprintf(a.control_status_key, sizeof(a.control_status_key), "%s",
+             a.auto_sender_enabled ? "receiver.control.ready" : "receiver.control.stopped");
+    snprintf(a.selected_path_key, sizeof(a.selected_path_key), "%s",
+             tb_receiver_path_key_for_action(a.preferred_sender_action));
+    snprintf(a.selected_path_id, sizeof(a.selected_path_id), "%s",
+             tb_receiver_path_id_for_action(a.preferred_sender_action));
     {
         char host[96] = {0};
         if (gethostname(host, sizeof(host)) != 0 || host[0] == '\0') {
@@ -1883,14 +2459,23 @@ int main(int argc, char **argv) {
         snprintf(a.bonjour_name, sizeof(a.bonjour_name), "TargetBridge %s", host);
     }
     snprintf(a.tb_ip_text, sizeof(a.tb_ip_text), "%s", tb_ip);
+    snprintf(a.usb_ip_text, sizeof(a.usb_ip_text), "%s", usb_ip);
     snprintf(a.net_ip_text, sizeof(a.net_ip_text), "%s", net_ip);
-    snprintf(a.ip_text, sizeof(a.ip_text), "%s", tb_ip[0] ? tb_ip : (net_ip[0] ? net_ip : tb_i18n_get("receiver.network.not_detected")));
+    snprintf(a.ethernet_ip_text, sizeof(a.ethernet_ip_text), "%s", ethernet_ip);
+    snprintf(a.wifi_ip_text, sizeof(a.wifi_ip_text), "%s", wifi_ip);
+    snprintf(a.ip_text, sizeof(a.ip_text), "%s",
+             tb_ip[0] ? tb_ip
+                      : (usb_ip[0] ? usb_ip
+                                   : (net_ip[0] ? net_ip : tb_i18n_get("receiver.network.not_detected"))));
     snprintf(a.language_pref, sizeof(a.language_pref), "%s", startup_language_pref);
     snprintf(a.input_control_mode, sizeof(a.input_control_mode), "%s", "off");
     a.last_input_monitoring_trusted = -1;
     a.last_accessibility_trusted = -1;
+    a.sender_accessibility_trusted = 0;
+    a.sender_accessibility_known = 0;
     tb_refresh_idle_localized_strings(&a);
-    build_display_host(a.display_host, sizeof(a.display_host), a.ip_text, tb_ip[0] || net_ip[0]);
+    build_display_host(a.display_host, sizeof(a.display_host), a.ip_text,
+                       tb_ip[0] || usb_ip[0] || net_ip[0]);
     tb_receiver_apply_language_preference(&a);
     tb_gesture_bridge_install(tb_receiver_space_switch_callback, &a);
     tb_gesture_bridge_set_active(0);
@@ -1936,40 +2521,143 @@ int main(int argc, char **argv) {
     a.last_fps_tick_ms = now_ms();
     a.last_ip_check_ms = 0;
 
+    if (diagnostics_on_start) {
+        char diagnostics_path[PATH_MAX];
+        if (tb_receiver_save_diagnostics(&a, diagnostics_path, sizeof(diagnostics_path)) != 0) {
+            fprintf(stderr, "[diagnostics] startup diagnostic failed\n");
+            exit_code = 1;
+            g_term = 1;
+        } else {
+            fprintf(stderr, "[diagnostics] startup diagnostic saved: %s\n", diagnostics_path);
+            g_term = 1;
+        }
+    }
+
     while (!g_term) {
         unsigned int disp_actions = tb_disp_poll_actions(a.disp);
         int socket_activity = 0;
         CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.0, true);
-        if (disp_actions & TB_DISP_ACTION_QUIT) break;
+        if (disp_actions & TB_DISP_ACTION_QUIT) {
+            /* Receiver is an appliance-style login service. A clean close must
+             * not leave a headless iMac unreachable; persist the safe stopped
+             * state before launchd recreates the local dashboard. */
+            a.auto_sender_enabled = 0;
+            a.next_sender_control_ms = 0;
+            tb_receiver_persist_monitor_state(&a);
+            if (a.client_fd >= 0) close_client(&a);
+            fprintf(stderr, "[main] local quit requested; monitor mode suspended\n");
+            break;
+        }
         if ((disp_actions & TB_DISP_ACTION_CYCLE_LANGUAGE) && a.client_fd < 0) {
             tb_receiver_cycle_language_preference(&a);
         }
 
         uint64_t t = now_ms();
 
+        if (a.local_release_requested) {
+            a.local_release_requested = 0;
+            snprintf(a.input_control_mode, sizeof(a.input_control_mode), "%s", "off");
+            tb_receiver_refresh_input_capture(&a);
+            tb_receiver_input_log("[input] local control released");
+        }
+
+        if (a.local_stop_requested) {
+            a.local_stop_requested = 0;
+            if (a.client_fd >= 0) close_client(&a);
+            tb_receiver_start_remote_action(&a, "stop", t);
+        } else if (disp_actions & TB_DISP_ACTION_STOP_SENDER) {
+            if (a.client_fd >= 0) close_client(&a);
+            tb_receiver_start_remote_action(&a, "stop", t);
+        } else if (disp_actions & TB_DISP_ACTION_START_AUTO) {
+            tb_receiver_start_remote_action(&a, "path auto", t);
+        } else if (disp_actions & TB_DISP_ACTION_PATH_THUNDERBOLT) {
+            tb_receiver_start_remote_action(&a, "path thunderbolt", t);
+        } else if (disp_actions & TB_DISP_ACTION_PATH_USB) {
+            tb_receiver_start_remote_action(&a, "path usb", t);
+        } else if (disp_actions & TB_DISP_ACTION_PATH_ETHERNET) {
+            tb_receiver_start_remote_action(&a, "path ethernet", t);
+        } else if (disp_actions & TB_DISP_ACTION_PATH_WIFI) {
+            tb_receiver_start_remote_action(&a, "path wifi", t);
+        } else if (disp_actions & TB_DISP_ACTION_TOGGLE_INPUT) {
+            tb_receiver_start_input_action(&a, !a.input_enabled, t, 1);
+        } else if (disp_actions & TB_DISP_ACTION_SETUP_INPUT) {
+            tb_receiver_start_input_action(&a, 1, t, 1);
+        } else if (disp_actions & TB_DISP_ACTION_SAVE_DIAGNOSTICS) {
+            char diagnostics_path[PATH_MAX];
+            if (tb_receiver_save_diagnostics(&a, diagnostics_path,
+                                             sizeof(diagnostics_path)) == 0) {
+                tb_receiver_set_control_status(&a, "receiver.control.diagnostics_saved");
+                fprintf(stderr, "[diagnostics] saved: %s\n", diagnostics_path);
+            } else {
+                tb_receiver_set_control_status(&a, "receiver.control.diagnostics_failed");
+                fprintf(stderr, "[diagnostics] unable to save report\n");
+            }
+        }
+
+        tb_receiver_poll_remote_action(&a, t);
+        if (a.auto_sender_enabled &&
+            a.client_fd < 0 &&
+            !tb_sender_control_busy(&a.sender_control) &&
+            a.next_sender_control_ms > 0 &&
+            t >= a.next_sender_control_ms) {
+            if (a.input_sync_pending) {
+                tb_receiver_start_input_action(&a, a.input_enabled, t, 0);
+            } else {
+                tb_receiver_start_remote_action(&a, a.preferred_sender_action, t);
+            }
+            /* A failed immediate launch sets its own earlier retry; otherwise
+             * this guards against re-entering before the child completes. */
+            if (tb_sender_control_busy(&a.sender_control)) {
+                a.next_sender_control_ms = t + 30000;
+            }
+        }
+
         if (t - a.last_ip_check_ms >= 1000) {
             char refreshed_tb_ip[64] = {0};
+            char refreshed_usb_ip[64] = {0};
             char refreshed_net_ip[64] = {0};
+            char refreshed_ethernet_ip[64] = {0};
+            char refreshed_wifi_ip[64] = {0};
             a.last_ip_check_ms = t;
             (void)tb_net_get_tb_ip(refreshed_tb_ip, sizeof(refreshed_tb_ip));
+            (void)tb_net_get_link_local_ip(refreshed_usb_ip, sizeof(refreshed_usb_ip));
             (void)tb_net_get_lan_ip(refreshed_net_ip, sizeof(refreshed_net_ip));
+            (void)tb_net_get_ethernet_ip(refreshed_ethernet_ip, sizeof(refreshed_ethernet_ip));
+            (void)tb_net_get_wifi_ip(refreshed_wifi_ip, sizeof(refreshed_wifi_ip));
 
-            const int have_refreshed_ip = refreshed_tb_ip[0] || refreshed_net_ip[0];
+            const int have_refreshed_ip =
+                refreshed_tb_ip[0] || refreshed_usb_ip[0] || refreshed_net_ip[0];
             const char *preferred_ip = refreshed_tb_ip[0] ? refreshed_tb_ip
+                                     : (refreshed_usb_ip[0] ? refreshed_usb_ip
                                      : (refreshed_net_ip[0] ? refreshed_net_ip
-                                     : tb_i18n_get("receiver.network.not_detected"));
+                                     : tb_i18n_get("receiver.network.not_detected")));
             if (strcmp(a.tb_ip_text, refreshed_tb_ip) != 0 ||
+                strcmp(a.usb_ip_text, refreshed_usb_ip) != 0 ||
                 strcmp(a.net_ip_text, refreshed_net_ip) != 0 ||
+                strcmp(a.ethernet_ip_text, refreshed_ethernet_ip) != 0 ||
+                strcmp(a.wifi_ip_text, refreshed_wifi_ip) != 0 ||
                 strcmp(a.ip_text, preferred_ip) != 0) {
                 snprintf(a.tb_ip_text, sizeof(a.tb_ip_text), "%s", refreshed_tb_ip);
+                snprintf(a.usb_ip_text, sizeof(a.usb_ip_text), "%s", refreshed_usb_ip);
                 snprintf(a.net_ip_text, sizeof(a.net_ip_text), "%s", refreshed_net_ip);
+                snprintf(a.ethernet_ip_text, sizeof(a.ethernet_ip_text), "%s", refreshed_ethernet_ip);
+                snprintf(a.wifi_ip_text, sizeof(a.wifi_ip_text), "%s", refreshed_wifi_ip);
                 snprintf(a.ip_text, sizeof(a.ip_text), "%s", preferred_ip);
                 build_display_host(a.display_host, sizeof(a.display_host), preferred_ip, have_refreshed_ip);
                 if (refreshed_tb_ip[0] != '\0') {
                     fprintf(stderr, "[main] Thunderbolt Bridge IP = %s\n", refreshed_tb_ip);
                 }
+                if (refreshed_usb_ip[0] != '\0') {
+                    fprintf(stderr, "[main] Direct USB-NCM IP = %s\n", refreshed_usb_ip);
+                }
                 if (refreshed_net_ip[0] != '\0') {
                     fprintf(stderr, "[main] Local network IP = %s\n", refreshed_net_ip);
+                }
+                if (refreshed_ethernet_ip[0] != '\0') {
+                    fprintf(stderr, "[main] Ethernet IP = %s\n", refreshed_ethernet_ip);
+                }
+                if (refreshed_wifi_ip[0] != '\0') {
+                    fprintf(stderr, "[main] Wi-Fi IP = %s\n", refreshed_wifi_ip);
                 }
                 bonjour_update(&a, TB_PORT);
             }
@@ -1979,11 +2667,17 @@ int main(int argc, char **argv) {
         if (a.client_fd < 0) {
             int c = tb_net_accept(a.server_fd);
             if (c >= 0) {
+                if (!a.auto_sender_enabled) {
+                    fprintf(stderr, "[main] rejecting client while monitor mode is suspended\n");
+                    close(c);
+                    continue;
+                }
                 a.client_fd = c;
                 a.have_video_frame = 0;
                 a.session_active = 0;
                 a.reported_night_shift = -1;   /* force one report per session */
                 a.reported_true_tone = -1;
+                a.last_clipboard_change_count = -1;
                 a.last_recv_ms = t;
                 SDL_DisableScreenSaver();
                 fprintf(stderr, "[main] client connected\n");
@@ -2015,7 +2709,11 @@ int main(int argc, char **argv) {
             }
         }
 
-        if (t - a.last_permissions_poll_ms >= 250) {
+        /* Receiver-side permissions are only an optional upgrade to the
+         * fullscreen SDL path. Poll slowly to avoid waking TCC continuously
+         * during a video session; the mandatory Sender permission arrives in
+         * the heartbeat immediately when it changes. */
+        if (t - a.last_permissions_poll_ms >= 5000) {
             a.last_permissions_poll_ms = t;
             tb_receiver_poll_permissions(&a);
         }
@@ -2030,13 +2728,18 @@ int main(int argc, char **argv) {
             /* No client, or a connection that hasn't started a real streaming
              * session (e.g. a transient UI-language push during discovery):
              * stay on the windowed waiting screen, don't flash fullscreen. */
-            tb_disp_render_status(a.disp, a.display_host, a.status_text, a.sender_text, a.panel_text, a.mode_text, a.language_text, a.permissions_text);
+            tb_disp_render_status(a.disp, a.display_host, a.status_text, a.sender_text,
+                                  a.panel_text, a.mode_text, a.language_text,
+                                  a.permissions_text, a.control_text,
+                                  a.selected_path_text, a.selected_path_id,
+                                  a.input_enabled,
+                                  tb_receiver_input_setup_needed(&a));
         } else if (!a.have_video_frame) {
             tb_disp_render_connecting(a.disp);
         }
 
         if (strcmp(a.input_control_mode, "receiverMaster") == 0 && a.client_fd >= 0) {
-            if (t - a.last_clipboard_poll_ms >= 100) {
+            if (t - a.last_clipboard_poll_ms >= 250) {
                 a.last_clipboard_poll_ms = t;
                 tb_receiver_send_clipboard_if_changed(&a);
             }
@@ -2096,6 +2799,8 @@ int main(int argc, char **argv) {
                     break;
                 case TB_INPUT_EVENT_DEACTIVATE_CONTROL:
                     tb_receiver_send_deactivate_control(&a);
+                    snprintf(a.input_control_mode, sizeof(a.input_control_mode), "%s", "off");
+                    tb_receiver_refresh_input_capture(&a);
                     break;
                 case TB_INPUT_EVENT_NONE:
                 default:
@@ -2120,6 +2825,7 @@ int main(int argc, char **argv) {
     }
 
     if (a.client_fd >= 0) close(a.client_fd);
+    tb_sender_control_destroy(&a.sender_control);
     tb_receiver_stop_input_tap(&a);
     if (a.server_fd >= 0) close(a.server_fd);
     bonjour_deinit(&a);
@@ -2129,6 +2835,7 @@ int main(int argc, char **argv) {
         SDL_CloseAudioDevice(a.audio_device);
     }
     tb_disp_destroy(a.disp);
+    if (instance_lock_fd >= 0) close(instance_lock_fd);
     fprintf(stderr, "[main] bye\n");
-    return 0;
+    return exit_code;
 }

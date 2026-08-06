@@ -34,8 +34,22 @@ int  tb_net_accept   (int server_fd);
  * buf size must be at least INET_ADDRSTRLEN (16) bytes. Returns 0 on success. */
 int  tb_net_get_tb_ip(char *buf, size_t bufsz);
 
+/* Returns IP address of the first non-Thunderbolt enX/ethX interface using
+ * IPv4 link-local addressing (169.254/16). macOS exposes direct USB-NCM
+ * Mac-to-Mac links this way. Returns 0 on success. */
+int  tb_net_get_link_local_ip(char *buf, size_t bufsz);
+
 /* Returns IP address of a likely local LAN interface (for example en0/eth0, RFC1918 IPv4).
  * buf size must be at least INET_ADDRSTRLEN (16) bytes. Returns 0 on success. */
 int  tb_net_get_lan_ip(char *buf, size_t bufsz);
+
+/* Returns RFC1918 IPv4 addresses for the physical Ethernet and Wi-Fi
+ * interfaces independently. Interface roles are resolved from macOS
+ * SystemConfiguration instead of assuming en0/en1 numbering. */
+int  tb_net_get_ethernet_ip(char *buf, size_t bufsz);
+int  tb_net_get_wifi_ip(char *buf, size_t bufsz);
+
+/* Address classifier exposed for hardware-free unit tests. */
+int  tb_net_is_link_local_ipv4(const char *host);
 
 #endif

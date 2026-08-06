@@ -567,6 +567,8 @@ extension TBDisplayCapturePreset {
             return TBDisplaySenderL10n.text("sender.profile.smooth_plus", language)
         case .crisp2160p60:
             return TBDisplaySenderL10n.text("sender.profile.crisp", language)
+        case .retina4k60:
+            return TBDisplaySenderL10n.text("sender.profile.retina_4k", language)
         case .native5k:
             return TBDisplaySenderL10n.text("sender.profile.native_5k", language)
         case .native5k60Experimental:

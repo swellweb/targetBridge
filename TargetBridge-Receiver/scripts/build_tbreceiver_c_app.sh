@@ -4,50 +4,85 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 REPO_ROOT="$(cd "$ROOT/.." && pwd)"
-BUILD_DIR="${REPO_ROOT}/build"
+BUILD_DIR="${TB_BUILD_DIR:-${REPO_ROOT}/build}"
 APP_DIR="${BUILD_DIR}/TargetBridge Receiver.app"
 BIN_NAME="TargetBridgeReceiver"
 APP_NAME="TargetBridge Receiver"
 APP_VERSION="3.4.2"
 STAMP="$(date +%Y%m%d%H%M%S)"
 ARCH="$(uname -m)"
+PREBUILT_BIN="${TB_PREBUILT_RECEIVER_BIN:-}"
+PREBUILT_FRAMEWORKS="${TB_PREBUILT_FRAMEWORKS_DIR:-}"
 ICONSET_DIR="$(mktemp -d)"
 ICON_FILE="${ROOT}/TargetBridgeAssets/Assets.xcassets/AppIcon.appiconset/icon_1024.png"
 ICNS_PATH="${APP_DIR}/Contents/Resources/TargetBridgeReceiver.icns"
 
-cd "$ROOT/TBReceiverC"
-make clean
-make APP_VERSION="${APP_VERSION}" APP_BUILD="$STAMP"
+if [[ -n "${PREBUILT_BIN}" ]]; then
+  if [[ ! -f "${PREBUILT_BIN}" ]]; then
+    echo "Prebuilt Receiver binary not found: ${PREBUILT_BIN}" >&2
+    exit 1
+  fi
+  RECEIVER_BIN="${PREBUILT_BIN}"
+else
+  cd "$ROOT/TBReceiverC"
+  make clean
+  make APP_VERSION="${APP_VERSION}" APP_BUILD="$STAMP"
+  RECEIVER_BIN="$ROOT/TBReceiverC/tbreceiver"
+fi
+ARCH="$(lipo -archs "$RECEIVER_BIN")"
 
 mkdir -p "$BUILD_DIR"
 rm -rf "$APP_DIR"
 mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources" "$APP_DIR/Contents/Resources/Languages"
 
-cp "$ROOT/TBReceiverC/tbreceiver" "$APP_DIR/Contents/MacOS/$BIN_NAME"
+cp "$RECEIVER_BIN" "$APP_DIR/Contents/MacOS/$BIN_NAME"
 chmod +x "$APP_DIR/Contents/MacOS/$BIN_NAME"
 cp "$REPO_ROOT/TargetBridge-Shared/Languages/"*.json "$APP_DIR/Contents/Resources/Languages/"
+
+# The Mac mini controller is bundled inside Receiver, while its per-install
+# private key and host pin remain in the user's Application Support directory.
+RECOVERY_SOURCE_DIR="${ROOT}/Resources/Recovery"
+for recovery_file in activate-sender.sh; do
+  if [[ ! -f "${RECOVERY_SOURCE_DIR}/${recovery_file}" ]]; then
+    echo "Missing integrated control resource: ${recovery_file}" >&2
+    exit 1
+  fi
+done
+mkdir -p "$APP_DIR/Contents/Resources/Recovery"
+cp "$RECOVERY_SOURCE_DIR/activate-sender.sh" "$APP_DIR/Contents/Resources/Recovery/activate-sender.sh"
+chmod 700 "$APP_DIR/Contents/Resources/Recovery/activate-sender.sh"
 
 # Bundle dylib dependencies (ffmpeg and SDL) inside the .app.
 # Homebrew's SDL2 is currently sdl2-compat, which loads SDL3 at runtime via
 # dlopen. dylibbundler cannot discover that dynamic dependency, so copy it
 # explicitly to keep the released receiver self-contained.
 mkdir -p "$APP_DIR/Contents/Frameworks"
-if ! command -v dylibbundler &>/dev/null; then
-  echo "Installing dylibbundler..."
-  brew install dylibbundler
-fi
-dylibbundler -od -b \
-  -x "$APP_DIR/Contents/MacOS/$BIN_NAME" \
-  -d "$APP_DIR/Contents/Frameworks/" \
-  -p @executable_path/../Frameworks/ \
-  >/dev/null 2>&1
+if [[ -n "${PREBUILT_FRAMEWORKS}" ]]; then
+  if [[ ! -d "${PREBUILT_FRAMEWORKS}" ]]; then
+    echo "Prebuilt Frameworks directory not found: ${PREBUILT_FRAMEWORKS}" >&2
+    exit 1
+  fi
+  cp -R "${PREBUILT_FRAMEWORKS}/." "$APP_DIR/Contents/Frameworks/"
+elif [[ "${TB_SKIP_BUNDLE_DYLIBS:-0}" == "1" ]]; then
+  echo "Skipping dylib bundling for local UI validation only."
+else
+  if ! command -v dylibbundler &>/dev/null; then
+    echo "dylibbundler is required for a distributable Receiver build." >&2
+    exit 1
+  fi
+  dylibbundler -od -b \
+    -x "$APP_DIR/Contents/MacOS/$BIN_NAME" \
+    -d "$APP_DIR/Contents/Frameworks/" \
+    -p @executable_path/../Frameworks/ \
+    >/dev/null 2>&1
 
-SDL3_DYLIB="$(brew --prefix sdl3)/lib/libSDL3.dylib"
-if [[ ! -f "$SDL3_DYLIB" ]]; then
-  echo "SDL3 runtime library not found: $SDL3_DYLIB" >&2
-  exit 1
+  SDL3_DYLIB="$(brew --prefix sdl3)/lib/libSDL3.dylib"
+  if [[ ! -f "$SDL3_DYLIB" ]]; then
+    echo "SDL3 runtime library not found: $SDL3_DYLIB" >&2
+    exit 1
+  fi
+  cp -L "$SDL3_DYLIB" "$APP_DIR/Contents/Frameworks/libSDL3.dylib"
 fi
-cp -L "$SDL3_DYLIB" "$APP_DIR/Contents/Frameworks/libSDL3.dylib"
 
 if [[ -f "$ICON_FILE" ]]; then
   mkdir -p "${ICONSET_DIR}/TargetBridgeReceiver.iconset"
@@ -90,7 +125,7 @@ cat > "$APP_DIR/Contents/Info.plist" <<EOF
     <key>CFBundleVersion</key>
     <string>$STAMP</string>
     <key>LSMinimumSystemVersion</key>
-    <string>11.0</string>
+    <string>13.0</string>
     <key>NSHighResolutionCapable</key>
     <true/>
 </dict>
@@ -102,7 +137,10 @@ printf 'APPL????' > "$APP_DIR/Contents/PkgInfo"
 find "$APP_DIR/Contents/Frameworks" -name "*.dylib" | while read dylib; do
   codesign --force --sign - "$dylib" >/dev/null 2>&1 || true
 done
-codesign --force --deep --sign - "$APP_DIR" >/dev/null 2>&1 || true
+codesign --force --deep --sign - \
+  --identifier com.targetbridge.receiver \
+  --requirements '=designated => identifier "com.targetbridge.receiver"' \
+  "$APP_DIR" >/dev/null 2>&1 || true
 xattr -cr "$APP_DIR" >/dev/null 2>&1 || true
 rm -rf "$ICONSET_DIR"
 

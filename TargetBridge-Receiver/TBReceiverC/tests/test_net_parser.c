@@ -11,6 +11,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
 
 static int g_failures = 0;
 static int g_checks = 0;
@@ -72,6 +75,16 @@ static size_t build_packet(uint8_t *buf, uint8_t type, const void *payload, size
 }
 
 /* ---- tests ------------------------------------------------------------- */
+
+static void test_link_local_ipv4_classifier(void) {
+    CHECK(tb_net_is_link_local_ipv4("169.254.189.3"), "USB-NCM link-local address");
+    CHECK(tb_net_is_link_local_ipv4("169.254.0.1"), "link-local lower boundary");
+    CHECK(tb_net_is_link_local_ipv4("169.254.255.254"), "link-local upper boundary");
+    CHECK(!tb_net_is_link_local_ipv4("169.255.1.1"), "outside link-local prefix");
+    CHECK(!tb_net_is_link_local_ipv4("10.77.77.2"), "private LAN is not link-local");
+    CHECK(!tb_net_is_link_local_ipv4("not-an-ip"), "invalid address rejected");
+    CHECK(!tb_net_is_link_local_ipv4(NULL), "NULL address rejected");
+}
 
 static void test_single_packet_whole_feed(void) {
     struct tb_parser p;
@@ -212,7 +225,41 @@ static void test_large_payload_roundtrip(void) {
     tb_parser_free(&p);
 }
 
+static void test_invalid_feed_arguments_are_rejected(void) {
+    struct tb_parser p;
+    tb_parser_init(&p, capture_cb, NULL);
+    uint8_t byte = 0;
+    CHECK(tb_parser_feed(&p, NULL, 0) == 0, "empty NULL feed is a no-op");
+    CHECK(tb_parser_feed(&p, NULL, 1) == -1, "NULL payload with bytes is rejected");
+    CHECK(tb_parser_feed(&p, &byte, SIZE_MAX) == -1, "size overflow is rejected");
+    CHECK(tb_parser_feed(NULL, &byte, 1) == -1, "NULL parser is rejected");
+    tb_parser_free(&p);
+}
+
+static void test_listening_port_has_single_owner(void) {
+    int first = tb_net_listen(0);
+    if (first < 0) {
+        fprintf(stderr, "SKIP listening-port ownership test (socket bind unavailable)\n");
+        return;
+    }
+    CHECK(first >= 0, "first listener opens");
+
+    struct sockaddr_in address;
+    socklen_t address_length = sizeof(address);
+    memset(&address, 0, sizeof(address));
+    CHECK(getsockname(first, (struct sockaddr *)&address, &address_length) == 0,
+          "ephemeral listener port detected");
+    uint16_t port = ntohs(address.sin_port);
+    CHECK(port != 0, "ephemeral listener has a real port");
+
+    int second = tb_net_listen(port);
+    CHECK(second < 0, "second listener cannot share the Receiver port");
+    if (second >= 0) close(second);
+    close(first);
+}
+
 int main(void) {
+    test_link_local_ipv4_classifier();
     test_single_packet_whole_feed();
     test_byte_by_byte_feed();
     test_two_contiguous_packets();
@@ -220,6 +267,8 @@ int main(void) {
     test_zero_length_is_fatal();
     test_oversized_length_is_fatal();
     test_large_payload_roundtrip();
+    test_invalid_feed_arguments_are_rejected();
+    test_listening_port_has_single_owner();
 
     if (g_failures == 0) {
         printf("net parser tests: %d checks passed\n", g_checks);

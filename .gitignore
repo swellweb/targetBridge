@@ -19,4 +19,10 @@ tbreceiver
 
 # C test outputs
 test_net_parser
+test_sender_control
+test_receiver_state
 *.dSYM/
+
+# Per-install Receiver → Mac mini credentials (never commit or package them)
+TargetBridge-Receiver/Resources/Recovery/id_ed25519_targetbridge_recovery
+TargetBridge-Receiver/Resources/Recovery/known_hosts

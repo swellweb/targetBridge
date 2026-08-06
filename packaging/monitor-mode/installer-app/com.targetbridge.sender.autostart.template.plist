@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.targetbridge.sender.autostart</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Applications/TargetBridge.app/Contents/MacOS/TargetBridge</string>
+        <string>--connect</string>
+        <string>--receiver</string>
+        <string>auto</string>
+        <string>--path</string>
+        <string>auto</string>
+        <string>--mode</string>
+        <string>mirror</string>
+        <string>--preset</string>
+        <string>retina4k60</string>
+        <string>--input</string>
+        <string>off</string>
+        <string>--retry</string>
+    </array>
+    <key>KeepAlive</key>
+    <dict>
+        <key>PathState</key>
+        <dict>
+            <key>__TARGETBRIDGE_HOME__/Library/Application Support/TargetBridge/Sender/enabled</key>
+            <true/>
+        </dict>
+    </dict>
+    <key>LimitLoadToSessionType</key>
+    <array>
+        <string>Aqua</string>
+    </array>
+    <key>ProcessType</key>
+    <string>Interactive</string>
+    <key>ThrottleInterval</key>
+    <integer>5</integer>
+    <key>StandardOutPath</key>
+    <string>__TARGETBRIDGE_HOME__/Library/Logs/TargetBridgeSender.launchd.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>__TARGETBRIDGE_HOME__/Library/Logs/TargetBridgeSender.launchd.err.log</string>
+</dict>
+</plist>

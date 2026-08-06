@@ -102,6 +102,14 @@ final class TBDisplaySenderService: ObservableObject {
             objectWillChange.send()
         }
     }
+    @Published var localOutputVolume: Double = TBSystemOutputVolume.readState()?.level ?? 0.5 {
+        didSet {
+            guard !isSynchronizingLocalOutputVolume else { return }
+            localOutputVolumeAvailable = TBSystemOutputVolume.setLevel(localOutputVolume)
+        }
+    }
+    @Published private(set) var localOutputVolumeAvailable = false
+    private var userQuitPending = false
     private var sessionCancellables: [UUID: AnyCancellable] = [:]
     private let receiverDiscovery = TBReceiverDiscovery()
     private let addonStore = TBAddonStore.shared
@@ -110,6 +118,8 @@ final class TBDisplaySenderService: ObservableObject {
     private var addonCancellable: AnyCancellable?
     private var activationObserver: NSObjectProtocol?
     private var clipboardTimer: Timer?
+    private var systemOutputVolumeTimer: Timer?
+    private var isSynchronizingLocalOutputVolume = false
     private var lastClipboardChangeCount: Int = NSPasteboard.general.changeCount
 
     private init() {
@@ -129,6 +139,8 @@ final class TBDisplaySenderService: ObservableObject {
         addonStore.refresh()
         restorePersistedSessions()
         startClipboardMonitoring()
+        refreshSystemOutputVolume()
+        startSystemOutputVolumeMonitoring()
         activationObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didBecomeActiveNotification,
             object: nil,
@@ -226,7 +238,10 @@ final class TBDisplaySenderService: ObservableObject {
             senderInputMonitoringGranted: localInputMonitoringTrusted,
             requiresSenderAccessibility: role == .receiverMaster,
             senderAccessibilityGranted: localInputInjectionTrusted,
-            requiresReceiverInputMonitoring: role == .receiverMaster,
+            // Receiver-master basic control uses the focused fullscreen SDL
+            // window. Receiver Input Monitoring is only an optional upgrade
+            // for global capture and must not block the guided setup.
+            requiresReceiverInputMonitoring: false,
             receiverInputMonitoringGranted: session.receiverInputMonitoringTrustedHint,
             requiresReceiverAccessibility: role == .senderMaster,
             receiverAccessibilityGranted: session.receiverAccessibilityTrustedHint
@@ -271,9 +286,51 @@ final class TBDisplaySenderService: ObservableObject {
         objectWillChange.send()
     }
 
-    func stopAll() {
-        sessions.forEach { $0.persistExtendedDisplayArrangementSnapshot() }
-        sessions.forEach { $0.stop(persistArrangement: false) }
+    func stopAll(completion: (@MainActor @Sendable () -> Void)? = nil) {
+        // A manual stop is intentionally different from a crash or a dropped
+        // connection. Remove the LaunchAgent PathState marker even when there
+        // are no sessions, otherwise quitting the app makes launchd start it
+        // again immediately.
+        TBSenderAutomation.suspendAutomaticReconnectAfterUserStop()
+        let sessionsToStop = sessions
+        sessionsToStop.forEach { $0.persistExtendedDisplayArrangementSnapshot() }
+        guard !sessionsToStop.isEmpty else {
+            completion?()
+            return
+        }
+
+        var remaining = sessionsToStop.count
+        sessionsToStop.forEach { session in
+            session.stop(persistArrangement: false) {
+                remaining -= 1
+                if remaining == 0 {
+                    completion?()
+                }
+            }
+        }
+    }
+
+    func quitAfterUserRequest() {
+        guard !userQuitPending else { return }
+        userQuitPending = true
+
+        // The Receiver owns the remote recovery loop. Keep this process alive
+        // until it has had a chance to receive `sender_user_stop`; otherwise a
+        // bare socket close is interpreted as a crash and the Receiver starts
+        // the Sender again. Two seconds is only a safety ceiling for a wedged
+        // link — a healthy local connection completes almost immediately.
+        stopAll { [weak self] in
+            self?.finishUserRequestedQuit()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+            self?.finishUserRequestedQuit()
+        }
+    }
+
+    private func finishUserRequestedQuit() {
+        guard userQuitPending else { return }
+        userQuitPending = false
+        NSApp.terminate(nil)
     }
 
     // MARK: - Session persistence
@@ -421,13 +478,20 @@ final class TBDisplaySenderService: ObservableObject {
     }
 
     func applyDiscoveredReceiver(_ receiver: TBDiscoveredReceiver, to session: TBDisplaySenderSession) {
-        session.receiverIP = receiver.ip(for: session.transportKind)
-        session.receiverSupportsHEVCDecodeHint = receiver.supportsHEVCDecode
-        if session.localInterfaceIP.isEmpty {
+        if session.transportKind == .networkLink,
+           !receiver.usbIP.isEmpty,
+           let directInterface = directNetworkLinkInterface() {
+            session.localInterfaceIP = directInterface.ip
+        } else if session.localInterfaceIP.isEmpty {
             session.localInterfaceIP = suggestedInterfaceForNewSession(transportKind: session.transportKind)?.ip
                 ?? availableInterfaces(for: session.transportKind).first?.ip
                 ?? ""
         }
+        session.receiverIP = receiver.ip(
+            for: session.transportKind,
+            localInterfaceIP: session.localInterfaceIP
+        )
+        session.receiverSupportsHEVCDecodeHint = receiver.supportsHEVCDecode
         restoreDisplayProfile(for: session)
         objectWillChange.send()
     }
@@ -491,9 +555,20 @@ final class TBDisplaySenderService: ObservableObject {
     }
 
     func transportDidChange(for session: TBDisplaySenderSession) {
-        session.localInterfaceIP = defaultLocalInterfaceIP(for: session.transportKind)
         if let receiver = discoveredReceivers.first(where: { $0.id == session.selectedReceiverID }) {
-            session.receiverIP = receiver.ip(for: session.transportKind)
+            if session.transportKind == .networkLink,
+               !receiver.usbIP.isEmpty,
+               let directInterface = directNetworkLinkInterface() {
+                session.localInterfaceIP = directInterface.ip
+            } else {
+                session.localInterfaceIP = defaultLocalInterfaceIP(for: session.transportKind)
+            }
+            session.receiverIP = receiver.ip(
+                for: session.transportKind,
+                localInterfaceIP: session.localInterfaceIP
+            )
+        } else {
+            session.localInterfaceIP = defaultLocalInterfaceIP(for: session.transportKind)
         }
         objectWillChange.send()
     }
@@ -672,6 +747,28 @@ final class TBDisplaySenderService: ObservableObject {
         }
     }
 
+    private func startSystemOutputVolumeMonitoring() {
+        systemOutputVolumeTimer?.invalidate()
+        systemOutputVolumeTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.refreshSystemOutputVolume()
+            }
+        }
+    }
+
+    private func refreshSystemOutputVolume() {
+        guard let state = TBSystemOutputVolume.readState() else {
+            localOutputVolumeAvailable = false
+            return
+        }
+
+        localOutputVolumeAvailable = state.isControllable
+        guard abs(localOutputVolume - state.level) > 0.005 else { return }
+        isSynchronizingLocalOutputVolume = true
+        localOutputVolume = state.level
+        isSynchronizingLocalOutputVolume = false
+    }
+
     private func pollClipboardIfNeeded() {
         guard let session = sessions.first(where: { $0.inputControlRole == .senderMaster && ($0.isConnected || $0.isStreaming) }) else {
             lastClipboardChangeCount = NSPasteboard.general.changeCount
@@ -697,10 +794,22 @@ final class TBDisplaySenderService: ObservableObject {
         return candidates.first(where: { !usedIPs.contains($0.ip) }) ?? candidates.first
     }
 
+    private func directNetworkLinkInterface() -> TBLocalLinkInterface? {
+        availableInterfaces(for: .networkLink).first {
+            TBConnectionDiagnostics.isDirectLinkInterface(name: $0.name, ip: $0.ip)
+        }
+    }
+
     private func normalizeSessionInterfaces() {
         for session in sessions {
             let available = availableInterfaces(for: session.transportKind)
             let validIPs = Set(available.map(\.ip))
+            if session.transportKind == .networkLink,
+               session.receiverIP.hasPrefix("169.254."),
+               let directInterface = directNetworkLinkInterface() {
+                session.localInterfaceIP = directInterface.ip
+                continue
+            }
             let fallbackIP = suggestedInterfaceForNewSession(transportKind: session.transportKind)?.ip
                 ?? available.first?.ip
                 ?? ""
@@ -713,9 +822,16 @@ final class TBDisplaySenderService: ObservableObject {
     private func pushLanguageUpdateToDiscoveredReceivers() {
         let receivers = discoveredReceivers
         let languageCode = language.fileStem
+        var sentTo = Set<String>()
         for receiver in receivers {
-            let candidateIPs = [receiver.preferredIP, receiver.thunderboltIP, receiver.networkIP]
-            var sentTo = Set<String>()
+            let candidateIPs = [
+                receiver.preferredIP,
+                receiver.thunderboltIP,
+                receiver.usbIP,
+                receiver.ethernetIP,
+                receiver.wifiIP,
+                receiver.networkIP,
+            ]
             for ip in candidateIPs where !ip.isEmpty && sentTo.insert(ip).inserted {
                 sendLanguageUpdate(to: ip, languageCode: languageCode)
             }
@@ -780,6 +896,11 @@ final class TBDisplaySenderService: ObservableObject {
             let ip = String(cString: buffer)
             if name.hasPrefix("bridge"), ip.hasPrefix("169.254.") {
                 interfaces.append(TBLocalLinkInterface(name: name, ip: ip, transportKind: .thunderboltBridge))
+                continue
+            }
+
+            if TBConnectionDiagnostics.isDirectLinkInterface(name: name, ip: ip) {
+                interfaces.append(TBLocalLinkInterface(name: name, ip: ip, transportKind: .networkLink))
                 continue
             }
 

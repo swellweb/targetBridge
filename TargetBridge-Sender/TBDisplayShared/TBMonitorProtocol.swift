@@ -30,6 +30,7 @@ struct TBMonitorHelloReceiver: Codable {
     var captureWidth: Int?
     var captureHeight: Int?
     var codec: String?
+    var accessibilityTrusted: Bool?
 }
 
 struct TBMonitorDisplayProfile: Codable {

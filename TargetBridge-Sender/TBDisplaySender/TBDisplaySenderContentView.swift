@@ -325,28 +325,60 @@ private struct TBDisplaySenderSessionCard: View {
 
     private var volumeCard: some View {
         SurfaceSubcard {
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 12) {
                 sectionHeading(volumeTitle)
-                HStack(spacing: 12) {
-                    Image(systemName: "speaker.fill")
-                        .font(.system(size: 16))
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(imacVolumeLabel)
+                        .font(.caption)
                         .foregroundStyle(.secondary)
+                    volumeSlider(value: $session.volume, tint: .blue)
+                }
 
-                    Slider(value: $session.volume, in: 0.0...1.0)
-                        .tint(.blue)
+                Divider()
 
-                    Image(systemName: "speaker.wave.3.fill")
-                        .font(.system(size: 16))
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(macMiniVolumeLabel)
+                        .font(.caption)
                         .foregroundStyle(.secondary)
-
-                    Text("\(Int((session.volume * 100).rounded()))%")
-                        .font(.system(.body, design: .monospaced))
-                        .frame(width: 44, alignment: .trailing)
-                        .foregroundStyle(.secondary)
+                    volumeSlider(
+                        value: $service.localOutputVolume,
+                        tint: .purple,
+                        disabled: !service.localOutputVolumeAvailable
+                    )
+                    if !service.localOutputVolumeAvailable {
+                        Text(localVolumeUnavailableText)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func volumeSlider(
+        value: Binding<Double>,
+        tint: Color,
+        disabled: Bool = false
+    ) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "speaker.fill")
+                .font(.system(size: 16))
+                .foregroundStyle(.secondary)
+
+            Slider(value: value, in: 0.0...1.0)
+                .tint(tint)
+                .disabled(disabled)
+
+            Image(systemName: "speaker.wave.3.fill")
+                .font(.system(size: 16))
+                .foregroundStyle(.secondary)
+
+            Text("\(Int((value.wrappedValue * 100).rounded()))%")
+                .font(.system(.body, design: .monospaced))
+                .frame(width: 44, alignment: .trailing)
+                .foregroundStyle(.secondary)
+        }
     }
 
     private var trimmedReceiverIP: String {
@@ -459,11 +491,41 @@ private struct TBDisplaySenderSessionCard: View {
 
     private var volumeTitle: String {
         switch service.language {
-        case .italian: return "Volume"
-        case .english: return "Volume"
-        case .german: return "Lautstärke"
-        case .french: return "Volume"
-        case .chinese: return "音量"
+        case .italian: return "Volumi audio"
+        case .english: return "Audio volumes"
+        case .german: return "Audiolautstärken"
+        case .french: return "Volumes audio"
+        case .chinese: return "音频音量"
+        }
+    }
+
+    private var imacVolumeLabel: String {
+        switch service.language {
+        case .italian: return "iMac (ricevitore)"
+        case .english: return "iMac (receiver)"
+        case .german: return "iMac (Empfänger)"
+        case .french: return "iMac (récepteur)"
+        case .chinese: return "iMac（接收端）"
+        }
+    }
+
+    private var macMiniVolumeLabel: String {
+        switch service.language {
+        case .italian: return "Mac mini (locale)"
+        case .english: return "Mac mini (local)"
+        case .german: return "Mac mini (lokal)"
+        case .french: return "Mac mini (local)"
+        case .chinese: return "Mac mini（本机）"
+        }
+    }
+
+    private var localVolumeUnavailableText: String {
+        switch service.language {
+        case .italian: return "L'uscita audio selezionata non permette il controllo software del volume."
+        case .english: return "The selected audio output does not allow software volume control."
+        case .german: return "Der gewählte Audioausgang erlaubt keine Software-Lautstärkeregelung."
+        case .french: return "La sortie audio sélectionnée ne permet pas le contrôle logiciel du volume."
+        case .chinese: return "所选音频输出不支持软件音量控制。"
         }
     }
 

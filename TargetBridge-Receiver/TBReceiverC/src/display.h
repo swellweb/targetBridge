@@ -21,7 +21,17 @@ struct tb_display_info {
 enum tb_display_action {
     TB_DISP_ACTION_NONE = 0,
     TB_DISP_ACTION_QUIT = 1 << 0,
-    TB_DISP_ACTION_CYCLE_LANGUAGE = 1 << 1
+    TB_DISP_ACTION_CYCLE_LANGUAGE = 1 << 1,
+    TB_DISP_ACTION_START_AUTO = 1 << 2,
+    TB_DISP_ACTION_STOP_SENDER = 1 << 3,
+    TB_DISP_ACTION_PATH_THUNDERBOLT = 1 << 4,
+    TB_DISP_ACTION_PATH_USB = 1 << 5,
+    TB_DISP_ACTION_PATH_ETHERNET = 1 << 6,
+    TB_DISP_ACTION_PATH_WIFI = 1 << 7,
+    TB_DISP_ACTION_TOGGLE_ADVANCED = 1 << 8,
+    TB_DISP_ACTION_SAVE_DIAGNOSTICS = 1 << 9,
+    TB_DISP_ACTION_TOGGLE_INPUT = 1 << 10,
+    TB_DISP_ACTION_SETUP_INPUT = 1 << 11
 };
 
 enum tb_input_event_kind {
@@ -61,6 +71,7 @@ void               tb_disp_destroy(struct tb_display *d);
 void               tb_disp_set_connection_state(struct tb_display *d, int connected);
 void               tb_disp_set_input_capture_active(struct tb_display *d, int active);
 void               tb_disp_set_input_intercept_active(struct tb_display *d, int active);
+void               tb_disp_set_local_ui_passthrough(struct tb_display *d, int active);
 
 /* Whether the receiver display window is on the active macOS Space. Used to
  * gate receiverMaster global-tap forwarding so input on other receiver Spaces
@@ -100,7 +111,12 @@ void tb_disp_render_status(struct tb_display *d,
                            const char *panel,
                            const char *mode,
                            const char *language,
-                           const char *permissions);
+                           const char *permissions,
+                           const char *control,
+                           const char *selected_path,
+                           const char *selected_path_id,
+                           int input_enabled,
+                           int input_setup_needed);
 void tb_disp_render_connecting(struct tb_display *d);
 
 #endif
