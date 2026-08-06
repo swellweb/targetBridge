@@ -9,17 +9,19 @@ set -euo pipefail
 #
 # Usage:
 #   targetbridge connect [--receiver auto|<id|name|ip>] [--mode mirror|extended]
-#                        [--preset <name>] [--transport tb|net] [--session N] [--local-ip <ip>]
+#                        [--preset <name>] [--path auto|wired|thunderbolt|usb|ethernet|wifi]
+#                        [--input receiver|sender|off] [--retry]
+#                        [--transport tb|net] [--session N] [--local-ip <ip>]
 #   targetbridge disconnect [--session N]
 #
 # Examples:
 #   targetbridge connect                                  # auto receiver, app defaults
-#   targetbridge connect --receiver auto --mode mirror --preset 1440p
+#   targetbridge connect --receiver auto --mode mirror --preset retina4k --path auto --input receiver --retry
 #   targetbridge connect --receiver 169.254.0.2 --mode extended --preset 5k
 #   targetbridge disconnect
 #
-# Presets: standard1440p | smooth1440p60 | smooth1800p60 | crisp2160p60 | native5k
-#          (aliases: 1440p, 1440p60, 1800p, 4k, 5k)
+# Presets: standard1440p | smooth1440p60 | smooth1800p60 | crisp2160p60 |
+#          retina4k60 | native5k | native5k60Experimental
 #
 # Remote / SSH: run it on the sender over SSH (the sender must be at a logged-in
 # desktop). Because the URL must open in that GUI session, wrap it with launchctl:
@@ -61,6 +63,9 @@ while [ $# -gt 0 ]; do
     --receiver)  add receiver  "${2:-}"; shift 2 ;;
     --mode)      add mode      "${2:-}"; shift 2 ;;
     --preset)    add preset    "${2:-}"; shift 2 ;;
+    --path)      add path      "${2:-}"; shift 2 ;;
+    --input)     add input     "${2:-}"; shift 2 ;;
+    --retry)     add retry     "1"; shift ;;
     --transport) add transport "${2:-}"; shift 2 ;;
     --session)   add session   "${2:-}"; shift 2 ;;
     --local-ip)  add localIP   "${2:-}"; shift 2 ;;

@@ -33,6 +33,8 @@ struct tb_display {
     SDL_Renderer *ren;
     SDL_Texture  *tex;
     SDL_Texture  *status_tex;
+    SDL_Cursor   *arrow_cursor;
+    SDL_Cursor   *hand_cursor;
     int           tex_w, tex_h;
     int           quit;
     int           preferred_fullscreen;
@@ -40,6 +42,7 @@ struct tb_display {
     int           is_connecting;
     int           input_capture_active;
     int           input_intercept_active;
+    int           local_ui_passthrough_active;
     struct tb_input_event input_events[128];
     int           input_head;
     int           input_tail;
@@ -51,8 +54,14 @@ struct tb_display {
     int           cursor_source_w, cursor_source_h;
     int           cursor_visible;
     int           cursor_type;
+    uint32_t      last_present_time;
     uint32_t      last_video_frame_time;
     int           system_cursor_hidden;
+    int           hovered_control_button;
+    int           pressed_control_button;
+    int           advanced_controls_visible;
+    int           input_option_enabled;
+    int           input_setup_needed;
 
     char          last_ip[64];
     char          last_status[128];
@@ -61,6 +70,11 @@ struct tb_display {
     char          last_mode[128];
     char          last_language[96];
     char          last_permissions[160];
+    char          last_control[192];
+    char          last_selected_path[64];
+    char          last_selected_path_id[24];
+    int           last_input_option_enabled;
+    int           last_input_setup_needed;
     int           last_drawable_w;
     int           last_drawable_h;
     int           status_is_connecting;
@@ -299,6 +313,89 @@ static void tb_disp_fill_rounded_rect(CGContextRef ctx,
     CGPathRelease(path);
 }
 
+static void tb_disp_stroke_rounded_rect(CGContextRef ctx,
+                                        CGFloat x,
+                                        CGFloat y,
+                                        CGFloat w,
+                                        CGFloat h,
+                                        CGFloat radius,
+                                        CGFloat line_width,
+                                        CGFloat r,
+                                        CGFloat g,
+                                        CGFloat b,
+                                        CGFloat a) {
+    CGPathRef path = CGPathCreateWithRoundedRect(CGRectMake(x, y, w, h), radius, radius, NULL);
+    if (!path) return;
+    CGContextSetRGBStrokeColor(ctx, r, g, b, a);
+    CGContextSetLineWidth(ctx, line_width);
+    CGContextAddPath(ctx, path);
+    CGContextStrokePath(ctx);
+    CGPathRelease(path);
+}
+
+static void tb_disp_fill_vertical_gradient(CGContextRef ctx,
+                                           CGFloat w,
+                                           CGFloat h,
+                                           CGFloat top_r,
+                                           CGFloat top_g,
+                                           CGFloat top_b,
+                                           CGFloat bottom_r,
+                                           CGFloat bottom_g,
+                                           CGFloat bottom_b) {
+    CGFloat components[] = {
+        top_r, top_g, top_b, 1.0,
+        bottom_r, bottom_g, bottom_b, 1.0
+    };
+    CGFloat locations[] = {0.0, 1.0};
+    CGColorSpaceRef color_space = CGColorSpaceCreateDeviceRGB();
+    CGGradientRef gradient = CGGradientCreateWithColorComponents(
+        color_space, components, locations, 2);
+    CGColorSpaceRelease(color_space);
+    if (!gradient) return;
+    CGContextDrawLinearGradient(ctx,
+                                gradient,
+                                CGPointMake(0.0, 0.0),
+                                CGPointMake(0.0, h),
+                                0);
+    CGGradientRelease(gradient);
+}
+
+static CGFloat tb_disp_measure_text(const char *text,
+                                    const char *font_name,
+                                    CGFloat font_size) {
+    if (!text || !*text || !font_name) return 0.0;
+    CFStringRef cf_text = CFStringCreateWithCString(NULL, text, kCFStringEncodingUTF8);
+    CFStringRef cf_font_name = CFStringCreateWithCString(NULL, font_name, kCFStringEncodingUTF8);
+    if (!cf_text || !cf_font_name) {
+        if (cf_text) CFRelease(cf_text);
+        if (cf_font_name) CFRelease(cf_font_name);
+        return 0.0;
+    }
+    CTFontRef font = CTFontCreateWithName(cf_font_name, font_size, NULL);
+    CFRelease(cf_font_name);
+    if (!font) {
+        CFRelease(cf_text);
+        return 0.0;
+    }
+    const void *keys[] = {kCTFontAttributeName};
+    const void *values[] = {font};
+    CFDictionaryRef attrs = CFDictionaryCreate(NULL,
+                                               keys,
+                                               values,
+                                               1,
+                                               &kCFTypeDictionaryKeyCallBacks,
+                                               &kCFTypeDictionaryValueCallBacks);
+    CFAttributedStringRef attributed = CFAttributedStringCreate(NULL, cf_text, attrs);
+    CTLineRef line = attributed ? CTLineCreateWithAttributedString(attributed) : NULL;
+    CGFloat width = line ? (CGFloat)CTLineGetTypographicBounds(line, NULL, NULL, NULL) : 0.0;
+    if (line) CFRelease(line);
+    if (attributed) CFRelease(attributed);
+    if (attrs) CFRelease(attrs);
+    CFRelease(font);
+    CFRelease(cf_text);
+    return width;
+}
+
 static void tb_disp_draw_brand_icon(CGContextRef ctx, CGFloat x, CGFloat y, CGFloat size) {
     const CGFloat inset = size * 0.22;
     const CGFloat monitor_w = size * 0.56;
@@ -315,6 +412,306 @@ static void tb_disp_draw_brand_icon(CGContextRef ctx, CGFloat x, CGFloat y, CGFl
     CGContextMoveToPoint(ctx, monitor_x + inset, monitor_y + monitor_h + size * 0.13);
     CGContextAddLineToPoint(ctx, monitor_x + monitor_w - inset, monitor_y + monitor_h + size * 0.13);
     CGContextStrokePath(ctx);
+}
+
+struct tb_control_button {
+    CGFloat x;
+    CGFloat y;
+    CGFloat w;
+    CGFloat h;
+    unsigned int action;
+    const char *label_key;
+    const char *path_id;
+    int role;
+};
+
+enum tb_control_button_role {
+    TB_CONTROL_BUTTON_PRIMARY = 1,
+    TB_CONTROL_BUTTON_DANGER = 2,
+    TB_CONTROL_BUTTON_PATH = 3,
+    TB_CONTROL_BUTTON_SECONDARY = 4
+};
+
+static void tb_disp_ui_metrics(int drawable_w,
+                               int drawable_h,
+                               CGFloat *scale,
+                               CGFloat *offset_x,
+                               CGFloat *offset_y) {
+    CGFloat scale_x = (CGFloat)drawable_w / 980.0;
+    CGFloat scale_y = (CGFloat)drawable_h / 620.0;
+    CGFloat s = scale_x < scale_y ? scale_x : scale_y;
+    if (s < 0.70) s = 0.70;
+    if (scale) *scale = s;
+    if (offset_x) *offset_x = ((CGFloat)drawable_w - 980.0 * s) / 2.0;
+    if (offset_y) *offset_y = ((CGFloat)drawable_h - 620.0 * s) / 2.0;
+}
+
+static int tb_disp_control_buttons(int drawable_w,
+                                   int drawable_h,
+                                   struct tb_control_button *buttons,
+                                   int capacity,
+                                   int advanced_visible,
+                                   int input_enabled,
+                                   int input_setup_needed) {
+    if (!buttons || capacity < 10 || drawable_w <= 0 || drawable_h <= 0) return 0;
+    CGFloat s = 1.0, ox = 0.0, oy = 0.0;
+    tb_disp_ui_metrics(drawable_w, drawable_h, &s, &ox, &oy);
+
+    buttons[0] = (struct tb_control_button){ox + 48.0 * s, oy + 254.0 * s,
+        205.0 * s, 48.0 * s, TB_DISP_ACTION_START_AUTO,
+        "receiver.control.start_auto", "", TB_CONTROL_BUTTON_PRIMARY};
+    buttons[1] = (struct tb_control_button){ox + 265.0 * s, oy + 254.0 * s,
+        130.0 * s, 48.0 * s, TB_DISP_ACTION_STOP_SENDER,
+        "receiver.control.stop", "", TB_CONTROL_BUTTON_DANGER};
+    buttons[2] = (struct tb_control_button){ox + 407.0 * s, oy + 254.0 * s,
+        220.0 * s, 48.0 * s, TB_DISP_ACTION_TOGGLE_INPUT,
+        input_enabled ? "receiver.control.input_on" : "receiver.control.input_off",
+        "", TB_CONTROL_BUTTON_SECONDARY};
+    buttons[3] = (struct tb_control_button){ox + 639.0 * s, oy + 254.0 * s,
+        145.0 * s, 48.0 * s, TB_DISP_ACTION_TOGGLE_ADVANCED,
+        "receiver.control.options", "", TB_CONTROL_BUTTON_SECONDARY};
+    buttons[4] = (struct tb_control_button){ox + 796.0 * s, oy + 254.0 * s,
+        130.0 * s, 48.0 * s,
+        input_setup_needed ? TB_DISP_ACTION_SETUP_INPUT : TB_DISP_ACTION_SAVE_DIAGNOSTICS,
+        input_setup_needed ? "receiver.control.input_setup" : "receiver.control.diagnostics",
+        "", TB_CONTROL_BUTTON_SECONDARY};
+
+    if (!advanced_visible) return 5;
+
+    const CGFloat path_y = oy + 315.0 * s;
+    const CGFloat path_h = 36.0 * s;
+    buttons[5] = (struct tb_control_button){ox + 190.0 * s, path_y,
+        95.0 * s, path_h, TB_DISP_ACTION_START_AUTO,
+        "receiver.language.auto", "auto", TB_CONTROL_BUTTON_PATH};
+    buttons[6] = (struct tb_control_button){ox + 293.0 * s, path_y,
+        135.0 * s, path_h, TB_DISP_ACTION_PATH_THUNDERBOLT,
+        "receiver.control.usb4_tb", "thunderbolt", TB_CONTROL_BUTTON_PATH};
+    buttons[7] = (struct tb_control_button){ox + 436.0 * s, path_y,
+        115.0 * s, path_h, TB_DISP_ACTION_PATH_USB,
+        "receiver.control.usb", "usb", TB_CONTROL_BUTTON_PATH};
+    buttons[8] = (struct tb_control_button){ox + 559.0 * s, path_y,
+        125.0 * s, path_h, TB_DISP_ACTION_PATH_ETHERNET,
+        "receiver.control.ethernet", "ethernet", TB_CONTROL_BUTTON_PATH};
+    buttons[9] = (struct tb_control_button){ox + 692.0 * s, path_y,
+        90.0 * s, path_h, TB_DISP_ACTION_PATH_WIFI,
+        "receiver.control.wifi", "wifi", TB_CONTROL_BUTTON_PATH};
+    return 10;
+}
+
+static int tb_disp_control_button_at(struct tb_display *d, int window_x, int window_y) {
+    if (!d || !d->win || !d->ren || d->is_connected || d->is_connecting) {
+        return -1;
+    }
+    int window_w = 0, window_h = 0, drawable_w = 0, drawable_h = 0;
+    SDL_GetWindowSize(d->win, &window_w, &window_h);
+    SDL_GetRendererOutputSize(d->ren, &drawable_w, &drawable_h);
+    if (window_w <= 0 || window_h <= 0 || drawable_w <= 0 || drawable_h <= 0) {
+        return -1;
+    }
+    const CGFloat x = (CGFloat)window_x * (CGFloat)drawable_w / (CGFloat)window_w;
+    const CGFloat y = (CGFloat)window_y * (CGFloat)drawable_h / (CGFloat)window_h;
+    struct tb_control_button buttons[10];
+    int count = tb_disp_control_buttons(drawable_w, drawable_h, buttons, 10,
+                                        d->advanced_controls_visible,
+                                        d->input_option_enabled,
+                                        d->input_setup_needed);
+    for (int i = 0; i < count; i++) {
+        if (x >= buttons[i].x && x <= buttons[i].x + buttons[i].w &&
+            y >= buttons[i].y && y <= buttons[i].y + buttons[i].h) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+static unsigned int tb_disp_control_action_for_button(struct tb_display *d, int button_index) {
+    if (!d || !d->ren || button_index < 0) return TB_DISP_ACTION_NONE;
+    int drawable_w = 0, drawable_h = 0;
+    if (SDL_GetRendererOutputSize(d->ren, &drawable_w, &drawable_h) < 0) {
+        return TB_DISP_ACTION_NONE;
+    }
+    struct tb_control_button buttons[10];
+    int count = tb_disp_control_buttons(drawable_w, drawable_h, buttons, 10,
+                                        d->advanced_controls_visible,
+                                        d->input_option_enabled,
+                                        d->input_setup_needed);
+    if (button_index >= count) return TB_DISP_ACTION_NONE;
+    return buttons[button_index].action;
+}
+
+static void tb_disp_set_hovered_control_button(struct tb_display *d, int button_index) {
+    if (!d || d->hovered_control_button == button_index) return;
+    d->hovered_control_button = button_index;
+    tb_disp_destroy_status_texture(d);
+    if (!d->is_connected && !d->is_connecting) {
+        SDL_Cursor *cursor = button_index >= 0 ? d->hand_cursor : d->arrow_cursor;
+        if (cursor) SDL_SetCursor(cursor);
+    }
+}
+
+static void tb_disp_set_pressed_control_button(struct tb_display *d, int button_index) {
+    if (!d || d->pressed_control_button == button_index) return;
+    d->pressed_control_button = button_index;
+    tb_disp_destroy_status_texture(d);
+}
+
+static void tb_disp_draw_control_buttons(CGContextRef ctx,
+                                         struct tb_display *d,
+                                         int drawable_w,
+                                         int drawable_h,
+                                         const char *control,
+                                         const char *selected_path,
+                                         const char *selected_path_id,
+                                         const char *body_font,
+                                         const char *section_font) {
+    struct tb_control_button buttons[10];
+    int count = tb_disp_control_buttons(drawable_w, drawable_h, buttons, 10,
+                                        d && d->advanced_controls_visible,
+                                        d && d->input_option_enabled,
+                                        d && d->input_setup_needed);
+    if (count == 0) return;
+    CGFloat scale = 1.0, ox = 0.0, oy = 0.0;
+    tb_disp_ui_metrics(drawable_w, drawable_h, &scale, &ox, &oy);
+
+    tb_disp_fill_rounded_rect(ctx, ox + 28.0 * scale, oy + 194.0 * scale,
+                              924.0 * scale, 174.0 * scale, 18.0 * scale,
+                              0.075, 0.09, 0.12, 0.98);
+    tb_disp_stroke_rounded_rect(ctx, ox + 28.0 * scale, oy + 194.0 * scale,
+                                924.0 * scale, 174.0 * scale, 18.0 * scale,
+                                1.0 * scale, 0.22, 0.27, 0.34, 0.85);
+
+    tb_disp_draw_text(ctx, tb_i18n_get("receiver.control.mac_mini"), section_font,
+                      13.0 * scale, ox + 48.0 * scale, oy + 220.0 * scale,
+                      0.46, 0.56, 0.70);
+    CGContextSetRGBFillColor(ctx, 0.28, 0.86, 0.50, 1.0);
+    CGContextFillEllipseInRect(ctx, CGRectMake(ox + 48.0 * scale,
+                                               oy + 231.0 * scale,
+                                               8.0 * scale,
+                                               8.0 * scale));
+    tb_disp_draw_text(ctx, control, body_font, 17.0 * scale,
+                      ox + 66.0 * scale, oy + 243.0 * scale,
+                      0.90, 0.94, 0.98);
+    if (selected_path && *selected_path) {
+        tb_disp_fill_rounded_rect(ctx, ox + 640.0 * scale, oy + 218.0 * scale,
+                                  286.0 * scale, 30.0 * scale, 15.0 * scale,
+                                  0.09, 0.16, 0.21, 1.0);
+        tb_disp_draw_text(ctx, selected_path, body_font, 13.0 * scale,
+                          ox + 655.0 * scale, oy + 238.0 * scale,
+                          0.55, 0.79, 0.91);
+    }
+
+    if (d && d->advanced_controls_visible) {
+        tb_disp_draw_text(ctx, tb_i18n_get("receiver.control.connection"), section_font,
+                          12.0 * scale, ox + 48.0 * scale, oy + 338.0 * scale,
+                          0.46, 0.56, 0.70);
+    } else {
+        tb_disp_draw_text(ctx, tb_i18n_get("receiver.control.auto_hint"), body_font,
+                          13.0 * scale, ox + 48.0 * scale, oy + 338.0 * scale,
+                          0.48, 0.62, 0.73);
+    }
+
+    for (int i = 0; i < count; i++) {
+        const struct tb_control_button *button = &buttons[i];
+        const int hovered = d && d->hovered_control_button == i;
+        const int pressed = d && d->pressed_control_button == i;
+        const int selected =
+            (button->role == TB_CONTROL_BUTTON_PATH &&
+             selected_path_id &&
+             strcmp(button->path_id, selected_path_id) == 0) ||
+            (button->action == TB_DISP_ACTION_TOGGLE_ADVANCED &&
+             d && d->advanced_controls_visible) ||
+            (button->action == TB_DISP_ACTION_TOGGLE_INPUT &&
+             d && d->input_option_enabled);
+        CGFloat r = 0.14, g = 0.17, b = 0.22;
+        CGFloat border_r = 0.25, border_g = 0.30, border_b = 0.38;
+        if (button->role == TB_CONTROL_BUTTON_PRIMARY) {
+            r = pressed ? 0.08 : (hovered ? 0.16 : 0.11);
+            g = pressed ? 0.40 : (hovered ? 0.63 : 0.54);
+            b = pressed ? 0.23 : (hovered ? 0.36 : 0.30);
+            border_r = 0.30; border_g = 0.88; border_b = 0.52;
+        } else if (button->role == TB_CONTROL_BUTTON_DANGER) {
+            r = pressed ? 0.28 : (hovered ? 0.48 : 0.35);
+            g = pressed ? 0.10 : (hovered ? 0.16 : 0.12);
+            b = pressed ? 0.12 : (hovered ? 0.19 : 0.15);
+            border_r = 0.92; border_g = 0.34; border_b = 0.37;
+        } else if (selected) {
+            r = pressed ? 0.08 : 0.10;
+            g = pressed ? 0.28 : (hovered ? 0.40 : 0.34);
+            b = pressed ? 0.20 : 0.26;
+            border_r = 0.30; border_g = 0.88; border_b = 0.55;
+        } else if (hovered) {
+            r = pressed ? 0.17 : 0.21;
+            g = pressed ? 0.21 : 0.27;
+            b = pressed ? 0.28 : 0.36;
+            border_r = 0.42; border_g = 0.58; border_b = 0.76;
+        }
+
+        const CGFloat radius = button->role == TB_CONTROL_BUTTON_PATH
+            ? 10.0 * scale : 12.0 * scale;
+        if (button->role != TB_CONTROL_BUTTON_PATH) {
+            tb_disp_fill_rounded_rect(ctx, button->x, button->y + 3.0 * scale,
+                                      button->w, button->h, radius,
+                                      0.015, 0.02, 0.03, 0.55);
+        }
+        tb_disp_fill_rounded_rect(ctx, button->x, button->y,
+                                  button->w, button->h, radius,
+                                  r, g, b, 1.0);
+        tb_disp_stroke_rounded_rect(ctx, button->x, button->y,
+                                    button->w, button->h, radius,
+                                    (selected || hovered || button->role != TB_CONTROL_BUTTON_PATH)
+                                        ? 1.2 * scale : 0.8 * scale,
+                                    border_r, border_g, border_b,
+                                    selected || hovered ? 0.95 : 0.55);
+
+        const char *label = tb_i18n_get(button->label_key);
+        const CGFloat font_size = (button->role == TB_CONTROL_BUTTON_PATH
+            ? 13.0
+            : ((button->action == TB_DISP_ACTION_SAVE_DIAGNOSTICS ||
+                button->action == TB_DISP_ACTION_SETUP_INPUT) ? 11.5
+               : (button->role == TB_CONTROL_BUTTON_SECONDARY ? 13.0 : 16.0))) * scale;
+        const CGFloat label_width = tb_disp_measure_text(label, body_font, font_size);
+        const CGFloat icon_space =
+            (button->role == TB_CONTROL_BUTTON_PRIMARY ||
+             button->role == TB_CONTROL_BUTTON_DANGER) ? 22.0 * scale : 0.0;
+        const CGFloat group_width = label_width + icon_space;
+        const CGFloat group_x = button->x + (button->w - group_width) / 2.0;
+        const CGFloat text_x = group_x + icon_space;
+        const CGFloat text_y = button->y + button->h / 2.0 + font_size * 0.36;
+
+        if (button->role == TB_CONTROL_BUTTON_PRIMARY) {
+            const CGFloat cx = group_x + 7.0 * scale;
+            const CGFloat cy = button->y + button->h / 2.0;
+            CGContextSetRGBFillColor(ctx, 0.96, 1.0, 0.98, 1.0);
+            CGContextBeginPath(ctx);
+            CGContextMoveToPoint(ctx, cx - 4.0 * scale, cy - 7.0 * scale);
+            CGContextAddLineToPoint(ctx, cx + 7.0 * scale, cy);
+            CGContextAddLineToPoint(ctx, cx - 4.0 * scale, cy + 7.0 * scale);
+            CGContextClosePath(ctx);
+            CGContextFillPath(ctx);
+        } else if (button->role == TB_CONTROL_BUTTON_DANGER) {
+            const CGFloat icon_size = 11.0 * scale;
+            tb_disp_fill_rounded_rect(ctx,
+                                      group_x,
+                                      button->y + (button->h - icon_size) / 2.0,
+                                      icon_size,
+                                      icon_size,
+                                      2.0 * scale,
+                                      1.0, 0.89, 0.90, 1.0);
+        }
+        tb_disp_draw_text(ctx, label, body_font, font_size,
+                          text_x, text_y,
+                          0.96, 0.98, 1.0);
+        if (selected) {
+            CGContextSetRGBFillColor(ctx, 0.35, 0.95, 0.61, 1.0);
+            CGContextFillEllipseInRect(ctx,
+                                       CGRectMake(button->x + button->w - 11.0 * scale,
+                                                  button->y + 6.0 * scale,
+                                                  5.0 * scale,
+                                                  5.0 * scale));
+        } else {
+            (void)selected;
+        }
+    }
 }
 
 static void tb_disp_draw_connecting_spinner(struct tb_display *d, int drawable_w, int drawable_h) {
@@ -356,6 +753,9 @@ static void tb_disp_rebuild_status_texture(struct tb_display *d,
                                            const char *mode,
                                            const char *language,
                                            const char *permissions,
+                                           const char *control,
+                                           const char *selected_path,
+                                           const char *selected_path_id,
                                            int drawable_w,
                                            int drawable_h,
                                            int connecting) {
@@ -427,54 +827,97 @@ static void tb_disp_rebuild_status_texture(struct tb_display *d,
                           center_x - 26.0 * scale, icon_y + icon_size + 310.0 * scale,
                           0.40, 0.45, 0.53);
     } else {
+        CGFloat scale = 1.0, ox = 0.0, oy = 0.0;
+        tb_disp_ui_metrics(drawable_w, drawable_h, &scale, &ox, &oy);
+#define TBX(value) (ox + (value) * scale)
+#define TBY(value) (oy + (value) * scale)
 
-    tb_disp_fill_rect(ctx, 0, 0, (CGFloat)drawable_w, (CGFloat)drawable_h, 0.06, 0.07, 0.09, 1.0);
-    tb_disp_fill_rect(ctx, 48, 52, (CGFloat)drawable_w - 96, (CGFloat)drawable_h - 104, 0.11, 0.12, 0.15, 1.0);
-    tb_disp_fill_rect(ctx, 48, (CGFloat)drawable_h - 152, (CGFloat)drawable_w - 96, 2, 0.22, 0.24, 0.29, 1.0);
+        tb_disp_fill_vertical_gradient(ctx,
+                                       (CGFloat)drawable_w,
+                                       (CGFloat)drawable_h,
+                                       0.025, 0.036, 0.052,
+                                       0.055, 0.070, 0.095);
 
-    const CGFloat outer_x = 72.0;
-    const CGFloat outer_w = (CGFloat)drawable_w - 144.0;
-    const CGFloat top_y = (CGFloat)drawable_h - 176.0;
-    const CGFloat card_gap = 28.0;
-    const CGFloat card_w = (outer_w - card_gap) / 2.0;
+        /* Compact branded header. */
+        tb_disp_draw_brand_icon(ctx, TBX(28.0), TBY(22.0), 44.0 * scale);
+        tb_disp_draw_text(ctx, "TargetBridge", title_font, 24.0 * scale,
+                          TBX(84.0), TBY(47.0), 0.96, 0.98, 1.0);
+        tb_disp_draw_text(ctx, tb_i18n_get("receiver.ui.subtitle"), body_font, 13.0 * scale,
+                          TBX(84.0), TBY(69.0), 0.56, 0.64, 0.74);
+        tb_disp_fill_rounded_rect(ctx, TBX(792.0), TBY(27.0), 160.0 * scale, 34.0 * scale,
+                                  17.0 * scale, 0.08, 0.11, 0.15, 0.94);
+        tb_disp_draw_text(ctx, TB_RECEIVER_VERSION, mono_bold_font, 11.0 * scale,
+                          TBX(809.0), TBY(48.0), 0.51, 0.68, 0.80);
 
-    tb_disp_draw_text(ctx, tb_i18n_get("receiver.ui.title"), title_font, 28, 72, (CGFloat)drawable_h - 84, 0.95, 0.97, 1.0);
-    tb_disp_draw_text(ctx, tb_i18n_get("receiver.ui.subtitle"), body_font, 17, 72, (CGFloat)drawable_h - 118, 0.72, 0.76, 0.84);
-    tb_disp_draw_text(ctx, TB_RECEIVER_VERSION, mono_bold_font, 17, (CGFloat)drawable_w - 220, (CGFloat)drawable_h - 82, 0.64, 0.69, 0.78);
-    tb_disp_draw_text(ctx, TB_RECEIVER_BUILD, mono_font, 13, (CGFloat)drawable_w - 220, (CGFloat)drawable_h - 114, 0.53, 0.57, 0.66);
+        /* Receiver identity and current network/session state. */
+        tb_disp_fill_rounded_rect(ctx, TBX(28.0), TBY(88.0), 924.0 * scale, 90.0 * scale,
+                                  18.0 * scale, 0.07, 0.087, 0.115, 0.98);
+        tb_disp_stroke_rounded_rect(ctx, TBX(28.0), TBY(88.0), 924.0 * scale, 90.0 * scale,
+                                    18.0 * scale, 1.0 * scale,
+                                    0.18, 0.23, 0.30, 0.85);
+        CGContextSetRGBFillColor(ctx, 0.29, 0.91, 0.53, 1.0);
+        CGContextFillEllipseInRect(ctx, CGRectMake(TBX(49.0), TBY(109.0),
+                                                   9.0 * scale, 9.0 * scale));
+        tb_disp_draw_text(ctx, tb_i18n_get("receiver.ui.ip_thunderbolt_bridge"), section_font,
+                          12.0 * scale, TBX(68.0), TBY(118.0), 0.45, 0.56, 0.70);
+        tb_disp_draw_text(ctx, ip, mono_bold_font, 22.0 * scale,
+                          TBX(48.0), TBY(153.0), 0.42, 0.94, 0.62);
 
-    tb_disp_draw_text(ctx, tb_i18n_get("receiver.ui.ip_thunderbolt_bridge"), section_font, 15, outer_x, top_y, 0.54, 0.62, 0.76);
-    tb_disp_draw_text(ctx, ip, mono_bold_font, 34, outer_x, top_y - 42.0, 0.43, 0.93, 0.60);
+        tb_disp_fill_rounded_rect(ctx, TBX(624.0), TBY(105.0), 302.0 * scale, 56.0 * scale,
+                                  14.0 * scale, 0.095, 0.12, 0.16, 1.0);
+        tb_disp_draw_text(ctx, tb_i18n_get("receiver.ui.status"), section_font,
+                          11.0 * scale, TBX(644.0), TBY(126.0), 0.44, 0.55, 0.69);
+        tb_disp_draw_text(ctx, status, body_font, 15.0 * scale,
+                          TBX(644.0), TBY(151.0), 0.92, 0.95, 0.98);
 
-    const CGFloat info_top = top_y - 126.0;
-    const CGFloat info_h = 194.0;
-    tb_disp_fill_rect(ctx, outer_x, info_top - info_h, card_w, info_h, 0.14, 0.15, 0.19, 1.0);
-    tb_disp_fill_rect(ctx, outer_x + card_w + card_gap, info_top - info_h, card_w, info_h, 0.14, 0.15, 0.19, 1.0);
+        tb_disp_draw_control_buttons(ctx, d, drawable_w, drawable_h,
+                                     control, selected_path, selected_path_id,
+                                     body_font, section_font);
 
-    tb_disp_draw_text(ctx, tb_i18n_get("receiver.ui.status"), section_font, 15, outer_x + 20.0, info_top - 34.0, 0.54, 0.62, 0.76);
-    tb_disp_draw_text(ctx, status, body_font, 22, outer_x + 20.0, info_top - 68.0, 0.94, 0.96, 0.99);
-    tb_disp_draw_text(ctx, tb_i18n_get("receiver.ui.sender"), section_font, 14, outer_x + 20.0, info_top - 118.0, 0.54, 0.62, 0.76);
-    tb_disp_draw_text(ctx, sender, body_font, 20, outer_x + 20.0, info_top - 148.0, 0.94, 0.96, 0.99);
+        /* Session and display details stay visible without competing with the
+         * main controls. */
+        const CGFloat info_y = TBY(382.0);
+        const CGFloat info_h = 104.0 * scale;
+        tb_disp_fill_rounded_rect(ctx, TBX(28.0), info_y, 452.0 * scale, info_h,
+                                  16.0 * scale, 0.072, 0.087, 0.112, 0.96);
+        tb_disp_fill_rounded_rect(ctx, TBX(496.0), info_y, 456.0 * scale, info_h,
+                                  16.0 * scale, 0.072, 0.087, 0.112, 0.96);
 
-    const CGFloat display_x = outer_x + card_w + card_gap + 20.0;
-    tb_disp_draw_text(ctx, tb_i18n_get("receiver.ui.display"), section_font, 15, display_x, info_top - 34.0, 0.54, 0.62, 0.76);
-    tb_disp_draw_text(ctx, panel, zh ? body_font : mono_font, 20, display_x, info_top - 68.0, 0.94, 0.96, 0.99);
-    tb_disp_draw_text(ctx, tb_i18n_get("receiver.ui.stream_profile"), section_font, 14, display_x, info_top - 118.0, 0.54, 0.62, 0.76);
-    tb_disp_draw_text(ctx, mode, zh ? body_font : mono_font, 20, display_x, info_top - 148.0, 0.94, 0.96, 0.99);
+        tb_disp_draw_text(ctx, tb_i18n_get("receiver.ui.sender"), section_font,
+                          11.0 * scale, TBX(48.0), TBY(406.0), 0.43, 0.54, 0.68);
+        tb_disp_draw_text(ctx, sender, body_font, 15.0 * scale,
+                          TBX(48.0), TBY(431.0), 0.93, 0.96, 0.99);
+        tb_disp_draw_text(ctx, tb_i18n_get("receiver.ui.stream_profile"), section_font,
+                          11.0 * scale, TBX(48.0), TBY(455.0), 0.43, 0.54, 0.68);
+        tb_disp_draw_text(ctx, mode, zh ? body_font : mono_font, 12.0 * scale,
+                          TBX(48.0), TBY(476.0), 0.72, 0.79, 0.87);
 
-    const CGFloat footer_top = info_top - info_h - 28.0;
-    const CGFloat footer_h = 150.0;
-    tb_disp_fill_rect(ctx, outer_x, footer_top - footer_h, outer_w, footer_h, 0.14, 0.15, 0.19, 1.0);
+        tb_disp_draw_text(ctx, tb_i18n_get("receiver.ui.display"), section_font,
+                          11.0 * scale, TBX(516.0), TBY(406.0), 0.43, 0.54, 0.68);
+        tb_disp_draw_text(ctx, panel, zh ? body_font : mono_font, 14.0 * scale,
+                          TBX(516.0), TBY(431.0), 0.93, 0.96, 0.99);
+        tb_disp_draw_text(ctx, tb_i18n_get("receiver.ui.language"), section_font,
+                          11.0 * scale, TBX(516.0), TBY(455.0), 0.43, 0.54, 0.68);
+        tb_disp_draw_text(ctx, language, body_font, 13.0 * scale,
+                          TBX(516.0), TBY(476.0), 0.72, 0.79, 0.87);
 
-    tb_disp_draw_text(ctx, tb_i18n_get("receiver.ui.language"), section_font, 15, outer_x + 20.0, footer_top - 32.0, 0.54, 0.62, 0.76);
-    tb_disp_draw_text(ctx, language, body_font, 20, outer_x + 20.0, footer_top - 64.0, 0.94, 0.96, 0.99);
+        /* Permissions are condensed into a quiet diagnostic strip. */
+        tb_disp_fill_rounded_rect(ctx, TBX(28.0), TBY(500.0), 924.0 * scale, 50.0 * scale,
+                                  14.0 * scale, 0.055, 0.067, 0.087, 0.96);
+        tb_disp_draw_text(ctx, tb_i18n_get("receiver.ui.permissions"), section_font,
+                          11.0 * scale, TBX(48.0), TBY(530.0), 0.43, 0.54, 0.68);
+        tb_disp_draw_text(ctx, permissions, body_font, 13.0 * scale,
+                          TBX(145.0), TBY(530.0), 0.70, 0.77, 0.85);
 
-    tb_disp_draw_text(ctx, tb_i18n_get("receiver.ui.permissions"), section_font, 15, outer_x + 20.0, footer_top - 102.0, 0.54, 0.62, 0.76);
-    tb_disp_draw_text(ctx, permissions, body_font, 20, outer_x + 20.0, footer_top - 134.0, 0.94, 0.96, 0.99);
+        tb_disp_draw_text(ctx, tb_i18n_get("receiver.ui.help_1"), body_font,
+                          11.0 * scale, TBX(32.0), TBY(578.0), 0.49, 0.57, 0.67);
+        tb_disp_draw_text(ctx, tb_i18n_get("receiver.ui.help_4"), body_font,
+                          11.0 * scale, TBX(32.0), TBY(600.0), 0.49, 0.57, 0.67);
+        tb_disp_draw_text(ctx, TB_RECEIVER_BUILD, mono_font,
+                          9.0 * scale, TBX(828.0), TBY(600.0), 0.30, 0.36, 0.44);
 
-    tb_disp_draw_text(ctx, tb_i18n_get("receiver.ui.help_1"), body_font, 17, 72, 138, 0.76, 0.80, 0.88);
-    tb_disp_draw_text(ctx, tb_i18n_get("receiver.ui.help_2"), body_font, 17, 72, 108, 0.76, 0.80, 0.88);
-    tb_disp_draw_text(ctx, tb_i18n_get("receiver.ui.help_4"), body_font, 17, 72, 78, 0.76, 0.80, 0.88);
+#undef TBX
+#undef TBY
     }
 
     CGContextRelease(ctx);
@@ -496,18 +939,22 @@ static void tb_disp_rebuild_status_texture(struct tb_display *d,
 static void tb_disp_refresh_window_mode(struct tb_display *d) {
     if (!d || !d->win) return;
 
-    if ((d->is_connected || d->is_connecting) && d->preferred_fullscreen) {
+    const int monitor_shield_active =
+        (d->is_connected || d->is_connecting) && d->preferred_fullscreen;
+
+    if (monitor_shield_active) {
         SDL_SetWindowFullscreen(d->win, SDL_WINDOW_FULLSCREEN_DESKTOP);
     } else {
         SDL_SetWindowFullscreen(d->win, 0);
         SDL_SetWindowSize(d->win, 980, 620);
         SDL_SetWindowPosition(d->win, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
     }
+    tb_receiver_set_monitor_shield(monitor_shield_active);
 
-    const int should_hide_cursor =
-        ((d->is_connected || d->is_connecting) && d->preferred_fullscreen) ||
-        d->input_capture_active ||
-        d->input_intercept_active;
+    const int should_hide_cursor = !d->local_ui_passthrough_active &&
+        (((d->is_connected || d->is_connecting) && d->preferred_fullscreen) ||
+         d->input_capture_active ||
+         d->input_intercept_active);
 
     SDL_ShowCursor(should_hide_cursor ? SDL_DISABLE : SDL_ENABLE);
     if (should_hide_cursor && !d->system_cursor_hidden) {
@@ -587,6 +1034,8 @@ struct tb_display *tb_disp_create(int fullscreen) {
     }
     SDL_SetYUVConversionMode(SDL_YUV_CONVERSION_BT709);
     SDL_RenderSetLogicalSize(d->ren, 0, 0);
+    d->arrow_cursor = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_ARROW);
+    d->hand_cursor = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_HAND);
 
     /* report which backend SDL picked */
     SDL_RendererInfo info;
@@ -618,6 +1067,9 @@ struct tb_display *tb_disp_create(int fullscreen) {
     d->cursor_visible = 0;
     d->cursor_type = 0;
     d->system_cursor_hidden = 0;
+    d->hovered_control_button = -1;
+    d->pressed_control_button = -1;
+    d->advanced_controls_visible = 0;
     d->last_video_frame_time = 0;
 
     tb_disp_refresh_window_mode(d);
@@ -633,6 +1085,8 @@ void tb_disp_destroy(struct tb_display *d) {
     }
     tb_disp_destroy_status_texture(d);
     if (d->tex) SDL_DestroyTexture(d->tex);
+    if (d->arrow_cursor) SDL_FreeCursor(d->arrow_cursor);
+    if (d->hand_cursor) SDL_FreeCursor(d->hand_cursor);
     if (d->ren) SDL_DestroyRenderer(d->ren);
     if (d->win) SDL_DestroyWindow(d->win);
     SDL_EnableScreenSaver();
@@ -1120,6 +1574,7 @@ static void tb_disp_render_current(struct tb_display *d) {
     SDL_RenderCopy(d->ren, d->tex, NULL, NULL);
     tb_disp_draw_cursor(d);
     SDL_RenderPresent(d->ren);
+    d->last_present_time = SDL_GetTicks();
 }
 
 void tb_disp_render_nv12(struct tb_display *d,
@@ -1152,11 +1607,14 @@ void tb_disp_set_cursor(struct tb_display *d,
     d->cursor_visible = visible;
     d->cursor_type = type;
 
+    /* Cursor packets are intentionally independent from video frames. When the
+     * iMac controls the Sender, waiting for the next HEVC frame makes the mouse
+     * feel limited to the content frame rate. Re-present the latest texture with
+     * the updated cursor, capped near 120 Hz; SDL/vsync naturally limits this to
+     * the 2017 iMac panel's refresh rate. */
     uint32_t now = SDL_GetTicks();
-    if (now - d->last_video_frame_time > 40) {
-        if (d->is_connected && d->tex) {
-            tb_disp_render_current(d);
-        }
+    if (d->is_connected && d->tex && now - d->last_present_time >= 8) {
+        tb_disp_render_current(d);
     }
 }
 
@@ -1165,6 +1623,15 @@ unsigned int tb_disp_poll_actions(struct tb_display *d) {
     SDL_Event ev;
     while (SDL_PollEvent(&ev)) {
         if (ev.type == SDL_QUIT) d->quit = 1;
+        else if (ev.type == SDL_KEYDOWN &&
+                 (ev.key.keysym.mod & KMOD_CTRL) &&
+                 (ev.key.keysym.mod & KMOD_ALT) &&
+                 (ev.key.keysym.mod & KMOD_GUI) &&
+                 ev.key.keysym.sym == SDLK_ESCAPE) {
+            /* Always local: stop the remote sender and return control to the
+             * iMac. Never forward the fail-safe chord to the Mac mini. */
+            actions |= TB_DISP_ACTION_STOP_SENDER;
+        }
         else if (!d->input_capture_active &&
                  !d->input_intercept_active &&
                  ev.type == SDL_KEYDOWN &&
@@ -1173,18 +1640,82 @@ unsigned int tb_disp_poll_actions(struct tb_display *d) {
                  !d->input_intercept_active &&
                  ev.type == SDL_KEYDOWN &&
                  ev.key.keysym.sym == SDLK_l) actions |= TB_DISP_ACTION_CYCLE_LANGUAGE;
+        else if (!d->input_capture_active &&
+                 !d->input_intercept_active &&
+                 ev.type == SDL_KEYDOWN &&
+                 (ev.key.keysym.sym == SDLK_RETURN || ev.key.keysym.sym == SDLK_F5)) {
+            actions |= TB_DISP_ACTION_START_AUTO;
+        }
+        else if (!d->input_capture_active &&
+                 !d->input_intercept_active &&
+                 ev.type == SDL_KEYDOWN &&
+                 ev.key.keysym.sym == SDLK_s) {
+            actions |= TB_DISP_ACTION_STOP_SENDER;
+        }
+        else if (!d->input_capture_active &&
+                 !d->input_intercept_active &&
+                 ev.type == SDL_KEYDOWN &&
+                 ev.key.keysym.sym == SDLK_d) {
+            actions |= TB_DISP_ACTION_SAVE_DIAGNOSTICS;
+        }
+        else if (!d->input_capture_active &&
+                 !d->input_intercept_active &&
+                 ev.type == SDL_MOUSEMOTION) {
+            tb_disp_set_hovered_control_button(
+                d, tb_disp_control_button_at(d, ev.motion.x, ev.motion.y));
+        }
+        else if (!d->input_capture_active &&
+                 !d->input_intercept_active &&
+                 ev.type == SDL_MOUSEBUTTONDOWN &&
+                 ev.button.button == SDL_BUTTON_LEFT) {
+            tb_disp_set_pressed_control_button(
+                d, tb_disp_control_button_at(d, ev.button.x, ev.button.y));
+        }
+        else if (!d->input_capture_active &&
+                 !d->input_intercept_active &&
+                 ev.type == SDL_MOUSEBUTTONUP &&
+                 ev.button.button == SDL_BUTTON_LEFT) {
+            int released_button = tb_disp_control_button_at(d, ev.button.x, ev.button.y);
+            if (released_button >= 0 && released_button == d->pressed_control_button) {
+                unsigned int button_action = tb_disp_control_action_for_button(d, released_button);
+                if (button_action == TB_DISP_ACTION_TOGGLE_ADVANCED) {
+                    d->advanced_controls_visible = !d->advanced_controls_visible;
+                    d->hovered_control_button = -1;
+                    tb_disp_destroy_status_texture(d);
+                } else {
+                    actions |= button_action;
+                }
+            }
+            tb_disp_set_pressed_control_button(d, -1);
+        }
+        else if (!d->input_capture_active &&
+                 !d->input_intercept_active &&
+                 ev.type == SDL_WINDOWEVENT &&
+                 ev.window.event == SDL_WINDOWEVENT_LEAVE) {
+            tb_disp_set_pressed_control_button(d, -1);
+            tb_disp_set_hovered_control_button(d, -1);
+        }
         else if (d->input_capture_active) {
             struct tb_input_event input_event;
             memset(&input_event, 0, sizeof(input_event));
             switch (ev.type) {
             case SDL_MOUSEMOTION:
-                if (ev.motion.x <= 2 && ev.motion.xrel < 0 && SDL_GetTicks() - d->last_target_switch_tick > 450) {
+                /* Edge switching only makes sense with an absolute local
+                 * pointer. Relative mode recentres the hidden pointer and can
+                 * emit a synthetic edge event while capture starts. Treating
+                 * that as a target switch made the first iMac mouse movement
+                 * appear to disappear. */
+                if (SDL_GetRelativeMouseMode() == SDL_FALSE &&
+                    ev.motion.x <= 2 && ev.motion.xrel < 0 &&
+                    SDL_GetTicks() - d->last_target_switch_tick > 450) {
                     input_event.kind = TB_INPUT_EVENT_SWITCH_PREV_TARGET;
                     tb_disp_queue_input_event(d, &input_event);
                     d->last_target_switch_tick = SDL_GetTicks();
                     break;
                 }
-                if (ev.motion.x >= d->last_drawable_w - 2 && ev.motion.xrel > 0 && SDL_GetTicks() - d->last_target_switch_tick > 450) {
+                if (SDL_GetRelativeMouseMode() == SDL_FALSE &&
+                    ev.motion.x >= d->last_drawable_w - 2 && ev.motion.xrel > 0 &&
+                    SDL_GetTicks() - d->last_target_switch_tick > 450) {
                     input_event.kind = TB_INPUT_EVENT_SWITCH_NEXT_TARGET;
                     tb_disp_queue_input_event(d, &input_event);
                     d->last_target_switch_tick = SDL_GetTicks();
@@ -1284,6 +1815,12 @@ unsigned int tb_disp_poll_actions(struct tb_display *d) {
                 if ((ev.key.keysym.mod & KMOD_CTRL) &&
                     (ev.key.keysym.mod & KMOD_ALT) &&
                     (ev.key.keysym.mod & KMOD_GUI) &&
+                    ev.key.keysym.sym == SDLK_ESCAPE) {
+                    break;
+                }
+                if ((ev.key.keysym.mod & KMOD_CTRL) &&
+                    (ev.key.keysym.mod & KMOD_ALT) &&
+                    (ev.key.keysym.mod & KMOD_GUI) &&
                     ev.key.keysym.sym == SDLK_k) {
                     break;
                 }
@@ -1358,6 +1895,11 @@ static void tb_disp_set_stream_state(struct tb_display *d, int connected, int co
     if (d->is_connected == connected && d->is_connecting == connecting) return;
     d->is_connected = connected;
     d->is_connecting = connecting;
+    if (connected || connecting) {
+        d->hovered_control_button = -1;
+        d->pressed_control_button = -1;
+        if (d->arrow_cursor) SDL_SetCursor(d->arrow_cursor);
+    }
     tb_disp_refresh_window_mode(d);
 }
 
@@ -1371,13 +1913,45 @@ static void tb_disp_set_connecting_state(struct tb_display *d, int connecting) {
 
 void tb_disp_set_input_capture_active(struct tb_display *d, int active) {
     if (!d) return;
-    d->input_capture_active = active ? 1 : 0;
+    const int normalized = active ? 1 : 0;
+    if (d->input_capture_active == normalized) return;
+    d->input_capture_active = normalized;
+
+    /* The no-permission fullscreen path reads events from the Receiver's own
+     * SDL window. Relative mode keeps motion flowing after the invisible local
+     * pointer reaches a screen edge, and is always released with the emergency
+     * shortcut or when the session disconnects. */
+    if (normalized) {
+        /* A login-item notification or a background launch can leave the
+         * fullscreen window visible but without keyboard focus. In that state
+         * SDL reports no local mouse events at all. Explicitly activate the
+         * Receiver window before entering relative mode. */
+        SDL_RaiseWindow(d->win);
+        if (SDL_SetWindowInputFocus(d->win) != 0) {
+            fprintf(stderr, "[input] SDL input focus unavailable: %s\n", SDL_GetError());
+        }
+        SDL_SetWindowGrab(d->win, SDL_TRUE);
+        if (SDL_SetRelativeMouseMode(SDL_TRUE) != 0) {
+            fprintf(stderr, "[input] SDL relative mouse mode unavailable: %s\n", SDL_GetError());
+        }
+    } else {
+        (void)SDL_SetRelativeMouseMode(SDL_FALSE);
+        SDL_SetWindowGrab(d->win, SDL_FALSE);
+    }
     tb_disp_refresh_window_mode(d);
 }
 
 void tb_disp_set_input_intercept_active(struct tb_display *d, int active) {
     if (!d) return;
     d->input_intercept_active = active ? 1 : 0;
+    tb_disp_refresh_window_mode(d);
+}
+
+void tb_disp_set_local_ui_passthrough(struct tb_display *d, int active) {
+    if (!d) return;
+    int normalized = active ? 1 : 0;
+    if (d->local_ui_passthrough_active == normalized) return;
+    d->local_ui_passthrough_active = normalized;
     tb_disp_refresh_window_mode(d);
 }
 
@@ -1404,7 +1978,12 @@ void tb_disp_render_status(struct tb_display *d,
                            const char *panel,
                            const char *mode,
                            const char *language,
-                           const char *permissions) {
+                           const char *permissions,
+                           const char *control,
+                           const char *selected_path,
+                           const char *selected_path_id,
+                           int input_enabled,
+                           int input_setup_needed) {
     if (!d || !d->ren || !d->win) return;
 
     tb_disp_set_connection_state(d, 0);
@@ -1416,6 +1995,13 @@ void tb_disp_render_status(struct tb_display *d,
     if (!mode) mode = tb_i18n_get("receiver.mode.default");
     if (!language) language = tb_i18n_get("receiver.language.auto");
     if (!permissions) permissions = "";
+    if (!control) control = "";
+    if (!selected_path) selected_path = "";
+    if (!selected_path_id) selected_path_id = "auto";
+    input_enabled = input_enabled ? 1 : 0;
+    input_setup_needed = input_setup_needed ? 1 : 0;
+    d->input_option_enabled = input_enabled;
+    d->input_setup_needed = input_setup_needed;
 
     int drawable_w = 0, drawable_h = 0;
     if (SDL_GetRendererOutputSize(d->ren, &drawable_w, &drawable_h) < 0 ||
@@ -1431,6 +2017,11 @@ void tb_disp_render_status(struct tb_display *d,
         strcmp(d->last_mode, mode) != 0 ||
         strcmp(d->last_language, language) != 0 ||
         strcmp(d->last_permissions, permissions) != 0 ||
+        strcmp(d->last_control, control) != 0 ||
+        strcmp(d->last_selected_path, selected_path) != 0 ||
+        strcmp(d->last_selected_path_id, selected_path_id) != 0 ||
+        d->last_input_option_enabled != input_enabled ||
+        d->last_input_setup_needed != input_setup_needed ||
         d->last_drawable_w != drawable_w ||
         d->last_drawable_h != drawable_h ||
         d->status_tex == NULL ||
@@ -1442,15 +2033,21 @@ void tb_disp_render_status(struct tb_display *d,
         snprintf(d->last_mode, sizeof(d->last_mode), "%s", mode);
         snprintf(d->last_language, sizeof(d->last_language), "%s", language);
         snprintf(d->last_permissions, sizeof(d->last_permissions), "%s", permissions);
+        snprintf(d->last_control, sizeof(d->last_control), "%s", control);
+        snprintf(d->last_selected_path, sizeof(d->last_selected_path), "%s", selected_path);
+        snprintf(d->last_selected_path_id, sizeof(d->last_selected_path_id), "%s", selected_path_id);
+        d->last_input_option_enabled = input_enabled;
+        d->last_input_setup_needed = input_setup_needed;
         d->last_drawable_w = drawable_w;
         d->last_drawable_h = drawable_h;
         d->status_is_connecting = 0;
         tb_disp_rebuild_status_texture(d, ip, status, sender, panel, mode, language, permissions,
+                                       control, selected_path, selected_path_id,
                                        drawable_w, drawable_h, 0);
     }
 
     char title[256];
-    snprintf(title, sizeof(title), "TBDisplayReceiverC %s — %s — %s", TB_RECEIVER_VERSION, ip, status);
+    snprintf(title, sizeof(title), "TargetBridge Receiver %s — %s — %s", TB_RECEIVER_VERSION, ip, status);
     SDL_SetWindowTitle(d->win, title);
 
     SDL_RenderClear(d->ren);
@@ -1478,7 +2075,7 @@ void tb_disp_render_connecting(struct tb_display *d) {
         d->last_drawable_w = drawable_w;
         d->last_drawable_h = drawable_h;
         d->status_is_connecting = 1;
-        tb_disp_rebuild_status_texture(d, "", "", "", "", "", "", "",
+        tb_disp_rebuild_status_texture(d, "", "", "", "", "", "", "", "", "", "",
                                        drawable_w, drawable_h, 1);
     }
 

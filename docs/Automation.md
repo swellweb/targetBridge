@@ -17,15 +17,20 @@ install -m 0755 cli/targetbridge /usr/local/bin/targetbridge   # or ~/bin, etc.
 
 ```bash
 targetbridge connect                                            # auto-pick receiver, app defaults
-targetbridge connect --receiver auto --mode mirror --preset 1440p
+targetbridge connect --receiver auto --mode mirror --preset retina4k --path auto --input receiver --retry
 targetbridge connect --receiver 169.254.0.2 --mode extended --preset 5k
 targetbridge disconnect
 ```
 
 Options: `--receiver auto|<id|name|ip>`, `--mode mirror|extended`, `--preset <name>`,
-`--transport tb|net`, `--session N`, `--local-ip <ip>`.
-Presets: `standard1440p`, `smooth1440p60`, `smooth1800p60`, `crisp2160p60`, `native5k`,
+`--path auto|wired|thunderbolt|usb|ethernet|wifi`, `--input receiver|sender|off`,
+`--retry`, `--transport tb|net`, `--session N`, `--local-ip <ip>`.
+Presets: `standard1440p`, `smooth1440p60`, `smooth1800p60`, `crisp2160p60`, `retina4k60`, `native5k`,
 `native5k60Experimental` (aliases: `1440p`, `1440p60`, `1800p`, `4k`, `5k`, `5k60`).
+The `retina4k60` profile streams the native 4096 × 2304 panel size of the 21.5-inch
+Retina 4K iMac at 60 FPS. With `--path auto`, the Sender probes every advertised
+path using a bounded real transfer and chooses the fastest working route. `--retry`
+keeps monitoring the session and re-runs selection after a link failure.
 `native5k60Experimental` is an opt-in HEVC test profile for 5K at 60 FPS; it does not
 replace the stable 5K 48 FPS profile. A receiver of `auto` waits briefly for
 Bonjour discovery and uses the first receiver found; a raw IP/hostname bypasses discovery.
@@ -79,6 +84,28 @@ ssh <sender-user>@<sender-host> \
 If that still fails with an audit-session permission error, try the same command through
 `sudo` from an interactive SSH session (`ssh -t ...`), because the GUI handoff can be more
 strict on some systems.
+
+**Let the Receiver recover a headless Sender** — the monitor-mode Receiver includes an
+optional recovery helper. Provision a dedicated, restricted SSH key locally; credentials
+are deliberately never bundled in the app or installer. Store the private key and pinned
+host key in:
+
+```
+~/Library/Application Support/TargetBridge/Recovery/id_ed25519_targetbridge_recovery
+~/Library/Application Support/TargetBridge/Recovery/known_hosts
+```
+
+Pair the Sender hostname and account by writing one line to each file:
+
+```
+~/Library/Application Support/TargetBridge/Receiver/paired-mac-mini
+~/Library/Application Support/TargetBridge/Receiver/paired-mac-mini-user
+```
+
+The Sender-side authorized key should use a forced command restricted to TargetBridge's
+start/stop and input-mode actions. The Receiver first tries the paired hostname, then its
+last working hostname, an optional `Recovery/target-host`, `TB_SENDER_HOST`, and finally
+the generic `mac-mini.local` mDNS name. `TB_SENDER_USER` can override the paired account.
 
 **Auto-connect on wake (Hammerspoon, on the sender):**
 

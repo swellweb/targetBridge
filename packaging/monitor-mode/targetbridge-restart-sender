@@ -1,0 +1,134 @@
+#!/bin/zsh
+set -u
+
+TARGET_USER="${USER}"
+LABEL="com.targetbridge.sender.autostart"
+TARGET_UID="${TB_TARGET_UID:-$(/usr/bin/id -u "${TARGET_USER}" 2>/dev/null || true)}"
+CONSOLE_USER="${TB_CONSOLE_USER:-$(/usr/bin/stat -f %Su /dev/console 2>/dev/null || true)}"
+HOME_DIR="${TB_TARGET_HOME:-${HOME}}"
+PLIST="${TB_SENDER_PLIST:-${HOME_DIR}/Library/LaunchAgents/${LABEL}.plist}"
+STATE_DIR="${TB_SENDER_STATE_DIR:-${HOME_DIR}/Library/Application Support/TargetBridge/Sender}"
+ENABLED_FLAG="${STATE_DIR}/enabled"
+PATH_FILE="${STATE_DIR}/requested-path"
+INPUT_FILE="${STATE_DIR}/requested-input"
+SENDER_EXEC="${TB_SENDER_EXEC:-/Applications/TargetBridge.app/Contents/MacOS/TargetBridge}"
+LAUNCHCTL_BIN="${TB_LAUNCHCTL_BIN:-/bin/launchctl}"
+REQUEST="${SSH_ORIGINAL_COMMAND:-activate}"
+REQUESTED_PATH=""
+REQUESTED_INPUT=""
+STOP_REQUESTED=0
+
+case "${REQUEST}" in
+    activate|"") ;;
+    "path auto") REQUESTED_PATH="automatic" ;;
+    "path wired") REQUESTED_PATH="wired" ;;
+    "path thunderbolt") REQUESTED_PATH="thunderbolt" ;;
+    "path usb") REQUESTED_PATH="usb" ;;
+    "path ethernet") REQUESTED_PATH="ethernet" ;;
+    "path wifi") REQUESTED_PATH="wifi" ;;
+    "input on") REQUESTED_INPUT="receiver" ;;
+    "input off") REQUESTED_INPUT="off" ;;
+    stop) STOP_REQUESTED=1 ;;
+    *) print -- "REQUEST_NOT_ALLOWED"; exit 25 ;;
+esac
+
+[[ -n "${TARGET_UID}" ]] || { print -- "LOGIN_REQUIRED"; exit 20; }
+DOMAIN="gui/${TARGET_UID}"
+SERVICE="${DOMAIN}/${LABEL}"
+
+if [[ ${STOP_REQUESTED} -eq 1 ]]; then
+    /bin/rm -f "${ENABLED_FLAG}"
+    "${LAUNCHCTL_BIN}" kill TERM "${SERVICE}" >/dev/null 2>&1 || true
+    /usr/bin/pkill -TERM -f "^${SENDER_EXEC}( |$)" >/dev/null 2>&1 || true
+    for wait_index in {1..30}; do
+        /usr/bin/pgrep -f "^${SENDER_EXEC}( |$)" >/dev/null 2>&1 || {
+            print -- "SENDER_STOPPED"
+            exit 0
+        }
+        /bin/sleep 0.1
+    done
+    print -- "SENDER_STOP_FAILED"
+    exit 28
+fi
+
+[[ "${CONSOLE_USER}" == "${TARGET_USER}" ]] || { print -- "LOGIN_REQUIRED"; exit 20; }
+[[ -f "${PLIST}" && -x "${SENDER_EXEC}" ]] || { print -- "SENDER_NOT_INSTALLED"; exit 21; }
+
+/bin/mkdir -p "${STATE_DIR}" || { print -- "STATE_UPDATE_FAILED"; exit 26; }
+/bin/chmod 700 "${STATE_DIR}" >/dev/null 2>&1 || true
+
+PATH_CHANGED=0
+if [[ -n "${REQUESTED_PATH}" ]]; then
+    CURRENT_PATH=""
+    [[ -r "${PATH_FILE}" ]] && IFS= read -r CURRENT_PATH < "${PATH_FILE}" || true
+    if [[ "${CURRENT_PATH}" != "${REQUESTED_PATH}" ]]; then
+        TEMP_PATH="$(/usr/bin/mktemp "${STATE_DIR}/requested-path.XXXXXX")" \
+            || { print -- "PATH_UPDATE_FAILED"; exit 26; }
+        print -r -- "${REQUESTED_PATH}" > "${TEMP_PATH}" \
+            || { /bin/rm -f "${TEMP_PATH}"; print -- "PATH_UPDATE_FAILED"; exit 26; }
+        /bin/chmod 600 "${TEMP_PATH}" >/dev/null 2>&1 || true
+        /bin/mv "${TEMP_PATH}" "${PATH_FILE}" \
+            || { print -- "PATH_UPDATE_FAILED"; exit 26; }
+        PATH_CHANGED=1
+    fi
+fi
+
+INPUT_CHANGED=0
+if [[ -n "${REQUESTED_INPUT}" ]]; then
+    CURRENT_INPUT=""
+    [[ -r "${INPUT_FILE}" ]] && IFS= read -r CURRENT_INPUT < "${INPUT_FILE}" || true
+    if [[ "${CURRENT_INPUT}" != "${REQUESTED_INPUT}" ]]; then
+        TEMP_INPUT="$(/usr/bin/mktemp "${STATE_DIR}/requested-input.XXXXXX")" \
+            || { print -- "INPUT_UPDATE_FAILED"; exit 26; }
+        print -r -- "${REQUESTED_INPUT}" > "${TEMP_INPUT}" \
+            || { /bin/rm -f "${TEMP_INPUT}"; print -- "INPUT_UPDATE_FAILED"; exit 26; }
+        /bin/chmod 600 "${TEMP_INPUT}" >/dev/null 2>&1 || true
+        /bin/mv "${TEMP_INPUT}" "${INPUT_FILE}" \
+            || { print -- "INPUT_UPDATE_FAILED"; exit 26; }
+        INPUT_CHANGED=1
+    fi
+fi
+
+WAS_ENABLED=0
+[[ -f "${ENABLED_FLAG}" ]] && WAS_ENABLED=1
+
+# Changing the optional iMac controls while monitor mode is stopped must not
+# unexpectedly attach to the Mac mini. The preference is kept for the next
+# normal start and the Receiver remains usable locally.
+if [[ -n "${REQUESTED_INPUT}" && ${WAS_ENABLED} -eq 0 ]]; then
+    print -- "INPUT_SET:${REQUESTED_INPUT}"
+    exit 0
+fi
+
+/usr/bin/touch "${ENABLED_FLAG}" || { print -- "STATE_UPDATE_FAILED"; exit 26; }
+/bin/chmod 600 "${ENABLED_FLAG}" >/dev/null 2>&1 || true
+
+SERVICE_LOADED=1
+"${LAUNCHCTL_BIN}" print "${SERVICE}" >/dev/null 2>&1 || SERVICE_LOADED=0
+if [[ ${SERVICE_LOADED} -eq 0 ]]; then
+    "${LAUNCHCTL_BIN}" bootstrap "${DOMAIN}" "${PLIST}" >/dev/null 2>&1 \
+        || { print -- "SENDER_BOOTSTRAP_FAILED"; exit 22; }
+fi
+"${LAUNCHCTL_BIN}" enable "${SERVICE}" >/dev/null 2>&1 || true
+
+SERVICE_RUNNING=0
+"${LAUNCHCTL_BIN}" print "${SERVICE}" 2>/dev/null | /usr/bin/grep -q 'state = running' \
+    && SERVICE_RUNNING=1
+if [[ ${PATH_CHANGED} -eq 1 || ${INPUT_CHANGED} -eq 1 || "${REQUESTED_INPUT}" == "receiver" || ${SERVICE_RUNNING} -eq 0 || ${WAS_ENABLED} -eq 0 ]]; then
+    "${LAUNCHCTL_BIN}" kickstart -k "${SERVICE}" >/dev/null 2>&1 || true
+fi
+
+# launchd may enforce the LaunchAgent ThrottleInterval after a deliberate
+# Stop. Allow enough time for PathState/kickstart to pass that throttle so the
+# Receiver does not report a false failure while the Sender is still starting.
+for wait_index in {1..120}; do
+    if "${LAUNCHCTL_BIN}" print "${SERVICE}" 2>/dev/null | /usr/bin/grep -q 'state = running'; then
+        [[ -z "${REQUESTED_PATH}" ]] || print -- "PATH_SET:${REQUESTED_PATH}"
+        [[ -z "${REQUESTED_INPUT}" ]] || print -- "INPUT_SET:${REQUESTED_INPUT}"
+        print -- "SENDER_STARTED"
+        exit 0
+    fi
+    /bin/sleep 0.1
+done
+print -- "SENDER_NOT_RUNNING"
+exit 24

@@ -59,6 +59,15 @@ final class TBMonitorProtocolTests: XCTestCase {
         XCTAssertNil(profile.supportsRawNV12)
     }
 
+    func testOlderHelloRemainsCompatibleWithoutAccessibilityState() throws {
+        let olderHello = Data("""
+        {"senderName":"Mac mini","captureWidth":4096,"captureHeight":2304}
+        """.utf8)
+        let hello = try JSONDecoder().decode(TBMonitorHelloReceiver.self, from: olderHello)
+        XCTAssertEqual(hello.senderName, "Mac mini")
+        XCTAssertNil(hello.accessibilityTrusted)
+    }
+
     func testDrainPacketRoundTrip() throws {
         let payload = Data("hello receiver".utf8)
         var buffer = TBMonitorProtocol.makePacket(type: .helloReceiver, payload: payload)

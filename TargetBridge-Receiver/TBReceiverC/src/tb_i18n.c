@@ -173,7 +173,10 @@ static int tb_i18n_read_file(const char *path, char **contents_out) {
         fclose(fp);
         return -1;
     }
-    rewind(fp);
+    if (fseek(fp, 0, SEEK_SET) != 0) {
+        fclose(fp);
+        return -1;
+    }
 
     char *buf = (char *)calloc((size_t)size + 1, 1);
     if (!buf) {
