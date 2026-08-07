@@ -10,4 +10,8 @@ void tb_gesture_bridge_set_active(int active);
  * Space (or can't be determined), 0 if it is on a different Space. */
 int tb_window_on_active_space(void *sdl_window);
 
+/* Keep the fullscreen monitor surface above Notification Center while a
+ * session is active, restoring the normal window level on Stop/disconnect. */
+void tb_receiver_set_monitor_shield(int active);
+
 #endif

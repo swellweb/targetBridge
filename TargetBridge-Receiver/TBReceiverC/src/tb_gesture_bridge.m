@@ -3,6 +3,64 @@
 #import <AppKit/AppKit.h>
 #include <stdio.h>
 
+static NSWindow *tb_receiver_content_window(void) {
+    NSWindow *content = nil;
+    CGFloat best_area = 0.0;
+    for (NSWindow *window in NSApp.windows) {
+        if (!window.isVisible) continue;
+        NSSize size = window.frame.size;
+        CGFloat area = size.width * size.height;
+        if (area < 200.0 * 200.0) continue;
+        if (area > best_area) {
+            best_area = area;
+            content = window;
+        }
+    }
+    return content;
+}
+
+static BOOL g_monitor_shield_active = NO;
+
+static void tb_apply_monitor_shield(void) {
+    NSWindow *content = tb_receiver_content_window();
+    if (!content) return;
+
+    /* The public status-window level keeps ordinary local banners and the menu
+     * bar behind the active monitor surface without using invasive private or
+     * screen-saver window levels. */
+    NSWindowLevel desired = g_monitor_shield_active
+        ? (NSWindowLevel)CGWindowLevelForKey(kCGStatusWindowLevelKey)
+        : NSNormalWindowLevel;
+    if (content.level != desired) {
+        content.level = desired;
+    }
+}
+
+void tb_receiver_set_monitor_shield(int active) {
+    @autoreleasepool {
+        BOOL normalized = active ? YES : NO;
+        BOOL changed = normalized != g_monitor_shield_active;
+        g_monitor_shield_active = normalized;
+        tb_apply_monitor_shield();
+
+        /* SDL completes part of its native fullscreen transition after the
+         * call returns. Reapply the latest desired state once afterward. */
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 300 * NSEC_PER_MSEC),
+                       dispatch_get_main_queue(), ^{
+            tb_apply_monitor_shield();
+        });
+
+        if (changed) {
+            fprintf(stderr,
+                    "[display] monitor shield=%d level=%ld\n",
+                    normalized ? 1 : 0,
+                    (long)(normalized
+                        ? CGWindowLevelForKey(kCGStatusWindowLevelKey)
+                        : NSNormalWindowLevel));
+        }
+    }
+}
+
 int tb_window_on_active_space(void *sdl_window) {
     /* Whether the receiver's content window is on the Space the user is
      * currently viewing. Used to gate receiverMaster forwarding so local work
@@ -17,16 +75,9 @@ int tb_window_on_active_space(void *sdl_window) {
      * remains the active application on another Space. */
     (void)sdl_window;
 
-    NSWindow *content = nil;
-    CGFloat best_area = 0.0;
-    NSArray<NSWindow *> *windows = [NSApp windows];
-    for (NSWindow *w in windows) {
-        if (!w.isVisible) continue;
-        NSSize s = w.frame.size;
-        CGFloat area = s.width * s.height;
-        if (area < 200.0 * 200.0) continue;   /* skip tiny status/aux windows */
-        if (area > best_area) { best_area = area; content = w; }
-    }
+    NSWindow *content = tb_receiver_content_window();
+    CGFloat best_area = content ? content.frame.size.width * content.frame.size.height : 0.0;
+    NSArray<NSWindow *> *windows = NSApp.windows;
 
     /* Fail open (forward) only when we genuinely can't find a content window. */
     int on_active = content ? (content.isOnActiveSpace ? 1 : 0) : 1;

@@ -496,13 +496,17 @@ static void tb_disp_rebuild_status_texture(struct tb_display *d,
 static void tb_disp_refresh_window_mode(struct tb_display *d) {
     if (!d || !d->win) return;
 
-    if ((d->is_connected || d->is_connecting) && d->preferred_fullscreen) {
+    const int monitor_shield_active =
+        (d->is_connected || d->is_connecting) && d->preferred_fullscreen;
+
+    if (monitor_shield_active) {
         SDL_SetWindowFullscreen(d->win, SDL_WINDOW_FULLSCREEN_DESKTOP);
     } else {
         SDL_SetWindowFullscreen(d->win, 0);
         SDL_SetWindowSize(d->win, 980, 620);
         SDL_SetWindowPosition(d->win, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
     }
+    tb_receiver_set_monitor_shield(monitor_shield_active);
 
     const int should_hide_cursor =
         ((d->is_connected || d->is_connecting) && d->preferred_fullscreen) ||
