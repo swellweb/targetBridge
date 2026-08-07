@@ -31,7 +31,7 @@ LDFLAGS  += $(shell $(PKG) --libs libavcodec libavutil sdl2)
 
 UNAME_S  := $(shell uname -s)
 ifeq ($(UNAME_S),Darwin)
-LDFLAGS  += -framework ApplicationServices -framework AppKit -framework CoreFoundation -framework CoreGraphics -framework CoreText -framework VideoToolbox -framework CoreMedia -framework CoreVideo -framework IOSurface -framework CoreServices -framework CoreAudio
+LDFLAGS  += -framework ApplicationServices -framework AppKit -framework CoreFoundation -framework CoreGraphics -framework CoreText -framework VideoToolbox -framework CoreMedia -framework CoreVideo -framework IOSurface -framework CoreServices -framework CoreAudio -framework SystemConfiguration
 endif
 
 C_SRC = src/main.c src/net.c src/decoder.c src/display.c src/tb_i18n.c
@@ -56,10 +56,14 @@ clean:
 # Unit tests for the packet parser. net.c is pure POSIX, so this needs no
 # ffmpeg/SDL/pkgconf — it runs anywhere, including CI, with no hardware.
 TEST_CFLAGS = -O2 -g -Wall -Wextra -Wno-unused-parameter -std=c11
+TEST_LDFLAGS =
+ifeq ($(UNAME_S),Darwin)
+TEST_LDFLAGS += -framework CoreFoundation -framework SystemConfiguration
+endif
 TEST_BIN = test_net_parser
 
 $(TEST_BIN): tests/test_net_parser.c src/net.c src/net.h src/proto.h
-	$(CC) $(TEST_CFLAGS) -Isrc tests/test_net_parser.c src/net.c -o $@
+	$(CC) $(TEST_CFLAGS) -Isrc tests/test_net_parser.c src/net.c $(TEST_LDFLAGS) -o $@
 
 test: $(TEST_BIN)
 	./$(TEST_BIN)

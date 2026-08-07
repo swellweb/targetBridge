@@ -82,7 +82,10 @@ struct app {
 
     char     ip_text[64];
     char     tb_ip_text[64];
+    char     usb_ip_text[64];
     char     net_ip_text[64];
+    char     ethernet_ip_text[64];
+    char     wifi_ip_text[64];
     char     display_host[128]; /* short hostname (or hostname+IP), cached at startup */
     char     status_text[128];
     char     sender_text[128];
@@ -597,8 +600,17 @@ static void bonjour_update(struct app *a, uint16_t port) {
     if (a->tb_ip_text[0] != '\0') {
         TXTRecordSetValue(&txt, "tbIP", (uint8_t)strlen(a->tb_ip_text), a->tb_ip_text);
     }
+    if (a->usb_ip_text[0] != '\0') {
+        TXTRecordSetValue(&txt, "usbIP", (uint8_t)strlen(a->usb_ip_text), a->usb_ip_text);
+    }
     if (a->net_ip_text[0] != '\0') {
         TXTRecordSetValue(&txt, "netIP", (uint8_t)strlen(a->net_ip_text), a->net_ip_text);
+    }
+    if (a->ethernet_ip_text[0] != '\0') {
+        TXTRecordSetValue(&txt, "ethernetIP", (uint8_t)strlen(a->ethernet_ip_text), a->ethernet_ip_text);
+    }
+    if (a->wifi_ip_text[0] != '\0') {
+        TXTRecordSetValue(&txt, "wifiIP", (uint8_t)strlen(a->wifi_ip_text), a->wifi_ip_text);
     }
     TXTRecordSetValue(&txt, "panel", (uint8_t)strlen(a->panel_text), a->panel_text);
     TXTRecordSetValue(&txt, "version", (uint8_t)strlen(TB_RECEIVER_VERSION), TB_RECEIVER_VERSION);
@@ -1858,16 +1870,30 @@ int main(int argc, char **argv) {
     signal(SIGPIPE, SIG_IGN);
 
     char tb_ip[64] = {0};
+    char usb_ip[64] = {0};
     char net_ip[64] = {0};
+    char ethernet_ip[64] = {0};
+    char wifi_ip[64] = {0};
     if (tb_net_get_tb_ip(tb_ip, sizeof(tb_ip)) == 0) {
         printf("TBReceiver: Thunderbolt Bridge IP = %s\n", tb_ip);
     } else {
         printf("TBReceiver: warning, no bridge IP detected (169.254.x.x)\n");
     }
+    if (tb_net_get_link_local_ip(usb_ip, sizeof(usb_ip)) == 0) {
+        printf("TBReceiver: Direct USB-NCM IP = %s\n", usb_ip);
+    } else {
+        printf("TBReceiver: warning, no direct USB-NCM/link-local IP detected\n");
+    }
     if (tb_net_get_lan_ip(net_ip, sizeof(net_ip)) == 0) {
         printf("TBReceiver: Local network IP = %s\n", net_ip);
     } else {
         printf("TBReceiver: warning, no LAN IP detected (RFC1918 IPv4)\n");
+    }
+    if (tb_net_get_ethernet_ip(ethernet_ip, sizeof(ethernet_ip)) == 0) {
+        printf("TBReceiver: Ethernet IP = %s\n", ethernet_ip);
+    }
+    if (tb_net_get_wifi_ip(wifi_ip, sizeof(wifi_ip)) == 0) {
+        printf("TBReceiver: Wi-Fi IP = %s\n", wifi_ip);
     }
     printf("TBReceiver: listening on TCP port %d\n", TB_PORT);
 
@@ -1883,14 +1909,21 @@ int main(int argc, char **argv) {
         snprintf(a.bonjour_name, sizeof(a.bonjour_name), "TargetBridge %s", host);
     }
     snprintf(a.tb_ip_text, sizeof(a.tb_ip_text), "%s", tb_ip);
+    snprintf(a.usb_ip_text, sizeof(a.usb_ip_text), "%s", usb_ip);
     snprintf(a.net_ip_text, sizeof(a.net_ip_text), "%s", net_ip);
-    snprintf(a.ip_text, sizeof(a.ip_text), "%s", tb_ip[0] ? tb_ip : (net_ip[0] ? net_ip : tb_i18n_get("receiver.network.not_detected")));
+    snprintf(a.ethernet_ip_text, sizeof(a.ethernet_ip_text), "%s", ethernet_ip);
+    snprintf(a.wifi_ip_text, sizeof(a.wifi_ip_text), "%s", wifi_ip);
+    snprintf(a.ip_text, sizeof(a.ip_text), "%s",
+             tb_ip[0] ? tb_ip
+                      : (usb_ip[0] ? usb_ip
+                                   : (net_ip[0] ? net_ip : tb_i18n_get("receiver.network.not_detected"))));
     snprintf(a.language_pref, sizeof(a.language_pref), "%s", startup_language_pref);
     snprintf(a.input_control_mode, sizeof(a.input_control_mode), "%s", "off");
     a.last_input_monitoring_trusted = -1;
     a.last_accessibility_trusted = -1;
     tb_refresh_idle_localized_strings(&a);
-    build_display_host(a.display_host, sizeof(a.display_host), a.ip_text, tb_ip[0] || net_ip[0]);
+    build_display_host(a.display_host, sizeof(a.display_host), a.ip_text,
+                       tb_ip[0] || usb_ip[0] || net_ip[0]);
     tb_receiver_apply_language_preference(&a);
     tb_gesture_bridge_install(tb_receiver_space_switch_callback, &a);
     tb_gesture_bridge_set_active(0);
@@ -1949,27 +1982,50 @@ int main(int argc, char **argv) {
 
         if (t - a.last_ip_check_ms >= 1000) {
             char refreshed_tb_ip[64] = {0};
+            char refreshed_usb_ip[64] = {0};
             char refreshed_net_ip[64] = {0};
+            char refreshed_ethernet_ip[64] = {0};
+            char refreshed_wifi_ip[64] = {0};
             a.last_ip_check_ms = t;
             (void)tb_net_get_tb_ip(refreshed_tb_ip, sizeof(refreshed_tb_ip));
+            (void)tb_net_get_link_local_ip(refreshed_usb_ip, sizeof(refreshed_usb_ip));
             (void)tb_net_get_lan_ip(refreshed_net_ip, sizeof(refreshed_net_ip));
+            (void)tb_net_get_ethernet_ip(refreshed_ethernet_ip, sizeof(refreshed_ethernet_ip));
+            (void)tb_net_get_wifi_ip(refreshed_wifi_ip, sizeof(refreshed_wifi_ip));
 
-            const int have_refreshed_ip = refreshed_tb_ip[0] || refreshed_net_ip[0];
+            const int have_refreshed_ip =
+                refreshed_tb_ip[0] || refreshed_usb_ip[0] || refreshed_net_ip[0];
             const char *preferred_ip = refreshed_tb_ip[0] ? refreshed_tb_ip
-                                     : (refreshed_net_ip[0] ? refreshed_net_ip
-                                     : tb_i18n_get("receiver.network.not_detected"));
+                                     : (refreshed_usb_ip[0] ? refreshed_usb_ip
+                                      : (refreshed_net_ip[0] ? refreshed_net_ip
+                                      : tb_i18n_get("receiver.network.not_detected")));
             if (strcmp(a.tb_ip_text, refreshed_tb_ip) != 0 ||
+                strcmp(a.usb_ip_text, refreshed_usb_ip) != 0 ||
                 strcmp(a.net_ip_text, refreshed_net_ip) != 0 ||
+                strcmp(a.ethernet_ip_text, refreshed_ethernet_ip) != 0 ||
+                strcmp(a.wifi_ip_text, refreshed_wifi_ip) != 0 ||
                 strcmp(a.ip_text, preferred_ip) != 0) {
                 snprintf(a.tb_ip_text, sizeof(a.tb_ip_text), "%s", refreshed_tb_ip);
+                snprintf(a.usb_ip_text, sizeof(a.usb_ip_text), "%s", refreshed_usb_ip);
                 snprintf(a.net_ip_text, sizeof(a.net_ip_text), "%s", refreshed_net_ip);
+                snprintf(a.ethernet_ip_text, sizeof(a.ethernet_ip_text), "%s", refreshed_ethernet_ip);
+                snprintf(a.wifi_ip_text, sizeof(a.wifi_ip_text), "%s", refreshed_wifi_ip);
                 snprintf(a.ip_text, sizeof(a.ip_text), "%s", preferred_ip);
                 build_display_host(a.display_host, sizeof(a.display_host), preferred_ip, have_refreshed_ip);
                 if (refreshed_tb_ip[0] != '\0') {
                     fprintf(stderr, "[main] Thunderbolt Bridge IP = %s\n", refreshed_tb_ip);
                 }
+                if (refreshed_usb_ip[0] != '\0') {
+                    fprintf(stderr, "[main] Direct USB-NCM IP = %s\n", refreshed_usb_ip);
+                }
                 if (refreshed_net_ip[0] != '\0') {
                     fprintf(stderr, "[main] Local network IP = %s\n", refreshed_net_ip);
+                }
+                if (refreshed_ethernet_ip[0] != '\0') {
+                    fprintf(stderr, "[main] Ethernet IP = %s\n", refreshed_ethernet_ip);
+                }
+                if (refreshed_wifi_ip[0] != '\0') {
+                    fprintf(stderr, "[main] Wi-Fi IP = %s\n", refreshed_wifi_ip);
                 }
                 bonjour_update(&a, TB_PORT);
             }

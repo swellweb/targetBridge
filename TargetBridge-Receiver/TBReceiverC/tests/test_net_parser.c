@@ -73,6 +73,16 @@ static size_t build_packet(uint8_t *buf, uint8_t type, const void *payload, size
 
 /* ---- tests ------------------------------------------------------------- */
 
+static void test_link_local_ipv4_classifier(void) {
+    CHECK(tb_net_is_link_local_ipv4("169.254.189.3"), "USB-NCM link-local address");
+    CHECK(tb_net_is_link_local_ipv4("169.254.0.1"), "link-local lower boundary");
+    CHECK(tb_net_is_link_local_ipv4("169.254.255.254"), "link-local upper boundary");
+    CHECK(!tb_net_is_link_local_ipv4("169.255.1.1"), "outside link-local prefix");
+    CHECK(!tb_net_is_link_local_ipv4("10.77.77.2"), "private LAN is not link-local");
+    CHECK(!tb_net_is_link_local_ipv4("not-an-ip"), "invalid address rejected");
+    CHECK(!tb_net_is_link_local_ipv4(NULL), "NULL address rejected");
+}
+
 static void test_single_packet_whole_feed(void) {
     struct tb_parser p;
     tb_parser_init(&p, capture_cb, NULL);
@@ -213,6 +223,7 @@ static void test_large_payload_roundtrip(void) {
 }
 
 int main(void) {
+    test_link_local_ipv4_classifier();
     test_single_packet_whole_feed();
     test_byte_by_byte_feed();
     test_two_contiguous_packets();

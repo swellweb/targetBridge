@@ -9,12 +9,13 @@ set -euo pipefail
 #
 # Usage:
 #   targetbridge connect [--receiver auto|<id|name|ip>] [--mode mirror|extended]
-#                        [--preset <name>] [--transport tb|net] [--session N] [--local-ip <ip>]
+#                        [--preset <name>] [--path auto|wired|thunderbolt|usb|ethernet|wifi]
+#                        [--transport tb|net] [--session N] [--local-ip <ip>]
 #   targetbridge disconnect [--session N]
 #
 # Examples:
 #   targetbridge connect                                  # auto receiver, app defaults
-#   targetbridge connect --receiver auto --mode mirror --preset 1440p
+#   targetbridge connect --receiver auto --mode mirror --preset 1440p --path auto
 #   targetbridge connect --receiver 169.254.0.2 --mode extended --preset 5k
 #   targetbridge disconnect
 #
@@ -61,6 +62,7 @@ while [ $# -gt 0 ]; do
     --receiver)  add receiver  "${2:-}"; shift 2 ;;
     --mode)      add mode      "${2:-}"; shift 2 ;;
     --preset)    add preset    "${2:-}"; shift 2 ;;
+    --path)      add path      "${2:-}"; shift 2 ;;
     --transport) add transport "${2:-}"; shift 2 ;;
     --session)   add session   "${2:-}"; shift 2 ;;
     --local-ip)  add localIP   "${2:-}"; shift 2 ;;

@@ -83,16 +83,52 @@ enum TBSenderAutomation {
             session.transportKind = parseTransport(transport)
         }
 
+        let rawPath = params["path"] ?? params["connection-path"] ?? params["connection"]
+        let pathPreference: TBConnectionPathPreference?
+        if let rawPath {
+            guard let parsed = TBConnectionPathPreference.parse(rawPath) else {
+                NSLog("[automation] unknown connection path '\(rawPath)'; aborting connect")
+                return
+            }
+            pathPreference = parsed
+        } else {
+            pathPreference = nil
+        }
+
         let receiver = params["receiver"].flatMap { $0.isEmpty ? nil : $0 } ?? "auto"
         if receiver.lowercased() == "auto" {
             guard let discovered = await waitForReceiver(service) else {
                 NSLog("[automation] no receivers discovered; aborting connect")
                 return
             }
-            service.applyDiscoveredReceiver(discovered, to: session)
+            if let pathPreference {
+                guard let selected = await selectConnectionPath(
+                    receiver: discovered,
+                    preference: pathPreference,
+                    requestedLocalIP: params["localip"] ?? params["local-ip"]
+                ) else {
+                    NSLog("[automation] no working \(pathPreference.rawValue) path; aborting connect")
+                    return
+                }
+                apply(selected, receiver: discovered, to: session)
+            } else {
+                service.applyDiscoveredReceiver(discovered, to: session)
+            }
             session.selectedReceiverID = discovered.id
         } else if let discovered = service.discoveredReceivers.first(where: { matches(receiver, $0) }) {
-            service.applyDiscoveredReceiver(discovered, to: session)
+            if let pathPreference {
+                guard let selected = await selectConnectionPath(
+                    receiver: discovered,
+                    preference: pathPreference,
+                    requestedLocalIP: params["localip"] ?? params["local-ip"]
+                ) else {
+                    NSLog("[automation] no working \(pathPreference.rawValue) path to \(receiver); aborting connect")
+                    return
+                }
+                apply(selected, receiver: discovered, to: session)
+            } else {
+                service.applyDiscoveredReceiver(discovered, to: session)
+            }
             session.selectedReceiverID = discovered.id
         } else {
             // Treat as a raw IP / hostname (bypasses Bonjour).
@@ -100,7 +136,9 @@ enum TBSenderAutomation {
             session.selectedReceiverID = ""
         }
 
-        if let localIP = (params["localip"] ?? params["local-ip"]), !localIP.isEmpty {
+        if pathPreference == nil,
+           let localIP = (params["localip"] ?? params["local-ip"]),
+           !localIP.isEmpty {
             session.localInterfaceIP = localIP
         }
         if session.localInterfaceIP.isEmpty {
@@ -124,7 +162,7 @@ enum TBSenderAutomation {
             NSLog("[automation] no local interface for transport \(session.transportKind.rawValue); aborting connect")
             return
         }
-        NSLog("[automation] connecting to \(session.receiverIP) via \(session.transportKind.rawValue) — \(session.captureSource.rawValue)/\(session.capturePreset.rawValue)")
+        NSLog("[automation] connecting to \(session.receiverIP) from \(session.localInterfaceIP) via \(session.transportKind.rawValue) — \(session.captureSource.rawValue)/\(session.capturePreset.rawValue)")
         session.connect()
     }
 
@@ -202,6 +240,70 @@ enum TBSenderAutomation {
         return service.discoveredReceivers.first
     }
 
+    private static func selectConnectionPath(
+        receiver: TBDiscoveredReceiver,
+        preference: TBConnectionPathPreference,
+        requestedLocalIP: String?
+    ) async -> TBConnectionMeasurement? {
+        let allInterfaces = TBConnectionDiagnostics.currentIPv4Interfaces()
+        let eligibleInterfaces: [TBConnectionDiagnostics.LocalInterface]
+        if let requestedLocalIP, !requestedLocalIP.isEmpty {
+            eligibleInterfaces = allInterfaces.filter { $0.ip == requestedLocalIP }
+        } else {
+            eligibleInterfaces = allInterfaces
+        }
+
+        let allCandidates = TBConnectionDiagnostics.connectionCandidates(
+            receiver: receiver,
+            interfaces: eligibleInterfaces,
+            hardwareKinds: TBConnectionDiagnostics.hardwarePathKinds()
+        )
+        let candidates = allCandidates.filter { preference.allows($0.kind) }
+        guard !candidates.isEmpty else {
+            NSLog("[automation] no candidate interfaces/endpoints for path \(preference.rawValue)")
+            return nil
+        }
+
+        let measurements = await Task.detached(priority: .userInitiated) {
+            var values: [TBConnectionMeasurement] = []
+            for candidate in candidates {
+                guard !Task.isCancelled else { break }
+                NSLog("[automation] probing \(candidate.kind.rawValue): \(candidate.localIP) (\(candidate.localInterfaceName)) -> \(candidate.receiverIP)")
+                do {
+                    let measurement = try TBConnectionDiagnostics.probe(candidate)
+                    NSLog(
+                        "[automation] path \(candidate.kind.rawValue) measured \(String(format: "%.3f", measurement.throughputGbps)) Gbit/s, \(String(format: "%.2f", measurement.connectLatencyMilliseconds)) ms"
+                    )
+                    values.append(measurement)
+                } catch {
+                    NSLog("[automation] path \(candidate.kind.rawValue) unavailable: \(error.localizedDescription)")
+                }
+                usleep(100_000)
+            }
+            return values
+        }.value
+
+        guard let selected = TBConnectionDiagnostics.selectBestMeasurement(
+            measurements,
+            preference: preference
+        ) else { return nil }
+        NSLog(
+            "[automation] selected \(selected.candidate.kind.rawValue) on \(selected.candidate.localInterfaceName) at \(String(format: "%.3f", selected.throughputGbps)) Gbit/s"
+        )
+        return selected
+    }
+
+    private static func apply(
+        _ measurement: TBConnectionMeasurement,
+        receiver: TBDiscoveredReceiver,
+        to session: TBDisplaySenderSession
+    ) {
+        session.transportKind = measurement.candidate.transportKind
+        session.localInterfaceIP = measurement.candidate.localIP
+        session.receiverIP = measurement.candidate.receiverIP
+        session.receiverSupportsHEVCDecodeHint = receiver.supportsHEVCDecode
+    }
+
     // The pure parsing helpers below are `internal` (not `private`) so the
     // unit-test bundle can exercise them directly.
     static func matches(_ value: String, _ receiver: TBDiscoveredReceiver) -> Bool {
@@ -211,7 +313,11 @@ enum TBSenderAutomation {
         if let host = receiver.shortHostName?.lowercased(), host == needle { return true }
         return receiver.preferredIP.lowercased() == needle
             || receiver.thunderboltIP.lowercased() == needle
+            || receiver.usbIP.lowercased() == needle
+            || receiver.ethernetIP.lowercased() == needle
+            || receiver.wifiIP.lowercased() == needle
             || receiver.networkIP.lowercased() == needle
+            || receiver.resolvedIPv4Addresses.contains(where: { $0.lowercased() == needle })
     }
 
     static func parseTransport(_ value: String) -> TBTransportKind {

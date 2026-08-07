@@ -7,6 +7,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <ifaddrs.h>
+#include <net/if.h>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
@@ -15,6 +16,11 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <unistd.h>
+
+#if defined(__APPLE__)
+#include <CoreFoundation/CoreFoundation.h>
+#include <SystemConfiguration/SystemConfiguration.h>
+#endif
 
 /* ---- Parser ----------------------------------------------------------- */
 
@@ -160,6 +166,76 @@ static int is_rfc1918_ipv4(const char *host) {
     return a == 172 && b >= 16 && b <= 31;
 }
 
+enum tb_lan_interface_kind {
+    TB_LAN_INTERFACE_ETHERNET = 1,
+    TB_LAN_INTERFACE_WIFI = 2
+};
+
+static int interface_matches_kind(const char *name, enum tb_lan_interface_kind kind) {
+    if (!name || !*name) return 0;
+#if defined(__APPLE__)
+    CFArrayRef interfaces = SCNetworkInterfaceCopyAll();
+    if (!interfaces) return 0;
+    int matched = 0;
+    CFIndex count = CFArrayGetCount(interfaces);
+    for (CFIndex index = 0; index < count; index++) {
+        SCNetworkInterfaceRef interface = (SCNetworkInterfaceRef)CFArrayGetValueAtIndex(interfaces, index);
+        CFStringRef bsd_name = SCNetworkInterfaceGetBSDName(interface);
+        CFStringRef interface_type = SCNetworkInterfaceGetInterfaceType(interface);
+        if (!bsd_name || !interface_type) continue;
+
+        char candidate_name[IFNAMSIZ] = {0};
+        if (!CFStringGetCString(bsd_name, candidate_name, sizeof(candidate_name), kCFStringEncodingUTF8)) continue;
+        if (strcmp(candidate_name, name) != 0) continue;
+
+        CFStringRef expected_type = kind == TB_LAN_INTERFACE_WIFI
+            ? kSCNetworkInterfaceTypeIEEE80211
+            : kSCNetworkInterfaceTypeEthernet;
+        matched = CFEqual(interface_type, expected_type);
+        break;
+    }
+    CFRelease(interfaces);
+    return matched;
+#else
+    if (kind == TB_LAN_INTERFACE_WIFI) {
+        return strncmp(name, "wlan", 4) == 0 || strncmp(name, "wifi", 4) == 0;
+    }
+    return strncmp(name, "en", 2) == 0 || strncmp(name, "eth", 3) == 0;
+#endif
+}
+
+static int get_lan_ip_for_kind(char *buf, size_t bufsz, enum tb_lan_interface_kind kind) {
+    struct ifaddrs *ifap = NULL;
+    if (!buf || bufsz == 0) return -1;
+    buf[0] = '\0';
+    if (getifaddrs(&ifap) != 0) return -1;
+
+    int ret = -1;
+    for (struct ifaddrs *p = ifap; p; p = p->ifa_next) {
+        if (!p->ifa_addr) continue;
+        if (p->ifa_addr->sa_family != AF_INET) continue;
+        if (!interface_matches_kind(p->ifa_name, kind)) continue;
+
+        char host[NI_MAXHOST];
+        if (getnameinfo(p->ifa_addr, sizeof(struct sockaddr_in),
+                        host, sizeof(host), NULL, 0, NI_NUMERICHOST) == 0 &&
+            is_rfc1918_ipv4(host)) {
+            snprintf(buf, bufsz, "%s", host);
+            ret = 0;
+            break;
+        }
+    }
+    freeifaddrs(ifap);
+    return ret;
+}
+
+int tb_net_is_link_local_ipv4(const char *host) {
+    unsigned int a = 0, b = 0, c = 0, d = 0;
+    if (!host) return 0;
+    if (sscanf(host, "%u.%u.%u.%u", &a, &b, &c, &d) != 4) return 0;
+    return a == 169 && b == 254 && c <= 255 && d <= 255;
+}
+
 int tb_net_get_tb_ip(char *buf, size_t bufsz) {
     struct ifaddrs *ifap = NULL;
     if (getifaddrs(&ifap) != 0) return -1;
@@ -184,8 +260,10 @@ int tb_net_get_tb_ip(char *buf, size_t bufsz) {
     return ret;
 }
 
-int tb_net_get_lan_ip(char *buf, size_t bufsz) {
+int tb_net_get_link_local_ip(char *buf, size_t bufsz) {
     struct ifaddrs *ifap = NULL;
+    if (!buf || bufsz == 0) return -1;
+    buf[0] = '\0';
     if (getifaddrs(&ifap) != 0) return -1;
 
     int ret = -1;
@@ -196,14 +274,26 @@ int tb_net_get_lan_ip(char *buf, size_t bufsz) {
 
         char host[NI_MAXHOST];
         if (getnameinfo(p->ifa_addr, sizeof(struct sockaddr_in),
-                        host, sizeof(host), NULL, 0, NI_NUMERICHOST) == 0) {
-            if (is_rfc1918_ipv4(host)) {
-                snprintf(buf, bufsz, "%s", host);
-                ret = 0;
-                break;
-            }
+                        host, sizeof(host), NULL, 0, NI_NUMERICHOST) == 0 &&
+            tb_net_is_link_local_ipv4(host)) {
+            snprintf(buf, bufsz, "%s", host);
+            ret = 0;
+            break;
         }
     }
     freeifaddrs(ifap);
     return ret;
+}
+
+int tb_net_get_lan_ip(char *buf, size_t bufsz) {
+    if (tb_net_get_ethernet_ip(buf, bufsz) == 0) return 0;
+    return tb_net_get_wifi_ip(buf, bufsz);
+}
+
+int tb_net_get_ethernet_ip(char *buf, size_t bufsz) {
+    return get_lan_ip_for_kind(buf, bufsz, TB_LAN_INTERFACE_ETHERNET);
+}
+
+int tb_net_get_wifi_ip(char *buf, size_t bufsz) {
+    return get_lan_ip_for_kind(buf, bufsz, TB_LAN_INTERFACE_WIFI);
 }

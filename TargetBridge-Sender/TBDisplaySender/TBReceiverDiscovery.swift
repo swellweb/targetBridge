@@ -5,11 +5,45 @@ struct TBDiscoveredReceiver: Identifiable, Equatable {
     let receiverName: String
     let preferredIP: String
     let thunderboltIP: String
+    let usbIP: String
     let networkIP: String
+    let ethernetIP: String
+    let wifiIP: String
+    let resolvedIPv4Addresses: [String]
     let panelSummary: String
     let version: String
     let supportsHEVCDecode: Bool
     let hostName: String?
+
+    init(
+        serviceName: String,
+        receiverName: String,
+        preferredIP: String,
+        thunderboltIP: String,
+        usbIP: String = "",
+        networkIP: String,
+        ethernetIP: String = "",
+        wifiIP: String = "",
+        resolvedIPv4Addresses: [String] = [],
+        panelSummary: String,
+        version: String,
+        supportsHEVCDecode: Bool,
+        hostName: String?
+    ) {
+        self.serviceName = serviceName
+        self.receiverName = receiverName
+        self.preferredIP = preferredIP
+        self.thunderboltIP = thunderboltIP
+        self.usbIP = usbIP
+        self.networkIP = networkIP
+        self.ethernetIP = ethernetIP
+        self.wifiIP = wifiIP
+        self.resolvedIPv4Addresses = resolvedIPv4Addresses
+        self.panelSummary = panelSummary
+        self.version = version
+        self.supportsHEVCDecode = supportsHEVCDecode
+        self.hostName = hostName
+    }
 
     var id: String { "\(serviceName)|\(preferredIP)" }
 
@@ -25,26 +59,40 @@ struct TBDiscoveredReceiver: Identifiable, Equatable {
         return String(first)
     }
 
-    func ip(for transportKind: TBTransportKind) -> String {
+    func ip(for transportKind: TBTransportKind, localInterfaceIP: String = "") -> String {
         switch transportKind {
         case .thunderboltBridge:
             return !thunderboltIP.isEmpty ? thunderboltIP : preferredIP
         case .networkLink:
+            if localInterfaceIP.hasPrefix("169.254."), !usbIP.isEmpty {
+                return usbIP
+            }
             return !networkIP.isEmpty ? networkIP : preferredIP
         }
     }
 
     var displayText: String {
+        var addresses: [(label: String, ip: String)] = []
+        var seenIPs = Set<String>()
+        func appendAddress(_ label: String, _ ip: String) {
+            guard !ip.isEmpty, seenIPs.insert(ip).inserted else { return }
+            addresses.append((label, ip))
+        }
+        appendAddress("TB", thunderboltIP)
+        appendAddress("USB", usbIP)
+        appendAddress("ETH", ethernetIP)
+        appendAddress("Wi-Fi", wifiIP)
+        appendAddress("NET", networkIP)
+
         let addressSummary: String
-        switch (thunderboltIP.isEmpty, networkIP.isEmpty) {
-        case (false, false):
-            addressSummary = "TB \(thunderboltIP) · NET \(networkIP)"
-        case (false, true):
-            addressSummary = thunderboltIP
-        case (true, false):
-            addressSummary = networkIP
-        case (true, true):
+        if addresses.isEmpty {
             addressSummary = preferredIP
+        } else if addresses.count == 1 {
+            addressSummary = addresses[0].ip
+        } else {
+            addressSummary = addresses
+                .map { "\($0.label) \($0.ip)" }
+                .joined(separator: " · ")
         }
 
         let name: String
@@ -112,8 +160,18 @@ final class TBReceiverDiscovery: NSObject, ObservableObject {
         let receiverName = stringValue("name").isEmpty ? service.name : stringValue("name")
         let receiverIP = stringValue("ip")
         let thunderboltIP = stringValue("tbIP")
+        let usbIP = stringValue("usbIP")
         let networkIP = stringValue("netIP")
-        let preferredIP = !receiverIP.isEmpty ? receiverIP : (!thunderboltIP.isEmpty ? thunderboltIP : networkIP)
+        let ethernetIP = stringValue("ethernetIP")
+        let wifiIP = stringValue("wifiIP")
+        let resolvedIPv4Addresses = resolvedIPv4Addresses(from: service)
+        let preferredIP = !receiverIP.isEmpty
+            ? receiverIP
+            : (!thunderboltIP.isEmpty
+                ? thunderboltIP
+                : (!usbIP.isEmpty
+                    ? usbIP
+                    : (!networkIP.isEmpty ? networkIP : (resolvedIPv4Addresses.first ?? ""))))
         guard !preferredIP.isEmpty else { return }
 
         let panelName = stringValue("panel")
@@ -138,14 +196,18 @@ final class TBReceiverDiscovery: NSObject, ObservableObject {
             receiverName: receiverName,
             preferredIP: preferredIP,
             thunderboltIP: thunderboltIP,
+            usbIP: usbIP,
             networkIP: networkIP,
+            ethernetIP: ethernetIP,
+            wifiIP: wifiIP,
+            resolvedIPv4Addresses: resolvedIPv4Addresses,
             panelSummary: panelSummary,
             version: version,
             supportsHEVCDecode: supportsHEVCDecode,
             hostName: service.hostName
         )
 
-        if let index = receivers.firstIndex(where: { $0.id == receiver.id }) {
+        if let index = receivers.firstIndex(where: { $0.serviceName == receiver.serviceName }) {
             receivers[index] = receiver
         } else {
             receivers.append(receiver)
@@ -156,6 +218,39 @@ final class TBReceiverDiscovery: NSObject, ObservableObject {
             }
             return lhs.receiverName.localizedCaseInsensitiveCompare(rhs.receiverName) == .orderedAscending
         }
+    }
+
+    private func resolvedIPv4Addresses(from service: NetService) -> [String] {
+        guard let addresses = service.addresses else { return [] }
+        var result: [String] = []
+        var seen = Set<String>()
+
+        for addressData in addresses {
+            let address: String? = addressData.withUnsafeBytes { rawBuffer in
+                guard let baseAddress = rawBuffer.baseAddress,
+                      rawBuffer.count >= MemoryLayout<sockaddr>.size
+                else { return nil }
+                let socketAddress = baseAddress.assumingMemoryBound(to: sockaddr.self)
+                guard socketAddress.pointee.sa_family == UInt8(AF_INET) else { return nil }
+                var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+                let length = socklen_t(min(rawBuffer.count, Int(socketAddress.pointee.sa_len)))
+                guard getnameinfo(
+                    socketAddress,
+                    length,
+                    &host,
+                    socklen_t(host.count),
+                    nil,
+                    0,
+                    NI_NUMERICHOST
+                ) == 0 else { return nil }
+                return String(cString: host)
+            }
+            if let address, seen.insert(address).inserted {
+                result.append(address)
+            }
+        }
+
+        return result.sorted()
     }
 
     private func removeService(_ service: NetService) {

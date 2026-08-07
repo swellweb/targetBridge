@@ -101,7 +101,11 @@ final class TBSenderAutomationParsingTests: XCTestCase {
             receiverName: "Jonathans-iMac",
             preferredIP: "192.168.1.64",
             thunderboltIP: "169.254.89.80",
+            usbIP: "169.254.189.3",
             networkIP: "192.168.1.64",
+            ethernetIP: "10.77.77.2",
+            wifiIP: "192.168.1.64",
+            resolvedIPv4Addresses: ["172.20.10.2"],
             panelSummary: "iMac 5K",
             version: "3.1.0",
             supportsHEVCDecode: true,
@@ -121,6 +125,9 @@ final class TBSenderAutomationParsingTests: XCTestCase {
     func testMatchesByAnyAdvertisedIP() {
         XCTAssertTrue(TBSenderAutomation.matches("192.168.1.64", makeReceiver()), "preferred/network IP")
         XCTAssertTrue(TBSenderAutomation.matches("169.254.89.80", makeReceiver()), "thunderbolt IP")
+        XCTAssertTrue(TBSenderAutomation.matches("169.254.189.3", makeReceiver()), "direct USB IP")
+        XCTAssertTrue(TBSenderAutomation.matches("10.77.77.2", makeReceiver()), "Ethernet IP")
+        XCTAssertTrue(TBSenderAutomation.matches("172.20.10.2", makeReceiver()), "resolved Bonjour IP")
     }
 
     func testMatchesByID() {
