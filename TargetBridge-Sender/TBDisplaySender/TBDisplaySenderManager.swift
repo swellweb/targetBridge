@@ -102,6 +102,7 @@ final class TBDisplaySenderService: ObservableObject {
             objectWillChange.send()
         }
     }
+    private var userQuitPending = false
     private var sessionCancellables: [UUID: AnyCancellable] = [:]
     private let receiverDiscovery = TBReceiverDiscovery()
     private let addonStore = TBAddonStore.shared
@@ -271,9 +272,44 @@ final class TBDisplaySenderService: ObservableObject {
         objectWillChange.send()
     }
 
-    func stopAll() {
-        sessions.forEach { $0.persistExtendedDisplayArrangementSnapshot() }
-        sessions.forEach { $0.stop(persistArrangement: false) }
+    func stopAll(completion: (@MainActor @Sendable () -> Void)? = nil) {
+        // A manual stop is an operator decision, not a transient disconnect.
+        TBSenderAutomation.suspendAutomaticReconnectAfterUserStop()
+        let sessionsToStop = sessions
+        sessionsToStop.forEach { $0.persistExtendedDisplayArrangementSnapshot() }
+        guard !sessionsToStop.isEmpty else {
+            completion?()
+            return
+        }
+
+        var remaining = sessionsToStop.count
+        sessionsToStop.forEach { session in
+            session.stop(persistArrangement: false) {
+                remaining -= 1
+                if remaining == 0 {
+                    completion?()
+                }
+            }
+        }
+    }
+
+    func quitAfterUserRequest() {
+        guard !userQuitPending else { return }
+        userQuitPending = true
+
+        // Allow the final teardown reason to reach the Receiver before quitting.
+        stopAll { [weak self] in
+            self?.finishUserRequestedQuit()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+            self?.finishUserRequestedQuit()
+        }
+    }
+
+    private func finishUserRequestedQuit() {
+        guard userQuitPending else { return }
+        userQuitPending = false
+        NSApp.terminate(nil)
     }
 
     // MARK: - Session persistence

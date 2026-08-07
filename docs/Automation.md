@@ -23,7 +23,7 @@ targetbridge disconnect
 ```
 
 Options: `--receiver auto|<id|name|ip>`, `--mode mirror|extended`, `--preset <name>`,
-`--transport tb|net`, `--session N`, `--local-ip <ip>`.
+`--transport tb|net`, `--session N`, `--local-ip <ip>`, `--retry`.
 Presets: `standard1440p`, `smooth1440p60`, `smooth1800p60`, `crisp2160p60`, `native5k`,
 `native5k60Experimental` (aliases: `1440p`, `1440p60`, `1800p`, `4k`, `5k`, `5k60`).
 `native5k60Experimental` is an opt-in HEVC test profile for 5K at 60 FPS; it does not
@@ -55,6 +55,13 @@ handy for a Login Item or LaunchAgent:
 ```bash
 open -a TargetBridge --args --connect --receiver auto --mode mirror --preset 1440p
 ```
+
+Add `--retry` for monitor mode: the Sender keeps watching the active session and retries
+after transient startup, cable or Receiver failures. An explicit GUI Stop, Command-Q or
+Quit from the menu bar cancels that loop and removes
+`~/Library/Application Support/TargetBridge/Sender/enabled`. A LaunchAgent can use that
+file as a `PathState` marker so crash recovery remains automatic while a user Stop remains
+stopped. Packaging such a LaunchAgent is intentionally outside this change.
 
 ## Recipes
 

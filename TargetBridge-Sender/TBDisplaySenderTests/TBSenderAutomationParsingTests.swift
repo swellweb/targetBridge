@@ -7,6 +7,69 @@ import XCTest
 /// silently reroute automation traffic.
 @MainActor
 final class TBSenderAutomationParsingTests: XCTestCase {
+    func testSenderEnabledFlagUsesSelectedHomeDirectory() {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("targetbridge-automation-path-test", isDirectory: true)
+        XCTAssertEqual(
+            TBSenderAutomation.senderEnabledFlagURL(homeDirectory: root).path,
+            root.appendingPathComponent(
+                "Library/Application Support/TargetBridge/Sender/enabled",
+                isDirectory: false
+            ).path
+        )
+    }
+
+    func testUserStopRemovesAutomaticReconnectMarker() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("targetbridge-user-stop-\(UUID().uuidString)", isDirectory: true)
+        let marker = root.appendingPathComponent("enabled")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        XCTAssertTrue(FileManager.default.createFile(atPath: marker.path, contents: Data()))
+
+        TBSenderAutomation.suspendAutomaticReconnectAfterUserStop(enabledFlagURL: marker)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: marker.path))
+        try? FileManager.default.removeItem(at: root)
+    }
+
+    func testRequiredPermissionRemovesAutomaticReconnectMarker() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("targetbridge-permission-stop-\(UUID().uuidString)", isDirectory: true)
+        let marker = root.appendingPathComponent("enabled")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        XCTAssertTrue(FileManager.default.createFile(atPath: marker.path, contents: Data()))
+
+        TBSenderAutomation.suspendAutomaticReconnectForRequiredPermission(enabledFlagURL: marker)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: marker.path))
+        try? FileManager.default.removeItem(at: root)
+    }
+
+    func testCaptureFailureRemovesAutomaticReconnectMarker() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("targetbridge-capture-stop-\(UUID().uuidString)", isDirectory: true)
+        let marker = root.appendingPathComponent("enabled")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        XCTAssertTrue(FileManager.default.createFile(atPath: marker.path, contents: Data()))
+
+        TBSenderAutomation.suspendAutomaticReconnectAfterCaptureFailure(enabledFlagURL: marker)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: marker.path))
+        try? FileManager.default.removeItem(at: root)
+    }
+
+    func testAutomationFlagsEnableOnPresenceOrTruthyValues() {
+        for value in ["", "1", "true", "yes", "on", "unexpected"] {
+            XCTAssertTrue(TBSenderAutomation.flagEnabled(value), "value \(value)")
+        }
+    }
+
+    func testAutomationFlagsDisableOnMissingOrExplicitFalseValues() {
+        XCTAssertFalse(TBSenderAutomation.flagEnabled(nil))
+        for value in ["0", "false", "FALSE", "no", "off", " Off "] {
+            XCTAssertFalse(TBSenderAutomation.flagEnabled(value), "value \(value)")
+        }
+    }
 
     // MARK: - parseTransport
 
