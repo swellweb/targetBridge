@@ -12,7 +12,7 @@ This document describes the technical architecture, dynamic format conversion pi
 flowchart LR
     subgraph Sender (Swift)
         A[ScreenCaptureKit] -->|Float32 Non-Interleaved| B[SBAudioConverter]
-        B -->|AVAudioConverter| C[S16 Interleaved PCM]
+        B -->|AVAudioConverter| C[Float32 Interleaved PCM]
         C -->|TCP Socket| D[NWConnection]
     end
 
@@ -35,11 +35,11 @@ System audio is captured before the master hardware volume or mute is applied. T
 
 ### 2. Format Conversion (`SBAudioConverter`)
 ScreenCaptureKit outputs audio as **Float32 non-interleaved PCM** (separate buffers for left and right channels). 
-To make it compatible with low-overhead C playback systems (such as SDL2), the Swift sender converts it to standard **16-bit signed interleaved PCM at 48000Hz Stereo** (4 bytes per sample frame).
+The sender interleaves it, keeping **32-bit float at 48000 Hz stereo** (8 bytes per sample frame) — CoreAudio's canonical format at both ends, so nothing quantises along the way. Receivers older than this negotiate down to Int16; see [Format negotiation](#format-negotiation).
 
 The `SBAudioConverter` class executes this:
 1. **Pointer Extraction**: Safely extracts the non-interleaved channel buffers using `CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer`.
-2. **Hardware-Accelerated Conversion**: Feeds the float pointers to an `AVAudioConverter` configured to transcode into a packed 16-bit signed integer interleaved `AudioStreamBasicDescription` (ASBD).
+2. **Hardware-Accelerated Conversion**: Feeds the float pointers to an `AVAudioConverter` configured for a packed interleaved `AudioStreamBasicDescription` (ASBD) — 32-bit float, or 16-bit signed integer when the receiver is too old for float.
 3. **Low-Allocation Copying**: Performs conversion frame-by-frame with zero persistent copies, preserving thread safety using Swift concurrency locks.
 
 ### 3. Extended Display Mode Capture (Unified SCStream)
@@ -61,7 +61,7 @@ When broadcasting to multiple receivers, audio can be controlled on a per-sessio
 ## 🔊 Receiver-Side Architecture (C)
 
 The receiver utilizes the cross-platform **SDL2 Audio Subsystem** configured for raw PCM playback:
-* **Audio Format**: `AUDIO_S16LSB` (16-bit signed little-endian PCM).
+* **Audio Format**: `AUDIO_F32SYS` (32-bit float, native endian) — what CoreAudio itself uses, so the output device takes it without conversion.
 * **Sample Rate**: `48000 Hz`.
 * **Channels**: `2` (Stereo).
 * **Device Buffering**: Requested at **1024 samples (approx. 21.3ms)**.
@@ -92,10 +92,10 @@ A 1-second circular buffer (`audio_buf`) is added to the receiver's main `app` c
 ### 3. Smooth-Discard (Sliding-Window Resync)
 Rather than aggressively clearing/wiping the entire audio buffer when it gets backlogged (which causes silent gaps, sudden dropouts, and loud popping noises), we implement a **smooth-discard sliding window**:
 
-* We set a strict maximum latency ceiling of **150ms** (equivalent to `150 * 192 = 28800` bytes).
+* We set a strict maximum latency ceiling of **150 ms**, expressed as `AUDIO_BACKLOG_MAX_MS * AUDIO_BYTES_PER_MS`. Deriving it matters: written out as a byte count it silently became 75 ms when the wire moved from Int16 to Float32.
 * In `on_packet`'s `TB_PKT_AUDIO_FRAME` handler, we check the total queued size:
   ```c
-  const int cap_bytes = 28800; // 150ms
+  const int cap_bytes = AUDIO_BACKLOG_MAX_MS * AUDIO_BYTES_PER_MS;
   if (a->audio_buf_size + len > cap_bytes) {
       int excess = (a->audio_buf_size + len) - cap_bytes;
       a->audio_buf_tail = (a->audio_buf_tail + excess) % AUDIO_BUF_CAP;
@@ -116,5 +116,60 @@ Developers can tweak the following properties in `main.c` depending on hardware 
    - Configured at `1024` samples. If run on modern Apple Silicon, this can be safely reduced to `512` (10.6ms) or `256` (5.3ms) for even lower latency.
    - For older Intel Macs or high CPU scheduling jitter, keep this at `1024` to prevent scheduling underflows (which cause crackling/static).
 2. **`cap_bytes` (Latency Threshold)**:
-   - Configured at `28800` bytes (150ms) to cushion against ScreenCaptureKit variable delivery chunks and socket congestion.
+   - Configured at `AUDIO_BACKLOG_MAX_MS` (150 ms) to cushion against ScreenCaptureKit's variable delivery chunks and socket congestion.
    - If H.264 video decoding takes longer on a specific system, this can be adjusted to match video latency.
+
+---
+
+## Format negotiation
+
+Sender and receiver ship as separate binaries and are updated independently, so
+neither may assume the other's version. Both directions therefore announce what
+they can take, and **both default to the older Int16 format when the peer says
+nothing** — a silent peer is an old peer.
+
+| Direction | Announced in | Field | Absent means |
+|---|---|---|---|
+| Receiver → sender | display profile | `supportsFloat32Audio` | old receiver; sender sends Int16 |
+| Sender → receiver | hello | `audioFormat` (`"f32"` / `"s16"`) | old sender; receiver widens Int16 to float |
+
+The receiver's output device is always opened as float and an older sender's
+Int16 is widened on ingest, rather than reopening the device mid-session.
+
+Int16 conversion is asymmetric, by convention: two's-complement Int16 spans
+−32768…+32767, so widening divides by 32768 to map the full negative rail to
+−1.0, while narrowing multiplies by 32767 and clamps so +1.0 cannot wrap.
+
+---
+
+## Virtual audio device (Audio Driver addon)
+
+Optional, off by default, and gated by the `audio-driver` addon capability. It
+presents the receiver's speakers and microphone as ordinary macOS devices so any
+app can pick them from the Sound menu. See
+[TargetBridge-AudioDriver/README.md](../TargetBridge-AudioDriver/README.md).
+
+Two loopback UDP ports carry it, both in IANA's dynamic/private range
+(49152–65535):
+
+| Port | Direction | Carries |
+|---|---|---|
+| 51710 | driver → sender | output audio |
+| 51711 | sender → driver | microphone audio |
+
+**Liveness is detected by probing, not by listening.** The plug-in runs inside a
+host process we do not control, where a leftover instance can hold a fixed port
+for minutes and `bind()` then fails with `EADDRINUSE` without recovering.
+Sending has no such failure mode: a connected UDP socket reports ICMP
+port-unreachable as `ECONNREFUSED`, so an unanswered probe is the signal that
+the sender is gone. Three consecutive failures withdraw the device — removed
+outright rather than marked not-alive, because macOS moves the user to another
+output when a device *disappears*, the way real hardware does when unplugged.
+
+**Microphone buffering targets a latency, not a size.** The two ends run on
+independent 48 kHz clocks with no shared reference, so drift accumulates in one
+direction and a merely-large buffer eventually runs full and stays full. The
+backlog is held near 30 ms and trimmed oldest-first past 60 ms. This is the
+cheap tier of standard practice — PulseAudio and PipeWire resample toward a
+target latency, WebRTC's NetEq tracks a target delay and time-stretches — all of
+which share the same principle: pick a target and correct toward it.

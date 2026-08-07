@@ -312,6 +312,26 @@ enum TBDisplaySenderL10n {
         text("sender.label.capture", language)
     }
 
+    static func videoPathLabel(_ language: TBDisplaySenderLanguage) -> String {
+        text("sender.label.video_path", language)
+    }
+
+    /// Reports the pixel format actually observed on the wire. The format names
+    /// are technical identifiers, so they stay untranslated.
+    static func videoPathValue(
+        isRaw: Bool,
+        isBGRA: Bool,
+        isTenBit: Bool,
+        _ language: TBDisplaySenderLanguage
+    ) -> String {
+        guard isRaw else { return text("sender.video_path.hevc", language) }
+        let format: String
+        if isTenBit      { format = "10-bit 4:4:4" }
+        else if isBGRA   { format = "BGRA 4:4:4" }
+        else             { format = "NV12 4:2:0" }
+        return text("sender.video_path.raw_fmt", language, ["format": format])
+    }
+
     static func stateLabel(_ language: TBDisplaySenderLanguage) -> String {
         text("sender.label.state", language)
     }
@@ -568,6 +588,8 @@ extension TBDisplayCapturePreset {
         case .crisp2160p60:
             return TBDisplaySenderL10n.text("sender.profile.crisp", language)
         case .native5k:
+            return TBDisplaySenderL10n.text("sender.profile.native_5k", language)
+        case .native5kRaw60:
             return TBDisplaySenderL10n.text("sender.profile.native_5k", language)
         case .native5k60Experimental:
             return TBDisplaySenderL10n.text("sender.profile.native_5k_60_experimental", language)

@@ -1,0 +1,28 @@
+{
+    "class": "MuteControl",
+    "base_class": "Object",
+    "class_tree": [
+        "kAudioMuteControlClassID",
+        "kAudioBooleanControlClassID",
+        "kAudioControlClassID",
+        "kAudioObjectClassID"
+    ],
+    "setter_mutex": "writeMutex_",
+    "properties": {
+        "Scope": {
+            "id": "kAudioControlPropertyScope",
+            "type": "AudioObjectPropertyScope"
+        },
+        "Element": {
+            "id": "kAudioControlPropertyElement",
+            "type": "AudioObjectPropertyElement"
+        },
+        "IsMuted": {
+            "id": "kAudioBooleanControlPropertyValue",
+            "type": "UInt32",
+            "user_type": "bool",
+            "is_settable": true,
+            "scoped_notification": true
+        }
+    }
+}

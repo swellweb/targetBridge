@@ -1,0 +1,4 @@
+# Third-party code kept in-tree. Marking it vendored collapses it in pull
+# request diffs and keeps it out of the repository's language statistics, so
+# review attention lands on our own code rather than on an imported library.
+TargetBridge-AudioDriver/vendor/** linguist-vendored

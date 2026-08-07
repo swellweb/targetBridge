@@ -19,4 +19,8 @@ tbreceiver
 
 # C test outputs
 test_net_parser
+test_dpcm
 *.dSYM/
+
+# x86_64 receiver bundles built by TargetBridge-Receiver/scripts/build_x86_bundle.sh
+TargetBridge-Receiver/scripts/dist/

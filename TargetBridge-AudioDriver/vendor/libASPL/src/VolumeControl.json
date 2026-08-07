@@ -1,0 +1,46 @@
+{
+    "class": "VolumeControl",
+    "base_class": "Object",
+    "class_tree": [
+        "kAudioVolumeControlClassID",
+        "kAudioLevelControlClassID",
+        "kAudioControlClassID",
+        "kAudioObjectClassID"
+    ],
+    "properties": {
+        "Scope": {
+            "id": "kAudioControlPropertyScope",
+            "type": "AudioObjectPropertyScope"
+        },
+        "Element": {
+            "id": "kAudioControlPropertyElement",
+            "type": "AudioObjectPropertyElement"
+        },
+        "ScalarValue": {
+            "id": "kAudioLevelControlPropertyScalarValue",
+            "type": "Float32",
+            "is_settable": true,
+            "hand_written_setter": true
+        },
+        "DecibelValue": {
+            "id": "kAudioLevelControlPropertyDecibelValue",
+            "type": "Float32",
+            "is_settable": true,
+            "hand_written_setter": true
+        },
+        "DecibelRange": {
+            "id": "kAudioLevelControlPropertyDecibelRange",
+            "type": "AudioValueRange"
+        },
+        "ScalarToDecibels": {
+            "id": "kAudioLevelControlPropertyConvertScalarToDecibels",
+            "type": "Float32",
+            "is_converter": true
+        },
+        "DecibelsToScalar": {
+            "id": "kAudioLevelControlPropertyConvertDecibelsToScalar",
+            "type": "Float32",
+            "is_converter": true
+        }
+    }
+}

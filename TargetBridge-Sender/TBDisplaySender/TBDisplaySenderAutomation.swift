@@ -243,6 +243,7 @@ enum TBSenderAutomation {
         case "2160p", "2160p60", "4k", "crisp": return .crisp2160p60
         case "5k60", "native5k60": return .native5k60Experimental
         case "5k", "native", "5120x2880": return .native5k
+        case "5kraw", "raw5k", "5kraw60", "raw", "5k60raw": return .native5kRaw60
         default: return nil
         }
     }

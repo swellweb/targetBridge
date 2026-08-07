@@ -1,0 +1,31 @@
+{
+    "class": "Object",
+    "class_tree": [
+        "kAudioObjectClassID"
+    ],
+    "properties": {
+        "Class": {
+            "id": "kAudioObjectPropertyClass",
+            "type": "AudioClassID"
+        },
+        "BaseClass": {
+            "id": "kAudioObjectPropertyBaseClass",
+            "type": "AudioClassID"
+        },
+        "OwnerID": {
+            "id": "kAudioObjectPropertyOwner",
+            "type": "AudioObjectID"
+        },
+        "OwnedObjectIDs": {
+            "id": "kAudioObjectPropertyOwnedObjects",
+            "type": "AudioObjectID",
+            "is_array": true,
+            "scoped_getter": true
+        },
+        "CustomProperties": {
+            "id": "kAudioObjectPropertyCustomPropertyInfoList",
+            "type": "AudioServerPlugInCustomPropertyInfo",
+            "is_array": true
+        }
+    }
+}

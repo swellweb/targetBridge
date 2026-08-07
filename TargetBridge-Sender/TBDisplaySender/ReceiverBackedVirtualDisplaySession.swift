@@ -74,7 +74,32 @@ final class ReceiverBackedVirtualDisplaySession {
         receiverKey: String
     ) -> Bool {
         destroy()
-        let preferredRefreshRate = refreshRate ?? profile.refreshRate
+        // Experiment: run the VIRTUAL display faster than the receiver's panel.
+        //
+        // The panel is 60 Hz and cannot show more, so the extra frames are
+        // discarded — but that is the point. At 120 the compositor produces
+        // every 8.3 ms, so whichever frame the receiver draws at a given
+        // scanout is at most 8.3 ms old instead of 16.7, and a frame that
+        // misses its slot has a fresher replacement right behind it rather than
+        // a whole period of nothing. Oversampling to cut latency and phase
+        // error, not to raise the displayed rate.
+        //
+        // It costs double: ~7.7 Gbps of wire at the measured 8 MB/frame against
+        // a ~15 Gbps link, and twice the encode and decode. Worth measuring
+        // rather than assuming, hence a runtime knob:
+        //   defaults write com.targetbridge.sender TBVirtualRefresh -float 120
+        // Anything <= 0 (the default) keeps the receiver's own rate.
+        //
+        // CGVirtualDisplay may simply refuse a mode it does not like, which
+        // shows up as the display coming back at its old rate — check the log
+        // line below rather than assuming it took.
+        let refreshOverride = UserDefaults.standard.double(forKey: "TBVirtualRefresh")
+        let preferredRefreshRate = refreshOverride > 0
+            ? refreshOverride
+            : (refreshRate ?? profile.refreshRate)
+        if refreshOverride > 0 {
+            TBLog.connection.info("virtual display: refresh override \(refreshOverride, privacy: .public) Hz (panel reports \(profile.refreshRate, privacy: .public))")
+        }
 
         // The receiver hard-codes mode 2560x1440 + hiDPI, i.e. a 5120x2880 backing
         // store, regardless of which capture preset the sender is running. Any preset
@@ -107,6 +132,18 @@ final class ReceiverBackedVirtualDisplaySession {
         descriptor.maxPixelsWide = UInt32(profile.panelWidth)
         descriptor.maxPixelsHigh = UInt32(profile.panelHeight)
 
+        // Declare Display P3 primaries + D65. Left unset, the virtual display
+        // advertises no colour characteristics and macOS appears to give it a
+        // plain 8-bit sRGB framebuffer — mirroring shows the same behaviour,
+        // where the framebuffer is 10-bit only when optimised for a display
+        // that declares deep colour. These are the only capability knobs the
+        // private CGVirtualDisplayDescriptor exposes (verified by runtime
+        // introspection: it has no depth or pixel-format property at all).
+        descriptor.redPrimary   = NSPoint(x: 0.680,  y: 0.320)
+        descriptor.greenPrimary = NSPoint(x: 0.265,  y: 0.690)
+        descriptor.bluePrimary  = NSPoint(x: 0.150,  y: 0.060)
+        descriptor.whitePoint   = NSPoint(x: 0.3127, y: 0.3290)
+
         let ppi = 218.0
         descriptor.sizeInMillimeters = CGSize(
             width: Double(profile.panelWidth) / ppi * 25.4,
@@ -119,14 +156,51 @@ final class ReceiverBackedVirtualDisplaySession {
 
         let settings = CGVirtualDisplaySettings()
         settings.hiDPI = profile.hiDPI
-        guard let mode = CGVirtualDisplayMode(
-            width: UInt(resolvedMode.width),
-            height: UInt(resolvedMode.height),
-            refreshRate: preferredRefreshRate
-        ) else {
-            return false
+        // Transfer function 1, measured working 2026-08-06.
+        //
+        // A virtual display is 8-bpc because it is SDR — depth is not a property
+        // anywhere on the descriptor or settings. Declaring a transfer function
+        // is what makes macOS treat it as HDR and promote the framebuffer to
+        // 16-bpc, and only then does our l10r capture carry real bits instead of
+        // 8-bit values bit-replicated into 10. Before this the whole 10-bit path
+        // was faithfully transporting 8-bit data.
+        //
+        // The enum is undocumented (BetterDisplay is closed source; its "Enable
+        // HDR support" toggle does the same thing) so 1 was found by trying.
+        // `defaults write com.targetbridge.sender TBTransferFn -int 0` reverts to
+        // SDR if a display ever refuses the HDR mode.
+        let tf = UInt32(max(0, (UserDefaults.standard.object(forKey: "TBTransferFn") as? Int) ?? 1))
+        let mode: CGVirtualDisplayMode?
+        if tf != 0 {
+            mode = CGVirtualDisplayMode(
+                width: UInt(resolvedMode.width),
+                height: UInt(resolvedMode.height),
+                refreshRate: preferredRefreshRate,
+                transferFunction: tf
+            )
+        } else {
+            mode = CGVirtualDisplayMode(
+                width: UInt(resolvedMode.width),
+                height: UInt(resolvedMode.height),
+                refreshRate: preferredRefreshRate
+            )
         }
+        guard let mode else { return false }
+        TBLog.connection.notice("virtual display transferFunction=\(tf, privacy: .public)")
         settings.modes = [mode]
+
+        // Off unless asked for, so the default path is byte-for-byte unchanged.
+        //
+        //   defaults write com.targetbridge.sender TBRefreshDeadline -float 0.0167
+        //
+        // See the header: a virtual display composites on demand, so a quiet
+        // screen slows it down and the next keystroke waits for its next tick.
+        // Whether this property is that tick — and in what units — is unknown,
+        // which is the whole reason it is a knob rather than a constant.
+        if let raw = UserDefaults.standard.object(forKey: "TBRefreshDeadline") as? Double, raw > 0 {
+            settings.refreshDeadline = raw
+            TBLog.connection.notice("virtual display refreshDeadline=\(raw, privacy: .public)")
+        }
 
         guard display.apply(settings), display.displayID != kCGNullDirectDisplay else {
             return false

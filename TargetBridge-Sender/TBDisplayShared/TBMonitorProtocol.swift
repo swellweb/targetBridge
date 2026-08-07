@@ -9,6 +9,30 @@ enum TBMonitorPacketType: UInt8 {
     case frame = 0x21
     case rawFrame = 0x22   // Uncompressed NV12 planes (raw passthrough mode)
     case audioFrame = 0x23
+    /// Only the rectangles that changed since the previous frame. Detection is
+    /// free — ScreenCaptureKit attaches the WindowServer's own dirty rects —
+    /// and a typical desktop changes a few percent of its pixels per frame.
+    case rawDamage = 0x24
+    /// A whole frame, losslessly compressed with tile-DPCM (see tb_dpcm.h).
+    ///
+    /// Covers what damage rectangles cannot: fullscreen video and fast
+    /// scrolling, where most of the screen really is new every frame. Measured
+    /// 2.96x on near-worst-case photographic content and 4.5-14x on desktop
+    /// content, which is enough that the receiver stops needing damage
+    /// rectangles at all — a compressed full frame fits inside a 60 Hz period
+    /// on its own, so this path sends whole frames and keeps no base image.
+    ///
+    /// Only sent to a receiver that advertised `supportsDPCM`, which it does
+    /// only if its GPU decoder actually built.
+    case rawDPCM = 0x25
+    /// One horizontal band of a TBD2 frame: a 28-byte header then the blob.
+    ///
+    /// Lets the stages overlap instead of running end to end — band k decodes on
+    /// the receiver while band k+1 is still crossing the wire. The wire is the
+    /// slowest stage, so everything else hides behind it and frame latency
+    /// roughly halves. Free in bytes: tiles were already independent, so a band
+    /// encodes to exactly what the same rows cost inside a whole frame.
+    case rawDPCMSlice = 0x26
     case heartbeat = 0x30
     case teardown = 0x31
     case cursor = 0x32
@@ -17,7 +41,30 @@ enum TBMonitorPacketType: UInt8 {
     case brightness = 0x35
     case clipboard = 0x36
     case volume = 0x37
+    /// Night Shift / True Tone on the receiver's panel.
+    case displayTweaks = 0x38
+    /// Receiver's microphone, receiver -> sender: raw 48 kHz stereo Int16.
+    case micFrame = 0x39
     case testData = 0x40
+    /// One tile-aligned RECTANGLE of a TBD2 frame: a 32-byte header then the
+    /// blob. A band (0x26) in both axes.
+    ///
+    /// With the pipeline fixed the wire is the largest term left, and a desktop
+    /// changes a few percent of its pixels per frame while we send all of them.
+    /// It also deletes most of the host-side plan work, which is O(tiles).
+    ///
+    /// The codec needed nothing for this: an encoder handed
+    /// `(base + y*stride + x*4, stride, w, h)` produces a blob that decodes
+    /// losslessly on its own.
+    case rawDPCMRect = 0x27
+    /// The receiver's stderr, raw UTF-8, no framing beyond the packet itself.
+    ///
+    /// The receiver runs on the other Mac, so every measurement used to mean
+    /// asking whoever sits there to copy a log out of a terminal. That is slow
+    /// enough to discourage measuring, and this project has repeatedly lost
+    /// hours to theories a single log would have killed in a minute. The sender
+    /// appends these to a file so both sides can be read from one machine.
+    case receiverLog = 0x41
 }
 
 struct TBMonitorHelloReceiver: Codable {
@@ -28,6 +75,9 @@ struct TBMonitorHelloReceiver: Codable {
     var captureWidth: Int?
     var captureHeight: Int?
     var codec: String?
+    /// "f32" or "s16". Lets a newer receiver tell what an older sender is
+    /// sending: absent means Int16, which is what senders sent before this.
+    var audioFormat: String?
 }
 
 struct TBMonitorDisplayProfile: Codable {
@@ -42,8 +92,26 @@ struct TBMonitorDisplayProfile: Codable {
     var captureHeight: Int
     var supportsHEVCDecode: Bool?
     var supportsRawNV12: Bool?
+    /// Absent on receivers older than the Float32 audio change, which is the
+    /// point: audio stays Int16 for them rather than arriving as noise.
+    var supportsFloat32Audio: Bool?
+    /// Whether the receiver can decode tile-DPCM frames on its GPU. Absent means
+    /// no, which is also what an older receiver says by saying nothing. The
+    /// receiver only claims this if the compute pipeline actually built, since
+    /// decoding on a CPU is far too slow at 5K to stand in.
+    var supportsDPCM: Bool?
+    /// Whether the receiver can place a band at a row offset and present only on
+    /// the last one. Absent means whole frames only.
+    var supportsDPCMSlices: Bool?
+    /// Whether the receiver can place a region by column as well as row, i.e.
+    /// accept damage rects. Absent means no, which is also what an older
+    /// receiver says by saying nothing.
+    var supportsDPCMRects: Bool?
     var inputMonitoringTrusted: Bool?
     var accessibilityTrusted: Bool?
+    /// Optional so older receivers still decode; absent means "cannot".
+    var supportsNightShift: Bool?
+    var supportsTrueTone: Bool?
 }
 
 struct TBMonitorCreateSessionAck: Codable {
@@ -94,6 +162,20 @@ struct TBMonitorVolume: Codable {
     var level: Double
 }
 
+struct TBMonitorDisplayTweaks: Codable {
+    var nightShift: Bool
+    var trueTone: Bool
+    /// Whether the receiver waits for its display's refresh boundary before
+    /// presenting. Off trades tearing for up to a refresh period of latency
+    /// (~8 ms at 60 Hz), which measured as the largest addressable term left in
+    /// the end-to-end budget.
+    ///
+    /// Optional so an older receiver — which ignores the key — and an older
+    /// sender — which omits it, leaving the receiver's default of on — both keep
+    /// working.
+    var vsync: Bool?
+}
+
 struct TBMonitorClipboard: Codable {
     var text: String
 }
@@ -120,6 +202,97 @@ enum TBMonitorProtocol {
     /// (e.g. 0xFFFFFFFF) would make the drain loop buffer inbound data
     /// forever, waiting for a packet that can never complete.
     static let maxPacketLength: UInt32 = 64 * 1024 * 1024
+
+    /// Bytes of framing every packet carries: a big-endian length, then the type.
+    static let headerSize = 5
+
+    /// Frame a payload whose producer already left `headerSize` bytes in front of
+    /// it, writing the header in place. `base` points at the reserved run and
+    /// `totalCount` spans header and payload together.
+    ///
+    /// Exists to avoid a second copy of a very large payload: `makePacket` has to
+    /// concatenate, which at ~30 MB a frame was measurable both in latency and in
+    /// memcpy bandwidth on the sender's CPU.
+    static func framedPacket(type: TBMonitorPacketType,
+                             base: UnsafePointer<UInt8>,
+                             totalCount: Int) -> Data {
+        let mutable = UnsafeMutablePointer(mutating: base)
+        let payloadCount = totalCount - headerSize
+        let framed = UInt32(1 + payloadCount)
+        mutable[0] = UInt8((framed >> 24) & 0xFF)
+        mutable[1] = UInt8((framed >> 16) & 0xFF)
+        mutable[2] = UInt8((framed >>  8) & 0xFF)
+        mutable[3] = UInt8( framed        & 0xFF)
+        mutable[4] = type.rawValue
+        return Data(bytes: base, count: totalCount)
+    }
+
+    /// Bytes of the TBD2 slice header, between the packet header and the blob.
+    static let sliceHeaderSize = 28
+    /// Same, for a rect: the slice header plus a column offset.
+    static let rectHeaderSize = 32
+
+    /// Write the slice header into space the encoder reserved ahead of the blob,
+    /// then frame the whole thing. `base` points at the packet header, so the
+    /// slice header follows it and the blob follows that — one contiguous buffer,
+    /// one copy.
+    static func framedSlicePacket(base: UnsafePointer<UInt8>,
+                                  totalCount: Int,
+                                  captureTimeNanos: UInt64,
+                                  frameID: UInt32,
+                                  frameW: UInt32, frameH: UInt32,
+                                  y0: UInt32,
+                                  index: UInt16, count: UInt16) -> Data {
+        let p = UnsafeMutablePointer(mutating: base) + headerSize
+        var o = 0
+        func put32(_ v: UInt32) {
+            p[o] = UInt8((v >> 24) & 0xFF); p[o+1] = UInt8((v >> 16) & 0xFF)
+            p[o+2] = UInt8((v >> 8) & 0xFF); p[o+3] = UInt8(v & 0xFF); o += 4
+        }
+        func put16(_ v: UInt16) {
+            p[o] = UInt8((v >> 8) & 0xFF); p[o+1] = UInt8(v & 0xFF); o += 2
+        }
+        put32(UInt32(truncatingIfNeeded: captureTimeNanos >> 32))
+        put32(UInt32(truncatingIfNeeded: captureTimeNanos))
+        put32(frameID)
+        put32(frameW)
+        put32(frameH)
+        put32(y0)
+        put16(index)
+        put16(count)
+        return framedPacket(type: .rawDPCMSlice, base: base, totalCount: totalCount)
+    }
+
+    /// Write the rect header into space the encoder reserved ahead of the blob,
+    /// then frame the whole thing — one contiguous buffer, one copy, exactly as
+    /// the band path does.
+    static func framedRectPacket(base: UnsafePointer<UInt8>,
+                                 totalCount: Int,
+                                 captureTimeNanos: UInt64,
+                                 frameID: UInt32,
+                                 frameW: UInt32, frameH: UInt32,
+                                 x0: UInt32, y0: UInt32,
+                                 index: UInt16, count: UInt16) -> Data {
+        let p = UnsafeMutablePointer(mutating: base) + headerSize
+        var o = 0
+        func put32(_ v: UInt32) {
+            p[o] = UInt8((v >> 24) & 0xFF); p[o+1] = UInt8((v >> 16) & 0xFF)
+            p[o+2] = UInt8((v >> 8) & 0xFF); p[o+3] = UInt8(v & 0xFF); o += 4
+        }
+        func put16(_ v: UInt16) {
+            p[o] = UInt8((v >> 8) & 0xFF); p[o+1] = UInt8(v & 0xFF); o += 2
+        }
+        put32(UInt32(truncatingIfNeeded: captureTimeNanos >> 32))
+        put32(UInt32(truncatingIfNeeded: captureTimeNanos))
+        put32(frameID)
+        put32(frameW)
+        put32(frameH)
+        put32(x0)
+        put32(y0)
+        put16(index)
+        put16(count)
+        return framedPacket(type: .rawDPCMRect, base: base, totalCount: totalCount)
+    }
 
     static func makePacket(type: TBMonitorPacketType, payload: Data) -> Data {
         var packet = Data()

@@ -212,6 +212,156 @@ static void test_large_payload_roundtrip(void) {
     tb_parser_free(&p);
 }
 
+/* ---- the stall this parser was rewritten to prevent ------------------- */
+
+/* Drives the parser exactly the way link_reader_main does: reserve a 1 MiB
+ * window, copy socket bytes into it, commit, and hand off video packets with
+ * tb_parser_hold_current() -- recycling the yielded buffer as the next spare.
+ *
+ * Reproducing the shape matters. The failure was never a wrong packet; it was
+ * the COST of a right one growing with how far behind the reader had fallen,
+ * which is only visible when packets are large, reads are chunked, and a
+ * backlog is present all at once. */
+struct replay {
+    struct tb_parser *p;
+    int   video_seen;
+    int   control_seen;
+    size_t video_bytes;
+};
+
+static void replay_cb(uint8_t type, const uint8_t *payload, size_t len, void *ud) {
+    struct replay *r = (struct replay *)ud;
+    (void)payload;
+    if (type == 0x27) {                 /* stand-in for a DPCM band */
+        r->video_seen++;
+        r->video_bytes += len;
+        tb_parser_hold_current(r->p);   /* what the real reader does */
+    } else {
+        r->control_seen++;
+    }
+}
+
+static size_t append_packet(uint8_t *dst, size_t at, uint8_t type, size_t plen, uint8_t fill) {
+    uint32_t pkt_len = (uint32_t)(1 + plen);
+    dst[at+0] = (uint8_t)(pkt_len >> 24); dst[at+1] = (uint8_t)(pkt_len >> 16);
+    dst[at+2] = (uint8_t)(pkt_len >> 8);  dst[at+3] = (uint8_t)pkt_len;
+    dst[at+4] = type;
+    memset(dst + at + 5, fill, plen);
+    return at + 5 + plen;
+}
+
+static void test_backlog_cost_stays_linear(void) {
+    /* 24 bands of 512 KiB with a small control packet between each, which is
+     * how the wire actually looks: DPCM bands interleaved with audio/control. */
+    const int    BANDS    = 24;
+    const size_t BAND     = 512 * 1024;
+    const size_t CTRL     = 128;
+    const size_t READ     = 1024 * 1024;   /* link_reader_main's window */
+
+    size_t stream_cap = (size_t)BANDS * (BAND + CTRL + 16);
+    uint8_t *stream = (uint8_t *)malloc(stream_cap);
+    CHECK(stream != NULL, "replay stream allocated");
+    if (!stream) return;
+
+    size_t total = 0;
+    for (int i = 0; i < BANDS; ++i) {
+        total = append_packet(stream, total, 0x10, CTRL, (uint8_t)i);
+        total = append_packet(stream, total, 0x27, BAND, (uint8_t)i);
+    }
+
+    struct tb_parser p;
+    struct replay r;
+    memset(&r, 0, sizeof(r));
+    tb_parser_init(&p, replay_cb, &r);
+    r.p = &p;
+
+    size_t fed = 0;
+    while (fed < total) {
+        uint8_t *dst = NULL; size_t avail = 0;
+        CHECK(tb_parser_reserve_space(&p, READ, &dst, &avail) == 0, "reserve ok");
+        size_t n = total - fed;
+        if (n > avail) n = avail;
+        if (n > READ)  n = READ;          /* a socket read is bounded */
+        memcpy(dst, stream + fed, n);
+        fed += n;
+        CHECK(tb_parser_commit(&p, n) == 0, "commit ok");
+
+        size_t held_cap = 0;
+        uint8_t *held = tb_parser_take_held(&p, &held_cap);
+        if (held) tb_parser_set_spare(&p, held, held_cap);   /* recycle */
+    }
+
+    /* A hold returns from dispatch immediately, so whatever was already
+     * buffered behind the held packet waits for the next commit. The real
+     * reader gets those from the next socket read; at end of stream there is
+     * none, so drain explicitly. */
+    for (;;) {
+        int before = r.video_seen + r.control_seen;
+        CHECK(tb_parser_commit(&p, 0) == 0, "drain commit ok");
+        size_t held_cap = 0;
+        uint8_t *held = tb_parser_take_held(&p, &held_cap);
+        if (held) tb_parser_set_spare(&p, held, held_cap);
+        if (r.video_seen + r.control_seen == before) break;
+    }
+
+    CHECK(r.video_seen == BANDS, "every band dispatched");
+    CHECK(r.control_seen == BANDS, "every control packet dispatched");
+    CHECK(r.video_bytes == (size_t)BANDS * BAND, "band payload bytes intact");
+
+    /* THE ASSERTION THAT MATTERS.
+     *
+     * Cost must scale with the stream, not with the stream times the number of
+     * packets in it. Four bytes shuffled per byte delivered is generous for the
+     * offset parser and unreachable for one that compacts on every packet --
+     * that one moves most of the buffer per packet, which at this size is an
+     * order of magnitude more. */
+    /* Was 6 bytes copied per byte received before the read was bounded to the
+     * packet boundary (75 MB for this 12 MB stream, all of it the handoff).
+     * A quarter of the stream is far under that and still leaves room for the
+     * odd partial read; anything approaching 1x means the handoff is copying
+     * whole packets again. */
+    size_t budget = total / 4;
+    printf("  parser copied %zu bytes for %zu received (%.2fx) "
+           "[compact %zu, hold %zu]\n",
+           p.moved_bytes, total, (double)p.moved_bytes / (double)total,
+           p.compact_bytes, p.hold_bytes);
+    CHECK(p.moved_bytes <= budget, "per-packet cost does not scale with backlog");
+
+    tb_parser_free(&p);
+    free(stream);
+}
+
+/* The offset must not change what the parser reports: same packets, same
+ * order, same payloads, however the bytes are sliced across reads. */
+static void test_offset_preserves_framing(void) {
+    struct tb_parser p;
+    tb_parser_init(&p, capture_cb, NULL);
+    g_captured_count = 0;
+
+    uint8_t buf[4096];
+    size_t total = 0;
+    for (int i = 0; i < 12; ++i)
+        total = append_packet(buf, total, (uint8_t)(0x40 + i), 7 + i * 3, (uint8_t)(i + 1));
+
+    /* Awkward slice size: never aligned to a packet boundary. */
+    for (size_t off = 0; off < total; off += 13) {
+        size_t chunk = total - off < 13 ? total - off : 13;
+        CHECK(tb_parser_feed(&p, buf + off, chunk) == 0, "odd-sliced feed ok");
+    }
+
+    CHECK(g_captured_count == 12, "all 12 packets dispatched across odd slices");
+    for (int i = 0; i < g_captured_count && i < 12; ++i) {
+        CHECK(g_captured[i].type == (uint8_t)(0x40 + i), "type in order");
+        CHECK(g_captured[i].len == (size_t)(7 + i * 3), "length preserved");
+        CHECK(g_captured[i].payload[0] == (uint8_t)(i + 1), "payload preserved");
+        CHECK(g_captured[i].had_nul_sentinel, "NUL sentinel still written");
+    }
+    /* Whatever the cursor did, the buffer must not have grown without bound. */
+    CHECK(p.len - p.off == 0, "no bytes left stranded behind the cursor");
+
+    tb_parser_free(&p);
+}
+
 int main(void) {
     test_single_packet_whole_feed();
     test_byte_by_byte_feed();
@@ -220,6 +370,8 @@ int main(void) {
     test_zero_length_is_fatal();
     test_oversized_length_is_fatal();
     test_large_payload_roundtrip();
+    test_offset_preserves_framing();
+    test_backlog_cost_stays_linear();
 
     if (g_failures == 0) {
         printf("net parser tests: %d checks passed\n", g_checks);

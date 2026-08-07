@@ -75,6 +75,30 @@ void tb_disp_render_nv12(struct tb_display *d,
                          const uint8_t *uv, int uv_stride,
                          int w, int h);
 
+/* Render a packed 4:4:4 frame — full chroma, no subsampling. `ten_bit` selects
+ * ARGB2101010 over 8-bit BGRA; both are 4 bytes/pixel. */
+void tb_disp_render_packed32(struct tb_display *d,
+                             const uint8_t *rgba, int stride,
+                             int w, int h, int ten_bit);
+
+/* Decode and render one TBD1 blob (tb_dpcm.h) on the GPU. Returns 0 on success;
+ * non-zero means the frame was not displayed and the caller should count it as
+ * dropped rather than assume the screen is current. */
+int  tb_disp_render_dpcm(struct tb_display *d, const uint8_t *blob, size_t len);
+
+/* Decode one region of a TBD2 frame; present when it is the last of its frame.
+ * `blob`/`len` are the TBD2 payload with the packet header already stripped.
+ *
+ * `x0`/`y0` place it, both multiples of the tile size. A full-width band passes
+ * x0 = 0; a damage rect passes both. */
+int  tb_disp_render_dpcm_slice(struct tb_display *d, const uint8_t *blob, size_t len,
+                               int frame_w, int frame_h, int x0, int y0, int is_last);
+
+/* Whether this receiver can decode TBD1 at all, i.e. whether it should advertise
+ * "supportsDPCM" to the sender. False on any Mac without a working compute
+ * pipeline, which must keep receiving uncompressed frames. */
+int  tb_disp_supports_dpcm(void);
+
 /* Update low-latency local cursor overlay in source-frame coordinates. */
 void tb_disp_set_cursor(struct tb_display *d,
                         int x, int y,
