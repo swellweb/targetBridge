@@ -24,8 +24,11 @@ targetbridge disconnect
 
 Options: `--receiver auto|<id|name|ip>`, `--mode mirror|extended`, `--preset <name>`,
 `--transport tb|net`, `--session N`, `--local-ip <ip>`.
-Presets: `standard1440p`, `smooth1440p60`, `smooth1800p60`, `crisp2160p60`, `native5k`,
-`native5k60Experimental` (aliases: `1440p`, `1440p60`, `1800p`, `4k`, `5k`, `5k60`).
+Presets: `standard1440p`, `smooth1440p60`, `smooth1800p60`, `crisp2160p60`, `retina4k60`,
+`native5k`, `native5k60Experimental` (aliases: `1440p`, `1440p60`, `1800p`, `4k`,
+`5k`, `5k60`). The `retina4k60` aliases `retina4k`, `4096x2304` and `imac4k` match
+the 4096 × 2304 panel in the 21.5-inch Retina 4K iMac without changing the existing
+`4k` alias for the 3840 × 2160 preset.
 `native5k60Experimental` is an opt-in HEVC test profile for 5K at 60 FPS; it does not
 replace the stable 5K 48 FPS profile. A receiver of `auto` waits briefly for
 Bonjour discovery and uses the first receiver found; a raw IP/hostname bypasses discovery.

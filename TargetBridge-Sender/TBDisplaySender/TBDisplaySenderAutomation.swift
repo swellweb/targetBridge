@@ -241,6 +241,7 @@ enum TBSenderAutomation {
         case "1440p60", "smooth", "smooth1440": return .smooth1440p60
         case "1800p", "1800p60", "smooth1800": return .smooth1800p60
         case "2160p", "2160p60", "4k", "crisp": return .crisp2160p60
+        case "retina4k", "retina4k60", "4096x2304", "imac4k": return .retina4k60
         case "5k60", "native5k60": return .native5k60Experimental
         case "5k", "native", "5120x2880": return .native5k
         default: return nil

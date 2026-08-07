@@ -18,7 +18,7 @@ set -euo pipefail
 #   targetbridge connect --receiver 169.254.0.2 --mode extended --preset 5k
 #   targetbridge disconnect
 #
-# Presets: standard1440p | smooth1440p60 | smooth1800p60 | crisp2160p60 | native5k
+# Presets: standard1440p | smooth1440p60 | smooth1800p60 | crisp2160p60 | retina4k60 | native5k
 #          (aliases: 1440p, 1440p60, 1800p, 4k, 5k)
 #
 # Remote / SSH: run it on the sender over SSH (the sender must be at a logged-in

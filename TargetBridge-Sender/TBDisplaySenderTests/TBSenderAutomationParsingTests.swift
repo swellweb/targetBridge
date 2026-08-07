@@ -1,3 +1,4 @@
+import CoreMedia
 import XCTest
 @testable import TargetBridge
 
@@ -7,6 +8,44 @@ import XCTest
 /// silently reroute automation traffic.
 @MainActor
 final class TBSenderAutomationParsingTests: XCTestCase {
+    func testHighFrameRatePresetsUseFiveCaptureSurfaces() {
+        XCTAssertEqual(TBDisplayCapturePreset.standard1440p.queueDepth, 3)
+        XCTAssertEqual(TBDisplayCapturePreset.smooth1440p60.queueDepth, 5)
+        XCTAssertEqual(TBDisplayCapturePreset.retina4k60.queueDepth, 5)
+        XCTAssertEqual(TBDisplayCapturePreset.native5k60Experimental.queueDepth, 5)
+    }
+
+    func testHighFrameRatePresetsRequestCaptureHeadroom() {
+        XCTAssertEqual(TBDisplayCapturePreset.standard1440p.captureRequestFrameRate, 30)
+        XCTAssertEqual(TBDisplayCapturePreset.smooth1440p60.captureRequestFrameRate, 120)
+        XCTAssertEqual(TBDisplayCapturePreset.retina4k60.captureRequestFrameRate, 120)
+        XCTAssertEqual(TBDisplayCapturePreset.native5k.captureRequestFrameRate, 96)
+    }
+
+    func testFrameRatePacerSamples75HzInputAt60Hz() {
+        var pacer = TBFrameRatePacer(maximumFrameRate: 60)
+        let emitted = (0..<750).filter { frame in
+            pacer.shouldEmit(presentationTime: CMTime(seconds: Double(frame) / 75.0, preferredTimescale: 60_000))
+        }
+        XCTAssertEqual(emitted.count, 600)
+    }
+
+    func testFrameRatePacerPreservesInputsAtOrBelowCeiling() {
+        for inputRate in [30, 60] {
+            var pacer = TBFrameRatePacer(maximumFrameRate: 60)
+            let emitted = (0..<(inputRate * 10)).filter { frame in
+                pacer.shouldEmit(presentationTime: CMTime(seconds: Double(frame) / Double(inputRate), preferredTimescale: 60_000))
+            }
+            XCTAssertEqual(emitted.count, inputRate * 10)
+        }
+    }
+
+    func testFrameRatePacerDoesNotAccumulateBurstCreditAfterIdleGap() {
+        var pacer = TBFrameRatePacer(maximumFrameRate: 60)
+        XCTAssertTrue(pacer.shouldEmit(presentationTime: CMTime(seconds: 0, preferredTimescale: 60_000)))
+        XCTAssertTrue(pacer.shouldEmit(presentationTime: CMTime(seconds: 1, preferredTimescale: 60_000)))
+        XCTAssertFalse(pacer.shouldEmit(presentationTime: CMTime(seconds: 1 + 1.0 / 75.0, preferredTimescale: 60_000)))
+    }
 
     // MARK: - parseTransport
 
@@ -55,6 +94,7 @@ final class TBSenderAutomationParsingTests: XCTestCase {
         XCTAssertEqual(TBSenderAutomation.parsePreset("smooth1440p60"), .smooth1440p60)
         XCTAssertEqual(TBSenderAutomation.parsePreset("smooth1800p60"), .smooth1800p60)
         XCTAssertEqual(TBSenderAutomation.parsePreset("crisp2160p60"), .crisp2160p60)
+        XCTAssertEqual(TBSenderAutomation.parsePreset("retina4k60"), .retina4k60)
         XCTAssertEqual(TBSenderAutomation.parsePreset("native5k"), .native5k)
         XCTAssertEqual(TBSenderAutomation.parsePreset("native5k60Experimental"), .native5k60Experimental)
     }
@@ -67,6 +107,10 @@ final class TBSenderAutomationParsingTests: XCTestCase {
         XCTAssertEqual(TBSenderAutomation.parsePreset("1800p"), .smooth1800p60)
         XCTAssertEqual(TBSenderAutomation.parsePreset("4k"), .crisp2160p60)
         XCTAssertEqual(TBSenderAutomation.parsePreset("crisp"), .crisp2160p60)
+        XCTAssertEqual(TBSenderAutomation.parsePreset("retina4k"), .retina4k60)
+        XCTAssertEqual(TBSenderAutomation.parsePreset("RETINA4K60"), .retina4k60)
+        XCTAssertEqual(TBSenderAutomation.parsePreset("4096x2304"), .retina4k60)
+        XCTAssertEqual(TBSenderAutomation.parsePreset("imac4k"), .retina4k60)
         XCTAssertEqual(TBSenderAutomation.parsePreset("5k60"), .native5k60Experimental)
         XCTAssertEqual(TBSenderAutomation.parsePreset("native5k60"), .native5k60Experimental)
         XCTAssertEqual(TBSenderAutomation.parsePreset("5k"), .native5k)
@@ -91,6 +135,18 @@ final class TBSenderAutomationParsingTests: XCTestCase {
         XCTAssertEqual(preset.virtualDisplayRefreshRate, 60)
         XCTAssertEqual(preset.codecName, "HEVC")
         XCTAssertEqual(preset.averageBitRate, 150_000_000)
+    }
+
+    func testRetina4KPresetMatches215InchIMacPanel() {
+        let preset = TBDisplayCapturePreset.retina4k60
+
+        XCTAssertEqual(preset.width, 4096)
+        XCTAssertEqual(preset.height, 2304)
+        XCTAssertEqual(preset.expectedFrameRate, 60)
+        XCTAssertEqual(preset.virtualDisplayRefreshRate, 60)
+        XCTAssertEqual(preset.averageBitRate, 120_000_000)
+        XCTAssertEqual(preset.codecName, "HEVC")
+        XCTAssertEqual(preset.renderMatchedDesktopDescription, "2048 × 1152")
     }
 
     // MARK: - matches (receiver selection for --receiver <value>)
