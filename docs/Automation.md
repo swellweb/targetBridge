@@ -25,9 +25,14 @@ targetbridge disconnect
 Options: `--receiver auto|<id|name|ip>`, `--mode mirror|extended`, `--preset <name>`,
 `--path auto|wired|thunderbolt|usb|ethernet|wifi`, `--transport tb|net`, `--session N`,
 `--local-ip <ip>`, `--retry`.
-Presets: `standard1440p`, `smooth1440p60`, `smooth1800p60`, `crisp2160p60`, `retina4k60`,
-`native5k`, `native5k60Experimental` (aliases: `1440p`, `1440p60`, `1800p`, `4k`,
-`5k`, `5k60`). The `retina4k60` aliases `retina4k`, `4096x2304` and `imac4k` match
+Presets: `standard1080p`, `smooth1080p60`, `standard1440p`, `smooth1440p60`,
+`smooth1800p60`, `crisp2160p60`, `retina4k60`, `native5k`, `native5k60Experimental`
+(aliases: `1080p`, `1080p60`, `1440p`, `1440p60`, `1800p`, `4k`, `5k`, `5k60`).
+The `standard1080p` and `smooth1080p60` presets stream at the 1920 × 1080 native
+resolution of every 21.5-inch non-Retina iMac, so the receiver decodes at panel
+resolution instead of downscaling a 1440p stream. `standard1080p` also aliases
+`1080`, `fullhd` and `1920x1080`; `smooth1080p60` aliases `fullhd60` and
+`smooth1080`. The `retina4k60` aliases `retina4k`, `4096x2304` and `imac4k` match
 the 4096 × 2304 panel in the 21.5-inch Retina 4K iMac without changing the existing
 `4k` alias for the 3840 × 2160 preset.
 `native5k60Experimental` is an opt-in HEVC test profile for 5K at 60 FPS; it does not
