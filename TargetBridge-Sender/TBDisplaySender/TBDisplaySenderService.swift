@@ -306,6 +306,33 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
     var renderMatchedDesktopDescription: String {
         "\(width / 2) × \(height / 2)"
     }
+
+    /// Virtual display mode for a receiver whose panel already matches the stream
+    /// pixel for pixel. Rendering 1x keeps the desktop at its true size and makes
+    /// capture 1:1; the HiDPI variant would halve the logical desktop and draw every
+    /// control at 2x on a panel with no extra pixels to resolve it.
+    var nativeScaleDisplayMode: TBVirtualDisplayModeSize {
+        TBVirtualDisplayModeSize(width: width, height: height, isHiDPI: false)
+    }
+
+    /// True for profiles that target a receiver panel of exactly this resolution,
+    /// with no extra pixels for a HiDPI backing store.
+    ///
+    /// The receiver advertises a fixed 5120x2880 panel and a 2560x1440 HiDPI mode
+    /// no matter what it is actually plugged into, so its profile cannot be used to
+    /// detect a non-Retina panel; the capture profile is the signal instead. A
+    /// 21.5-inch non-Retina iMac running the 1080p profiles wants a 1920x1080 1x
+    /// desktop: HiDPI would render the desktop at 960x540 and draw every control at
+    /// 2x, and the receiver's own 1440p default would rescale twice on the way out.
+    var rendersAtNativeScale: Bool {
+        switch self {
+        case .standard1080p, .smooth1080p60:
+            return true
+        case .standard1440p, .smooth1440p60, .smooth1800p60, .crisp2160p60, .retina4k60,
+             .native5k, .native5k60Experimental:
+            return false
+        }
+    }
 }
 
 /// A zero-buffer frame-rate ceiling for capture callbacks. Deadlines advance on
@@ -2460,15 +2487,27 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
                 ? await self.fetchShareableDisplayIDs()
                 : []
             let receiverKey = self.extendedDisplayIdentityKey(for: profile)
-            let modeOverride: TBVirtualDisplayModeSize? = (self.matchRenderToStream && self.captureSource == .extendedDesktop)
-                ? self.capturePreset.renderMatchedDisplayMode
-                : nil
+            // A native-scale profile targets a panel with exactly this many pixels, so
+            // render the desktop 1x at the stream size: capture is 1:1 and the panel
+            // shows it at its true size. This takes priority over render matching,
+            // whose 2x mode would halve the logical desktop for no gain on a panel with
+            // no extra pixels to resolve it.
+            let modeOverride: TBVirtualDisplayModeSize?
+            if self.capturePreset.rendersAtNativeScale {
+                modeOverride = self.capturePreset.nativeScaleDisplayMode
+            } else if self.matchRenderToStream && self.captureSource == .extendedDesktop {
+                modeOverride = self.capturePreset.renderMatchedDisplayMode
+            } else {
+                modeOverride = nil
+            }
             if let modeOverride {
                 NSLog(
-                    "TargetBridge: render matching on, virtual display mode %dx%d (backing %dx%d) for %dx%d stream",
+                    "TargetBridge: virtual display mode %dx%d %@ (backing %dx%d) for %dx%d stream, panel %dx%d",
                     modeOverride.width, modeOverride.height,
+                    modeOverride.isHiDPI ? "HiDPI" : "1x",
                     modeOverride.backingWidth, modeOverride.backingHeight,
-                    self.capturePreset.width, self.capturePreset.height
+                    self.capturePreset.width, self.capturePreset.height,
+                    profile.panelWidth, profile.panelHeight
                 )
             }
             guard self.session.create(

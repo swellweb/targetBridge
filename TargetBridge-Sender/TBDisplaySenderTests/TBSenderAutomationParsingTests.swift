@@ -8,6 +8,39 @@ import XCTest
 /// silently reroute automation traffic.
 @MainActor
 final class TBSenderAutomationParsingTests: XCTestCase {
+    func testNativeScaleAppliesOnlyToPanelMatchedProfiles() {
+        XCTAssertTrue(TBDisplayCapturePreset.standard1080p.rendersAtNativeScale)
+        XCTAssertTrue(TBDisplayCapturePreset.smooth1080p60.rendersAtNativeScale)
+        for preset in TBDisplayCapturePreset.allCases where preset.width > 1920 {
+            XCTAssertFalse(
+                preset.rendersAtNativeScale,
+                "\(preset.rawValue) targets a Retina panel and must keep its HiDPI mode"
+            )
+        }
+    }
+
+    /// A 1x mode must hand CGVirtualDisplay the full stream size with a framebuffer
+    /// to match, not the halved HiDPI point size. Getting this backwards renders the
+    /// desktop at 960x540 and draws every control at 2x on a 1080p panel.
+    func testNativeScaleModeRendersFullSizeWithoutHiDPIBacking() {
+        let mode = TBDisplayCapturePreset.standard1080p.nativeScaleDisplayMode
+        XCTAssertEqual(mode.width, 1920)
+        XCTAssertEqual(mode.height, 1080)
+        XCTAssertFalse(mode.isHiDPI)
+        XCTAssertEqual(mode.backingWidth, 1920)
+        XCTAssertEqual(mode.backingHeight, 1080)
+    }
+
+    /// Render matching keeps its 2x contract for every non-native-scale profile.
+    func testRenderMatchedModeKeepsHiDPIBacking() {
+        let mode = TBDisplayCapturePreset.standard1440p.renderMatchedDisplayMode
+        XCTAssertEqual(mode.width, 1280)
+        XCTAssertEqual(mode.height, 720)
+        XCTAssertTrue(mode.isHiDPI)
+        XCTAssertEqual(mode.backingWidth, 2560)
+        XCTAssertEqual(mode.backingHeight, 1440)
+    }
+
     func testHighFrameRatePresetsUseFiveCaptureSurfaces() {
         XCTAssertEqual(TBDisplayCapturePreset.standard1440p.queueDepth, 3)
         XCTAssertEqual(TBDisplayCapturePreset.smooth1440p60.queueDepth, 5)

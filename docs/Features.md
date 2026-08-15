@@ -13,6 +13,13 @@ Extended layouts can be arranged in macOS **System Settings -> Displays -> Arran
 
 If the receiver panel does not look correct, set the matching resolution on the TargetBridge display in macOS Display Settings. For 27-inch 5K iMac workflows, the `Crisp` or `5K` stream profiles usually pair best with the matching HiDPI arrangement.
 
+The `Full HD` profiles are for non-Retina 1080p receivers, such as every 21.5-inch
+iMac that is not a Retina 4K model. They render the virtual display at 1920 × 1080
+1x rather than as a HiDPI mode, so the desktop reaches the panel at its true size
+and capture stays 1:1. Because those profiles already render the desktop to match
+the stream, the **Match render to stream** toggle does not apply and is hidden when
+one is selected.
+
 Related reading:
 
 - [docs/QuickStart-EN.md](docs/QuickStart-EN.md)
