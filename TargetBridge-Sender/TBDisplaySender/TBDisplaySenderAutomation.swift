@@ -460,6 +460,8 @@ enum TBSenderAutomation {
     static func parsePreset(_ value: String) -> TBDisplayCapturePreset? {
         if let preset = TBDisplayCapturePreset(rawValue: value) { return preset }
         switch value.lowercased() {
+        case "1080p", "1080", "fullhd", "1920x1080": return .standard1080p
+        case "1080p60", "fullhd60", "smooth1080": return .smooth1080p60
         case "1440p", "1440", "standard": return .standard1440p
         case "1440p60", "smooth", "smooth1440": return .smooth1440p60
         case "1800p", "1800p60", "smooth1800": return .smooth1800p60

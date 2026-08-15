@@ -615,7 +615,11 @@ private struct TBDisplaySenderSessionSettingsSheet: View {
                         .disabled(session.isConnected || session.isStreaming)
                     }
 
-                    if session.captureSource == .extendedDesktop {
+                    // A native-scale profile already renders the desktop 1:1 with the
+                    // stream, so render matching has nothing left to do and its HiDPI
+                    // wording would be wrong. Hide the row rather than show a toggle
+                    // that silently does nothing.
+                    if session.captureSource == .extendedDesktop, !session.capturePreset.rendersAtNativeScale {
                         settingRow(renderMatchingTitle, details: renderMatchingDetails) {
                             Toggle("", isOn: $session.matchRenderToStream)
                                 .labelsHidden()
