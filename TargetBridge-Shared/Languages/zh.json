@@ -132,6 +132,8 @@
   "sender.status_chip.idle": "空闲",
   "sender.source.desktop_mirror": "镜像桌面",
   "sender.source.extended_desktop": "扩展桌面",
+  "sender.profile.full_hd": "Full HD",
+  "sender.profile.full_hd_60": "Full HD 60",
   "sender.profile.standard": "Standard",
   "sender.profile.smooth": "Smooth",
   "sender.profile.smooth_plus": "Smooth+",

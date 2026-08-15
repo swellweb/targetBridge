@@ -154,6 +154,8 @@ final class TBSenderAutomationParsingTests: XCTestCase {
     // MARK: - parsePreset
 
     func testParsePresetAcceptsExactRawValues() {
+        XCTAssertEqual(TBSenderAutomation.parsePreset("standard1080p"), .standard1080p)
+        XCTAssertEqual(TBSenderAutomation.parsePreset("smooth1080p60"), .smooth1080p60)
         XCTAssertEqual(TBSenderAutomation.parsePreset("standard1440p"), .standard1440p)
         XCTAssertEqual(TBSenderAutomation.parsePreset("smooth1440p60"), .smooth1440p60)
         XCTAssertEqual(TBSenderAutomation.parsePreset("smooth1800p60"), .smooth1800p60)
@@ -164,6 +166,13 @@ final class TBSenderAutomationParsingTests: XCTestCase {
     }
 
     func testParsePresetAliases() {
+        XCTAssertEqual(TBSenderAutomation.parsePreset("1080p"), .standard1080p)
+        XCTAssertEqual(TBSenderAutomation.parsePreset("1080"), .standard1080p)
+        XCTAssertEqual(TBSenderAutomation.parsePreset("fullhd"), .standard1080p)
+        XCTAssertEqual(TBSenderAutomation.parsePreset("1920x1080"), .standard1080p)
+        XCTAssertEqual(TBSenderAutomation.parsePreset("1080p60"), .smooth1080p60)
+        XCTAssertEqual(TBSenderAutomation.parsePreset("FullHD60"), .smooth1080p60)
+        XCTAssertEqual(TBSenderAutomation.parsePreset("smooth1080"), .smooth1080p60)
         XCTAssertEqual(TBSenderAutomation.parsePreset("1440p"), .standard1440p)
         XCTAssertEqual(TBSenderAutomation.parsePreset("standard"), .standard1440p)
         XCTAssertEqual(TBSenderAutomation.parsePreset("1440p60"), .smooth1440p60)

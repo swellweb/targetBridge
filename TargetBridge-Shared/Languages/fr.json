@@ -132,6 +132,8 @@
   "sender.status_chip.idle": "Inactif",
   "sender.source.desktop_mirror": "Dupliquer le bureau",
   "sender.source.extended_desktop": "Bureau étendu",
+  "sender.profile.full_hd": "Full HD",
+  "sender.profile.full_hd_60": "Full HD 60",
   "sender.profile.standard": "Standard",
   "sender.profile.smooth": "Fluide",
   "sender.profile.smooth_plus": "Fluide+",

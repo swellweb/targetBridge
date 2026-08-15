@@ -559,6 +559,10 @@ enum TBDisplaySenderL10n {
 extension TBDisplayCapturePreset {
     func title(_ language: TBDisplaySenderLanguage) -> String {
         switch self {
+        case .standard1080p:
+            return TBDisplaySenderL10n.text("sender.profile.full_hd", language)
+        case .smooth1080p60:
+            return TBDisplaySenderL10n.text("sender.profile.full_hd_60", language)
         case .standard1440p:
             return TBDisplaySenderL10n.text("sender.profile.standard", language)
         case .smooth1440p60:

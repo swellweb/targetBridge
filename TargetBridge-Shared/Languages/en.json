@@ -132,6 +132,8 @@
   "sender.status_chip.idle": "Idle",
   "sender.source.desktop_mirror": "Duplicate Desktop",
   "sender.source.extended_desktop": "Extended Desktop",
+  "sender.profile.full_hd": "Full HD",
+  "sender.profile.full_hd_60": "Full HD 60",
   "sender.profile.standard": "Standard",
   "sender.profile.smooth": "Smooth",
   "sender.profile.smooth_plus": "Smooth+",
