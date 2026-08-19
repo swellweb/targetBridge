@@ -45,6 +45,27 @@ final class TBSenderAutomationParsingTests: XCTestCase {
         )
     }
 
+    func testDirectHeadlessVideoStartsAuxiliaryAudioOnlyWhenEnabled() {
+        XCTAssertTrue(
+            TBDisplaySenderSession.needsAuxiliaryAudioCapture(
+                usingDirectDisplayStream: true,
+                shouldRelayAudio: true
+            )
+        )
+        XCTAssertFalse(
+            TBDisplaySenderSession.needsAuxiliaryAudioCapture(
+                usingDirectDisplayStream: true,
+                shouldRelayAudio: false
+            )
+        )
+        XCTAssertFalse(
+            TBDisplaySenderSession.needsAuxiliaryAudioCapture(
+                usingDirectDisplayStream: false,
+                shouldRelayAudio: true
+            )
+        )
+    }
+
     func testReceiverControlKeepsNativeCursorWithoutLargeCursor() {
         XCTAssertFalse(
             TBInputControlRole.receiverMaster.usesLowLatencyCursorOverlay(
