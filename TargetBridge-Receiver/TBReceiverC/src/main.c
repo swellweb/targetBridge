@@ -1855,6 +1855,14 @@ static void build_display_host(char *buf, size_t bufsz, const char *ip_fallback,
 int main(int argc, char **argv) {
     int fullscreen = 1;
     for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--permission-status") == 0) {
+            printf(
+                "TB_PERMISSION_STATUS:screen_recording=0:accessibility=%d:input_monitoring=%d\n",
+                tb_receiver_accessibility_trusted(),
+                tb_receiver_input_monitoring_trusted()
+            );
+            return 0;
+        }
         if (strcmp(argv[i], "--windowed") == 0) fullscreen = 0;
     }
 
