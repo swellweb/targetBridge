@@ -8,6 +8,43 @@ import XCTest
 /// silently reroute automation traffic.
 @MainActor
 final class TBSenderAutomationParsingTests: XCTestCase {
+    func testHeadlessMirrorUsesOnlyOnlineVirtualDisplayDirectly() {
+        XCTAssertTrue(
+            TBDisplaySenderSession.shouldUseHeadlessVirtualDisplay(
+                virtualDisplayID: 120,
+                mainDisplayID: 120,
+                onlineDisplayIDs: [120]
+            )
+        )
+    }
+
+    func testHeadlessMirrorDoesNotBypassMirroringWithPhysicalDisplayOnline() {
+        XCTAssertFalse(
+            TBDisplaySenderSession.shouldUseHeadlessVirtualDisplay(
+                virtualDisplayID: 120,
+                mainDisplayID: 120,
+                onlineDisplayIDs: [120, 1]
+            )
+        )
+        XCTAssertFalse(
+            TBDisplaySenderSession.shouldUseHeadlessVirtualDisplay(
+                virtualDisplayID: 120,
+                mainDisplayID: 1,
+                onlineDisplayIDs: [1, 120]
+            )
+        )
+    }
+
+    func testHeadlessMirrorRequiresVirtualDisplayToBeOnline() {
+        XCTAssertFalse(
+            TBDisplaySenderSession.shouldUseHeadlessVirtualDisplay(
+                virtualDisplayID: 120,
+                mainDisplayID: 120,
+                onlineDisplayIDs: []
+            )
+        )
+    }
+
     func testReceiverControlKeepsNativeCursorWithoutLargeCursor() {
         XCTAssertFalse(
             TBInputControlRole.receiverMaster.usesLowLatencyCursorOverlay(

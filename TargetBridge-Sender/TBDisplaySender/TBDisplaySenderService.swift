@@ -1352,6 +1352,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     private var lastCheckedCursor: NSCursor?
     private var lastCheckedCursorType: Int = 0
     private var baselineDisplayIDs = Set<CGDirectDisplayID>()
+    private var headlessMirrorUsesVirtualDisplay = false
     private var cursorDisplayID: CGDirectDisplayID = kCGNullDirectDisplay
     private var lastCursorPacket: TBMonitorCursor?
     private var injectedRemoteMouseLocation: CGPoint?
@@ -1899,6 +1900,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         sentSnapshot = 0
         sessionAckSent = false
         baselineDisplayIDs = []
+        headlessMirrorUsesVirtualDisplay = false
         cursorDisplayID = kCGNullDirectDisplay
         lastCursorPacket = nil
         captureDisplayText = TBDisplaySenderL10n.captureDisplayNotAvailable(language)
@@ -2602,6 +2604,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
             // Wake and hold the graphical session before virtual display setup.
             self.beginCaptureActivity()
             self.setStatus(.creatingVirtualDisplay)
+            self.headlessMirrorUsesVirtualDisplay = false
             self.baselineDisplayIDs = self.captureSource == .extendedDesktop
                 ? await self.fetchShareableDisplayIDs()
                 : []
@@ -2641,8 +2644,18 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
                 return
             }
             if self.captureSource == .desktopMirror {
-                if CGDisplayIsInMirrorSet(self.session.displayID) == 0 {
-                    let displayReady = await self.waitForOnlineDisplay(self.session.displayID)
+                let displayReady = await self.waitForOnlineDisplay(self.session.displayID)
+                self.headlessMirrorUsesVirtualDisplay = displayReady && Self.shouldUseHeadlessVirtualDisplay(
+                    virtualDisplayID: self.session.displayID,
+                    mainDisplayID: CGMainDisplayID(),
+                    onlineDisplayIDs: self.onlineDisplayIDs()
+                )
+                if self.headlessMirrorUsesVirtualDisplay {
+                    NSLog(
+                        "TargetBridge: headless mirror mode uses virtual display %u directly",
+                        self.session.displayID
+                    )
+                } else if CGDisplayIsInMirrorSet(self.session.displayID) == 0 {
                     let mirrorConfigured = displayReady && self.configureDesktopMirror(for: self.session.displayID)
                     if !mirrorConfigured {
                         NSLog(
@@ -2686,7 +2699,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
 
             if self.captureSource == .extendedDesktop {
                 self.scheduleExtendedDesktopRecovery(for: self.session.displayID)
-            } else if self.captureSource == .desktopMirror {
+            } else if self.captureSource == .desktopMirror && !self.headlessMirrorUsesVirtualDisplay {
                 self.scheduleDesktopMirrorRecovery(for: self.session.displayID)
             }
 
@@ -2755,7 +2768,10 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
 
             let display: SCDisplay
             if captureSource == .desktopMirror {
-                if let mirrorDisplay = try await resolveMirrorCaptureDisplay() {
+                if headlessMirrorUsesVirtualDisplay {
+                    TBLog.connection.info("capture: headless virtual display uses direct stream id=\(self.session.displayID, privacy: .public)")
+                    return startDirectDisplayStream(displayID: session.displayID, preset: preset)
+                } else if let mirrorDisplay = try await resolveMirrorCaptureDisplay() {
                     display = mirrorDisplay
                 } else if let fallbackDisplayID = directMirrorFallbackDisplayID() {
                     TBLog.connection.warning("capture: no virtual ScreenCaptureKit display; using direct fallback id=\(fallbackDisplayID, privacy: .public)")
@@ -3068,6 +3084,21 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         }
 
         return false
+    }
+
+    static func shouldUseHeadlessVirtualDisplay(
+        virtualDisplayID: CGDirectDisplayID,
+        mainDisplayID: CGDirectDisplayID,
+        onlineDisplayIDs: [CGDirectDisplayID]
+    ) -> Bool {
+        guard virtualDisplayID != kCGNullDirectDisplay,
+              mainDisplayID == virtualDisplayID,
+              onlineDisplayIDs.contains(virtualDisplayID)
+        else { return false }
+
+        return onlineDisplayIDs.allSatisfy {
+            $0 == kCGNullDirectDisplay || $0 == virtualDisplayID
+        }
     }
 
     private func scheduleExtendedDesktopRecovery(for virtualDisplayID: CGDirectDisplayID) {
