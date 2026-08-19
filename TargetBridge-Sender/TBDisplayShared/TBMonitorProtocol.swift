@@ -63,6 +63,13 @@ struct TBMonitorUILanguageUpdate: Codable {
 
 struct TBMonitorHeartbeat: Codable {
     var sequence: UInt64
+    /// Mirrors the Sender's existing display-sleep preference. Optional fields
+    /// keep the heartbeat wire-compatible with older Sender/Receiver builds.
+    var preventDisplaySleep: Bool? = nil
+    /// Seconds since the last real input event in the Sender's login session.
+    /// The Receiver uses this to wake its physical panel when the headless Mac
+    /// mini is operated with its own mouse or keyboard.
+    var inputIdleSeconds: Double? = nil
 }
 
 struct TBMonitorTeardown: Codable {

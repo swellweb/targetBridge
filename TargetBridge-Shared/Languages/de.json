@@ -51,7 +51,7 @@
   "sender.mode_line_5": "Quelle wählen, dann Bewegungsfluss und Schärfe mit dem Stream-Profil abstimmen.",
   "sender.toggle.show_menu_bar_icon": "Symbol in Menüleiste anzeigen",
   "sender.toggle.large_cursor": "Großer Zeiger auf dem Empfänger",
-  "sender.toggle.prevent_display_sleep": "Bildschirmschoner und Display-Ruhezustand beim Streamen verhindern",
+  "sender.toggle.prevent_display_sleep": "Ruhezustand des Empfängerdisplays beim Streamen verhindern",
   "sender.toggle.auto_restart_on_wake": "Aufnahme nach Aufwachen/Entsperren automatisch neu starten",
   "sender.toggle.stream_audio": "Audio übertragen",
   "sender.toggle.default_stream_audio": "Audio standardmäßig für neue Sitzungen aktivieren",

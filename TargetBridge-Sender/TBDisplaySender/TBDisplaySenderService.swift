@@ -1155,7 +1155,11 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         }
     }
     @Published var largeCursor: Bool
-    @Published var preventDisplaySleep: Bool = true
+    /// Controls whether the receiver panel may sleep. The Sender's capture
+    /// display is kept awake independently: allowing that virtual display to
+    /// sleep stops frame delivery and can leave CoreGraphics unable to recreate
+    /// it after a reconnect.
+    @Published var preventDisplaySleep: Bool = false
     @Published var autoRestartOnWake: Bool = true
     @Published var verboseDisplayLogging: Bool = false {
         didSet {
@@ -1926,9 +1930,18 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
 
     private func sendHeartbeat() {
         heartbeatSequence += 1
+        let anyInputEvent = CGEventType(rawValue: UInt32.max)!
+        let inputIdleSeconds = CGEventSource.secondsSinceLastEventType(
+            .combinedSessionState,
+            eventType: anyInputEvent
+        )
         guard let packet = TBMonitorProtocol.makeJSONPacket(
             type: .heartbeat,
-            value: TBMonitorHeartbeat(sequence: heartbeatSequence)
+            value: TBMonitorHeartbeat(
+                sequence: heartbeatSequence,
+                preventDisplaySleep: preventDisplaySleep,
+                inputIdleSeconds: inputIdleSeconds
+            )
         ) else { return }
         send(packet)
     }
@@ -2730,11 +2743,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     }
 
     private func activityOptions() -> ProcessInfo.ActivityOptions {
-        var options: ProcessInfo.ActivityOptions = [.userInitiated, .idleSystemSleepDisabled]
-        if preventDisplaySleep {
-            options.insert(.idleDisplaySleepDisabled)
-        }
-        return options
+        [.userInitiated, .idleSystemSleepDisabled, .idleDisplaySleepDisabled]
     }
 
     private func beginCaptureActivity(wakeDisplay: Bool = true) {
@@ -2744,7 +2753,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
                 reason: "TargetBridge streaming active"
             )
         }
-        guard wakeDisplay, preventDisplaySleep else { return }
+        guard wakeDisplay else { return }
 
         let result = IOPMAssertionDeclareUserActivity(
             "TargetBridge capture requested" as CFString,

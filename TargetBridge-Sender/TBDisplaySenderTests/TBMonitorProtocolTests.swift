@@ -196,7 +196,11 @@ final class TBMonitorProtocolTests: XCTestCase {
     // MARK: - JSON payloads
 
     func testJSONPacketRoundTrip() throws {
-        let heartbeat = TBMonitorHeartbeat(sequence: 42)
+        let heartbeat = TBMonitorHeartbeat(
+            sequence: 42,
+            preventDisplaySleep: false,
+            inputIdleSeconds: 1.25
+        )
         guard var buffer = TBMonitorProtocol.makeJSONPacket(type: .heartbeat, value: heartbeat) else {
             XCTFail("encode failed"); return
         }
@@ -204,7 +208,19 @@ final class TBMonitorProtocolTests: XCTestCase {
             XCTFail("drain failed"); return
         }
         XCTAssertEqual(type, .heartbeat)
-        XCTAssertEqual(TBMonitorProtocol.decodeJSON(TBMonitorHeartbeat.self, from: payload)?.sequence, 42)
+        let decoded = TBMonitorProtocol.decodeJSON(TBMonitorHeartbeat.self, from: payload)
+        XCTAssertEqual(decoded?.sequence, 42)
+        XCTAssertEqual(decoded?.preventDisplaySleep, false)
+        XCTAssertEqual(decoded?.inputIdleSeconds, 1.25)
+    }
+
+    func testOlderHeartbeatRemainsCompatibleWithSleepActivityFields() {
+        let payload = Data(#"{"sequence":7}"#.utf8)
+        let heartbeat = TBMonitorProtocol.decodeJSON(TBMonitorHeartbeat.self, from: payload)
+
+        XCTAssertEqual(heartbeat?.sequence, 7)
+        XCTAssertNil(heartbeat?.preventDisplaySleep)
+        XCTAssertNil(heartbeat?.inputIdleSeconds)
     }
 
     func testCursorPayloadPreservesLargeCursorPreference() throws {

@@ -67,7 +67,7 @@ final class TBDisplaySenderService: ObservableObject {
     }
     @Published var preventDisplaySleep: Bool = {
         if UserDefaults.standard.object(forKey: "fd.tbdisplaysender.preventDisplaySleep") == nil {
-            return true
+            return false
         }
         return UserDefaults.standard.bool(forKey: "fd.tbdisplaysender.preventDisplaySleep")
     }() {
