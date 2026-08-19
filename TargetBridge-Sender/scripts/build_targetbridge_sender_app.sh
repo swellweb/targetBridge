@@ -5,7 +5,8 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 REPO_ROOT="$(cd "$ROOT/.." && pwd)"
 DERIVED_DATA_DIR="${ROOT}/.build/DerivedData"
-BUILD_DIR="${DERIVED_DATA_DIR}/Build/Products/Debug"
+CONFIGURATION="${CONFIGURATION:-Debug}"
+BUILD_DIR="${DERIVED_DATA_DIR}/Build/Products/${CONFIGURATION}"
 SOURCE_APP="${BUILD_DIR}/TargetBridge.app"
 DEST_DIR="${REPO_ROOT}/build"
 DEST_APP="${DEST_DIR}/TargetBridge.app"
@@ -16,7 +17,7 @@ xcodegen generate
 
 xcodebuild \
   -scheme TBDisplaySender \
-  -configuration Debug \
+  -configuration "$CONFIGURATION" \
   -derivedDataPath "$DERIVED_DATA_DIR" \
   CODE_SIGN_IDENTITY="" \
   CODE_SIGNING_REQUIRED=NO \

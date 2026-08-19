@@ -41,7 +41,7 @@ targets:
       - name: Stamp Sender Build Info
         script: |
           set -euo pipefail
-          STAMP="$(date +%Y%m%d%H%M%S)"
+          STAMP="${TB_SENDER_BUILD:-$(date +%Y%m%d%H%M%S)}"
           cat > "${SRCROOT}/TBDisplaySender/TBDisplaySenderBuildInfo.swift" <<EOI
           enum TBDisplaySenderBuildInfo {
               static let marketingVersion = "3.5.1"
