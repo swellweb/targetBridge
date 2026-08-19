@@ -48,6 +48,27 @@ if [[ ! -f "$SDL3_DYLIB" ]]; then
   exit 1
 fi
 cp -L "$SDL3_DYLIB" "$APP_DIR/Contents/Frameworks/libSDL3.dylib"
+/usr/bin/install_name_tool \
+  -id "@executable_path/../Frameworks/libSDL3.dylib" \
+  "$APP_DIR/Contents/Frameworks/libSDL3.dylib"
+
+# A private Receiver bundle must not rely on the Homebrew installation used to
+# compile it. dylibbundler rewrites linked dependencies; the explicit SDL3
+# runtime above needs the same validation because sdl2-compat loads it via
+# dlopen rather than a normal Mach-O dependency.
+MACHO_FILES=(
+  "$APP_DIR/Contents/MacOS/$BIN_NAME"
+  "$APP_DIR/Contents/Frameworks/"*.dylib(N)
+)
+EXTERNAL_HOMEBREW_REFS="$(
+  /usr/bin/otool -L "${MACHO_FILES[@]}" |
+    /usr/bin/awk '$1 ~ /^\/(usr\/local|opt\/homebrew)\// { print }'
+)"
+if [[ -n "$EXTERNAL_HOMEBREW_REFS" ]]; then
+  echo "Receiver bundle still contains external Homebrew references:" >&2
+  echo "$EXTERNAL_HOMEBREW_REFS" >&2
+  exit 1
+fi
 
 if [[ -f "$ICON_FILE" ]]; then
   mkdir -p "${ICONSET_DIR}/TargetBridgeReceiver.iconset"
