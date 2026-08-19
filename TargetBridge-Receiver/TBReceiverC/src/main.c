@@ -16,6 +16,7 @@
 #include "net.h"
 #include "decoder.h"
 #include "display.h"
+#include "idle_watchdog.h"
 #include "receiver_profile.h"
 #include "proto.h"
 #include "tb_gesture_bridge.h"
@@ -2100,19 +2101,33 @@ int main(int argc, char **argv) {
                 close_client(&a);
             } else {
                 socket_activity = drain_result;
-                if (drain_result > 0) a.last_recv_ms = t;
+                if (drain_result > 0) a.last_recv_ms = now_ms();
                 if (a.close_requested) {
                     close_client(&a);
-                } else if (t - a.last_recv_ms >= TB_SENDER_IDLE_TIMEOUT_MS) {
-                    /* The sender streams frames continuously and heartbeats
-                     * every 2s. Total silence means it died without a FIN
-                     * (crash, pulled cable, force sleep). Without this reap,
-                     * the dead fd is held forever and — because the receiver
-                     * is single-client — every future connect is locked out
-                     * until the app is restarted. */
-                    fprintf(stderr, "[main] no data from sender for %llu ms; closing stale session\n",
-                            (unsigned long long)(t - a.last_recv_ms));
-                    close_client(&a);
+                } else {
+                    const uint64_t watchdog_now_ms = now_ms();
+                    uint64_t idle_ms = 0;
+                    enum tb_idle_watchdog_result watchdog_result =
+                        tb_idle_watchdog_check(watchdog_now_ms,
+                                               &a.last_recv_ms,
+                                               TB_SENDER_IDLE_TIMEOUT_MS,
+                                               &idle_ms);
+                    if (watchdog_result == TB_IDLE_WATCHDOG_CLOCK_REWOUND) {
+                        fprintf(stderr,
+                                "[main] monotonic clock moved backwards; "
+                                "rebasing sender idle watchdog\n");
+                    } else if (watchdog_result == TB_IDLE_WATCHDOG_EXPIRED) {
+                        /* The sender streams frames continuously and heartbeats
+                         * every 2s. Total silence means it died without a FIN
+                         * (crash, pulled cable, force sleep). Without this reap,
+                         * the dead fd is held forever and — because the receiver
+                         * is single-client — every future connect is locked out
+                         * until the app is restarted. */
+                        fprintf(stderr,
+                                "[main] no data from sender for %llu ms; closing stale session\n",
+                                (unsigned long long)idle_ms);
+                        close_client(&a);
+                    }
                 }
             }
         }
