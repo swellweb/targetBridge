@@ -48,6 +48,13 @@ void tb_disp_render_nv12(struct tb_display *d,
                          const uint8_t *uv, int uv_stride,
                          int w, int h);
 
+/* Present a VideoToolbox CVPixelBuffer through the optional native Metal
+ * path. Returns non-zero when the frame was handled; portable callers keep
+ * using tb_disp_render_nv12. */
+int tb_disp_render_native_nv12(struct tb_display *d,
+                               void *pixel_buffer,
+                               int w, int h);
+
 /* Update low-latency local cursor overlay in source-frame coordinates. */
 void tb_disp_set_cursor(struct tb_display *d,
                         int x, int y,

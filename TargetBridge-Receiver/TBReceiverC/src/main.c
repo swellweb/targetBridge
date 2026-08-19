@@ -895,10 +895,7 @@ static void tb_receiver_apply_input_control_mode(struct app *a, const uint8_t *p
 
 /* ---- Callbacks: decoder → display ------------------------------------ */
 
-static void on_frame(const uint8_t *y, int y_stride,
-                     const uint8_t *uv, int uv_stride,
-                     int w, int h, void *ud) {
-    struct app *a = (struct app *)ud;
+static void on_frame_received(struct app *a, int w, int h) {
     a->have_video_frame = 1;
     tb_copy_i18n(a->status_text, sizeof(a->status_text), "receiver.status.stream_active");
     {
@@ -912,8 +909,22 @@ static void on_frame(const uint8_t *y, int y_stride,
         snprintf(height_text, sizeof(height_text), "%d", h);
         tb_format_i18n(a->mode_text, sizeof(a->mode_text), "receiver.mode.receiving", pairs, 2);
     }
-    tb_disp_render_nv12(a->disp, y, y_stride, uv, uv_stride, w, h);
     a->frames++;
+}
+
+static void on_frame(const uint8_t *y, int y_stride,
+                     const uint8_t *uv, int uv_stride,
+                     int w, int h, void *ud) {
+    struct app *a = (struct app *)ud;
+    on_frame_received(a, w, h);
+    tb_disp_render_nv12(a->disp, y, y_stride, uv, uv_stride, w, h);
+}
+
+static int on_native_frame(void *pixel_buffer, int w, int h, void *ud) {
+    struct app *a = (struct app *)ud;
+    if (!tb_disp_render_native_nv12(a->disp, pixel_buffer, w, h)) return 0;
+    on_frame_received(a, w, h);
+    return 1;
 }
 
 /* Raw passthrough: render received NV12 planes directly, bypassing the decoder.
@@ -1960,6 +1971,7 @@ int main(int argc, char **argv) {
 
     a.dec = tb_dec_create(on_frame, &a);
     if (!a.dec) { fprintf(stderr, "tb_dec_create failed\n"); tb_disp_destroy(a.disp); return 1; }
+    tb_dec_set_native_frame_cb(a.dec, on_native_frame, &a);
 
     tb_parser_init(&a.parser, on_packet, &a);
 
