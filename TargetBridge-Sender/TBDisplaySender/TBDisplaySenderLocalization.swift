@@ -488,6 +488,81 @@ enum TBDisplaySenderL10n {
         ])
     }
 
+    static func connectionPathTitle(
+        _ kind: TBConnectionPathKind?,
+        language: TBDisplaySenderLanguage
+    ) -> String {
+        guard let kind else { return text("sender.diagnostics.not_available", language) }
+        return text("sender.path.\(kind.rawValue)", language)
+    }
+
+    static func measuredSpeed(
+        throughputGbps: Double?,
+        latencyMilliseconds: Double?,
+        language: TBDisplaySenderLanguage
+    ) -> String {
+        guard let throughputGbps else {
+            return text("sender.diagnostics.not_measured", language)
+        }
+        let values = [
+            "throughput": String(format: "%.2f", throughputGbps),
+            "latency": latencyMilliseconds.map { String(format: "%.2f", $0) } ?? ""
+        ]
+        return text(
+            latencyMilliseconds == nil
+                ? "sender.diagnostics.speed_no_latency"
+                : "sender.diagnostics.speed_value",
+            language,
+            values
+        )
+    }
+
+    @MainActor
+    static func videoPath(_ metrics: TBSessionLiveMetrics, language: TBDisplaySenderLanguage) -> String {
+        guard !metrics.receiverRenderer.isEmpty else {
+            return text("sender.diagnostics.not_available", language)
+        }
+        let renderer: String
+        switch metrics.receiverRenderer.lowercased() {
+        case "opengl": renderer = "OpenGL"
+        case "metal": renderer = "Metal"
+        default: renderer = metrics.receiverRenderer
+        }
+        return text("sender.diagnostics.video_value", language, [
+            "codec": metrics.receiverCodec.isEmpty ? "—" : metrics.receiverCodec,
+            "renderer": renderer,
+            "decoder": metrics.receiverDecoder.isEmpty ? "—" : metrics.receiverDecoder
+        ])
+    }
+
+    @MainActor
+    static func frameRate(_ metrics: TBSessionLiveMetrics, language: TBDisplaySenderLanguage) -> String {
+        if metrics.receiverRenderer.isEmpty {
+            return text("sender.diagnostics.fps_sender_only", language, [
+                "sender": "\(metrics.senderFPS)"
+            ])
+        }
+        return text("sender.diagnostics.fps_value", language, [
+            "sender": "\(metrics.senderFPS)",
+            "receiver": "\(metrics.receiverFPS)"
+        ])
+    }
+
+    @MainActor
+    static func frameDrops(_ metrics: TBSessionLiveMetrics, language: TBDisplaySenderLanguage) -> String {
+        if metrics.receiverRenderer.isEmpty {
+            return text("sender.diagnostics.drops_sender_only", language, [
+                "pacing": "\(metrics.pacingDrops)",
+                "backlog": "\(metrics.backlogDrops)"
+            ])
+        }
+        return text("sender.diagnostics.drops_value", language, [
+            "pacing": "\(metrics.pacingDrops)",
+            "backlog": "\(metrics.backlogDrops)",
+            "decode": "\(metrics.decodeErrors)"
+        ])
+    }
+
     static func missingScreenRecordingPermission(language: TBDisplaySenderLanguage) -> String {
         text("sender.error.screen_recording_permission", language)
     }

@@ -33,6 +33,7 @@ struct tb_display {
     SDL_Renderer *ren;
     SDL_Texture  *tex;
     SDL_Texture  *status_tex;
+    char          renderer_name[64];
     int           tex_w, tex_h;
     int           quit;
     int           preferred_fullscreen;
@@ -590,6 +591,9 @@ struct tb_display *tb_disp_create(int fullscreen) {
     SDL_RendererInfo info;
     if (SDL_GetRendererInfo(d->ren, &info) == 0) {
         fprintf(stderr, "[disp] renderer = %s\n", info.name);
+        snprintf(d->renderer_name, sizeof(d->renderer_name), "%s", info.name ? info.name : "unknown");
+    } else {
+        snprintf(d->renderer_name, sizeof(d->renderer_name), "%s", "unknown");
     }
 
     int win_w = 0, win_h = 0, out_w = 0, out_h = 0;
@@ -621,6 +625,11 @@ struct tb_display *tb_disp_create(int fullscreen) {
     tb_disp_refresh_window_mode(d);
     SDL_ShowWindow(d->win);
     return d;
+}
+
+const char *tb_disp_renderer_name(struct tb_display *d) {
+    if (!d || d->renderer_name[0] == '\0') return "unknown";
+    return d->renderer_name;
 }
 
 void tb_disp_destroy(struct tb_display *d) {

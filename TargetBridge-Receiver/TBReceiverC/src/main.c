@@ -17,6 +17,7 @@
 #include "decoder.h"
 #include "display.h"
 #include "receiver_profile.h"
+#include "session_metrics.h"
 #include "proto.h"
 #include "tb_gesture_bridge.h"
 #include "tb_display_tweaks.h"
@@ -65,6 +66,7 @@ struct app {
     uint64_t frames;
     uint64_t last_fps_tick_ms;
     uint64_t last_fps_count;
+    int      raw_stream_active;
     uint64_t last_ip_check_ms;
     /* Last display-tweak state reported to the sender, so changes made on this
      * Mac (Control Center, System Settings) propagate back and the sender's
@@ -1091,16 +1093,18 @@ static void on_packet(uint8_t type, const uint8_t *payload, size_t len, void *ud
         break;
     case TB_PKT_PARAM_SETS:
         a->session_active = 1;
+        a->raw_stream_active = 0;
         /* tb_dec_set_param_sets is now a no-op if the sets are unchanged,
          * so we don't spam a log line per keyframe. */
-        tb_dec_set_param_sets(a->dec, payload, len);
+        (void)tb_dec_set_param_sets(a->dec, payload, len);
         break;
     case TB_PKT_FRAME:
         a->session_active = 1;
-        tb_dec_feed_frame(a->dec, payload, len);
+        (void)tb_dec_feed_frame(a->dec, payload, len);
         break;
     case TB_PKT_RAW_FRAME:
         a->session_active = 1;
+        a->raw_stream_active = 1;
         handle_raw_frame(a, payload, len);
         break;
     case TB_PKT_CURSOR:
@@ -1259,6 +1263,32 @@ static int send_all(int fd, const uint8_t *buf, size_t len) {
         return -1;
     }
     return 0;
+}
+
+static void tb_receiver_send_session_metrics(struct app *a, uint64_t receiver_fps) {
+    if (!a || a->client_fd < 0 || !a->session_active) return;
+
+    const char *renderer = tb_disp_renderer_name(a->disp);
+    const char *decoder = a->raw_stream_active ? "none" : tb_dec_backend_name(a->dec);
+    const char *codec = a->raw_stream_active ? "NV12 RAW" : tb_dec_codec_name(a->dec);
+
+    char json[512];
+    int len = tb_session_metrics_json(
+        json,
+        sizeof(json),
+        receiver_fps,
+        a->frames,
+        tb_dec_error_count(a->dec),
+        renderer,
+        decoder,
+        codec);
+    if (len < 0) return;
+
+    uint8_t pkt[4 + 1 + sizeof(json)];
+    write_be32(pkt, (uint32_t)(1 + len));
+    pkt[4] = TB_PKT_SESSION_METRICS;
+    memcpy(pkt + 5, json, (size_t)len);
+    (void)send_all(a->client_fd, pkt, 5 + (size_t)len);
 }
 
 static void tb_receiver_send_input_event(struct app *a,
@@ -1803,6 +1833,8 @@ static void close_client(struct app *a) {
     a->session_active = 0;
     a->close_requested = 0;
     a->have_video_frame = 0;
+    a->raw_stream_active = 0;
+    a->last_fps_count = a->frames;
     snprintf(a->input_control_mode, sizeof(a->input_control_mode), "off");
     SDL_EnableScreenSaver();
     tb_receiver_refresh_input_capture(a);
@@ -2038,6 +2070,9 @@ int main(int argc, char **argv) {
                 a.client_fd = c;
                 a.have_video_frame = 0;
                 a.session_active = 0;
+                a.raw_stream_active = 0;
+                a.last_fps_count = a.frames;
+                a.last_fps_tick_ms = t;
                 a.reported_night_shift = -1;   /* force one report per session */
                 a.reported_true_tone = -1;
                 a.last_recv_ms = t;
@@ -2166,6 +2201,7 @@ int main(int argc, char **argv) {
             a.last_fps_count   = a.frames;
             a.last_fps_tick_ms = t;
             if (df > 0) fprintf(stderr, "[main] %llu fps\n", (unsigned long long)df);
+            tb_receiver_send_session_metrics(&a, df);
         }
 
         /* Yield when idle or when a nonblocking active socket had no data,

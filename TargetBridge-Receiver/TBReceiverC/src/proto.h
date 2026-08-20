@@ -29,6 +29,7 @@
  * type 0x35 = brightness update (JSON)
  * type 0x36 = clipboard update (JSON)
  * type 0x37 = volume update (JSON)
+ * type 0x39 = receiver session metrics (JSON, receiver → sender)
  *
  * Compatible with the new TBDisplaySender Swift app.
  */
@@ -59,6 +60,7 @@
  * Both are private CoreBrightness features, so the receiver reports whether it
  * can honour them in its display profile. */
 #define TB_PKT_DISPLAY_TWEAKS   0x38
+#define TB_PKT_SESSION_METRICS  0x39
 #define TB_PKT_TEST_DATA        0x40
 
 #define TB_HDR_BYTES        5   /* 4 length + 1 type */

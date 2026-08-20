@@ -912,12 +912,32 @@ private final class TBVideoPipeline: @unchecked Sendable {
     }
 }
 
-/// Live, frequently-updating session readouts (currently just the FPS counter),
+/// Live, frequently-updating session readouts,
 /// split out of `TBDisplaySenderSession` so their ~1 Hz changes only invalidate
 /// the small subview that displays them rather than the whole session card.
 @MainActor
 final class TBSessionLiveMetrics: ObservableObject {
     @Published var senderFPS = 0
+    @Published var receiverFPS = 0
+    @Published var renderedFrames: UInt64 = 0
+    @Published var decodeErrors: UInt64 = 0
+    @Published var receiverRenderer = ""
+    @Published var receiverDecoder = ""
+    @Published var receiverCodec = ""
+    @Published var pacingDrops = 0
+    @Published var backlogDrops = 0
+
+    func reset() {
+        senderFPS = 0
+        receiverFPS = 0
+        renderedFrames = 0
+        decodeErrors = 0
+        receiverRenderer = ""
+        receiverDecoder = ""
+        receiverCodec = ""
+        pacingDrops = 0
+        backlogDrops = 0
+    }
 }
 
 @MainActor
@@ -1069,6 +1089,11 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     }
     @Published var isCableTesting = false
     @Published var cableTestResult: Double? = nil
+    @Published private(set) var activeConnectionPathKind: TBConnectionPathKind?
+    @Published private(set) var measuredThroughputGbps: Double?
+    @Published private(set) var measuredLatencyMilliseconds: Double?
+    private var measuredLocalIP = ""
+    private var measuredReceiverIP = ""
     private var isCableTestConnection = false
     @Published var receiverIP: String = UserDefaults.standard.string(forKey: receiverIPDefaultsKey) ?? "" {
         didSet {
@@ -1474,6 +1499,23 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         // Bridge peer leaves via the wrong link and times out.
         let interfaces = TBConnectionDiagnostics.currentIPv4Interfaces()
         connectInterfaceName = TBConnectionDiagnostics.interfaceName(forLocalIP: localInterfaceIP, in: interfaces)
+        if let connectInterfaceName {
+            activeConnectionPathKind = TBConnectionDiagnostics.pathKind(
+                for: TBConnectionDiagnostics.LocalInterface(
+                    name: connectInterfaceName,
+                    ip: localInterfaceIP
+                ),
+                hardwareKinds: TBConnectionDiagnostics.hardwarePathKinds()
+            )
+        } else {
+            activeConnectionPathKind = nil
+        }
+        if measuredLocalIP != localInterfaceIP || measuredReceiverIP != receiverIP {
+            measuredThroughputGbps = nil
+            measuredLatencyMilliseconds = nil
+            measuredLocalIP = ""
+            measuredReceiverIP = ""
+        }
         let scopedHost = TBConnectionDiagnostics.scopedReceiverHost(
             receiverIP: receiverIP,
             localIP: localInterfaceIP,
@@ -1545,8 +1587,20 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         guard !isCableTesting, !isConnected, !receiverIP.isEmpty else { return }
         isCableTesting = true
         cableTestResult = nil
+        measuredThroughputGbps = nil
+        measuredLatencyMilliseconds = nil
+        measuredLocalIP = ""
+        measuredReceiverIP = ""
         isCableTestConnection = true
         connect()
+    }
+
+    func adoptConnectionMeasurement(_ measurement: TBConnectionMeasurement) {
+        activeConnectionPathKind = measurement.candidate.kind
+        measuredThroughputGbps = measurement.throughputGbps
+        measuredLatencyMilliseconds = measurement.connectLatencyMilliseconds
+        measuredLocalIP = measurement.candidate.localIP
+        measuredReceiverIP = measurement.candidate.receiverIP
     }
 
     private func performCableTest() async throws -> Double {
@@ -2050,6 +2104,15 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
                 if let tweaks = TBMonitorProtocol.decodeJSON(TBMonitorDisplayTweaks.self, from: payload) {
                     applyReportedDisplayTweaks(tweaks)
                 }
+            case .sessionMetrics:
+                if let metrics = TBMonitorProtocol.decodeJSON(TBMonitorSessionMetrics.self, from: payload) {
+                    liveMetrics.receiverFPS = max(0, metrics.receiverFPS)
+                    liveMetrics.renderedFrames = metrics.renderedFrames
+                    liveMetrics.decodeErrors = metrics.decodeErrors
+                    liveMetrics.receiverRenderer = metrics.renderer
+                    liveMetrics.receiverDecoder = metrics.decoder
+                    liveMetrics.receiverCodec = metrics.codec
+                }
             case .clipboard:
                 if let clipboard = TBMonitorProtocol.decodeJSON(TBMonitorClipboard.self, from: payload) {
                     let pasteboard = NSPasteboard.general
@@ -2433,6 +2496,10 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
                 do {
                     let rate = try await self.performCableTest()
                     self.cableTestResult = rate
+                    self.measuredThroughputGbps = rate
+                    self.measuredLatencyMilliseconds = nil
+                    self.measuredLocalIP = self.localInterfaceIP
+                    self.measuredReceiverIP = self.receiverIP
                 } catch {
                     NSLog("TargetBridge: cable test failed: \(error)")
                     self.stop(resetStatusTo: .connectionFailed(error.localizedDescription))
@@ -3391,7 +3458,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         pipeline?.stop()
         pipeline = nil
         isStreaming = false
-        liveMetrics.senderFPS = 0
+        liveMetrics.reset()
         senderFPS = 0
         sentSnapshot = 0
         cursorDisplayID = kCGNullDirectDisplay
@@ -3424,6 +3491,9 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
                 let fps = total - sentSnapshot
                 liveMetrics.senderFPS = fps
                 senderFPS = fps
+                let diagnostics = pipeline?.diagnosticsSnapshot()
+                liveMetrics.pacingDrops = diagnostics?.droppedPacing ?? 0
+                liveMetrics.backlogDrops = (diagnostics?.droppedPre ?? 0) + (diagnostics?.droppedPost ?? 0)
                 sentSnapshot = total
             }
         }
