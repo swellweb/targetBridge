@@ -70,6 +70,98 @@ final class TBSenderAutomationParsingTests: XCTestCase {
         XCTAssertEqual(TBDisplayCapturePreset.native5k.captureRequestFrameRate, 96)
     }
 
+    func testAutomaticCodecUsesH264WhenHEVCIsUnavailable() {
+        let decision = TBDisplaySenderSession.chooseCodec(
+            preference: .automatic,
+            preset: .standard1440p,
+            receiverSupportsHEVC: false,
+            senderSupportsH264: true,
+            senderSupportsHEVC: true
+        )
+        XCTAssertEqual(decision?.codecType, kCMVideoCodecType_H264)
+        XCTAssertEqual(decision?.usedFallback, false)
+    }
+
+    func testAutomaticCodecUsesHEVCWhenBothMacsSupportIt() {
+        for preset in [TBDisplayCapturePreset.standard1440p, .retina4k60] {
+            let decision = TBDisplaySenderSession.chooseCodec(
+                preference: .automatic,
+                preset: preset,
+                receiverSupportsHEVC: true,
+                senderSupportsH264: true,
+                senderSupportsHEVC: true
+            )
+            XCTAssertEqual(decision?.codecType, kCMVideoCodecType_HEVC)
+            XCTAssertEqual(decision?.usedFallback, false)
+        }
+    }
+
+    func testAutomaticHighResolutionFallsBackToH264WithoutHEVC() {
+        let decision = TBDisplaySenderSession.chooseCodec(
+            preference: .automatic,
+            preset: .retina4k60,
+            receiverSupportsHEVC: false,
+            senderSupportsH264: true,
+            senderSupportsHEVC: true
+        )
+        XCTAssertEqual(decision?.codecType, kCMVideoCodecType_H264)
+        XCTAssertEqual(decision?.usedFallback, true)
+    }
+
+    func testManualCodecChoicesAreHonouredWhenAvailable() {
+        let h264 = TBDisplaySenderSession.chooseCodec(
+            preference: .h264,
+            preset: .retina4k60,
+            receiverSupportsHEVC: true,
+            senderSupportsH264: true,
+            senderSupportsHEVC: true
+        )
+        XCTAssertEqual(h264?.codecType, kCMVideoCodecType_H264)
+        XCTAssertEqual(h264?.usedFallback, false)
+
+        let hevc = TBDisplaySenderSession.chooseCodec(
+            preference: .hevc,
+            preset: .standard1440p,
+            receiverSupportsHEVC: true,
+            senderSupportsH264: true,
+            senderSupportsHEVC: true
+        )
+        XCTAssertEqual(hevc?.codecType, kCMVideoCodecType_HEVC)
+        XCTAssertEqual(hevc?.usedFallback, false)
+    }
+
+    func testManualCodecFallsBackOnlyToACompatibleAlternative() {
+        let hevcToH264 = TBDisplaySenderSession.chooseCodec(
+            preference: .hevc,
+            preset: .standard1440p,
+            receiverSupportsHEVC: false,
+            senderSupportsH264: true,
+            senderSupportsHEVC: true
+        )
+        XCTAssertEqual(hevcToH264?.codecType, kCMVideoCodecType_H264)
+        XCTAssertEqual(hevcToH264?.usedFallback, true)
+
+        let h264ToHEVC = TBDisplaySenderSession.chooseCodec(
+            preference: .h264,
+            preset: .native5k,
+            receiverSupportsHEVC: true,
+            senderSupportsH264: false,
+            senderSupportsHEVC: true
+        )
+        XCTAssertEqual(h264ToHEVC?.codecType, kCMVideoCodecType_HEVC)
+        XCTAssertEqual(h264ToHEVC?.usedFallback, true)
+    }
+
+    func testCodecSelectionFailsCleanlyWhenNoHardwarePathExists() {
+        XCTAssertNil(TBDisplaySenderSession.chooseCodec(
+            preference: .automatic,
+            preset: .native5k,
+            receiverSupportsHEVC: false,
+            senderSupportsH264: false,
+            senderSupportsHEVC: false
+        ))
+    }
+
     func testFrameRatePacerSamples75HzInputAt60Hz() {
         var pacer = TBFrameRatePacer(maximumFrameRate: 60)
         let emitted = (0..<750).filter { frame in
