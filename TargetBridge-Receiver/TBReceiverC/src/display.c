@@ -7,6 +7,7 @@
  */
 
 #include "display.h"
+#include "renderer_policy.h"
 #include "tb_i18n.h"
 #include "tb_gesture_bridge.h"
 #include "tb_native_metal_renderer.h"
@@ -55,10 +56,13 @@ struct tb_display {
     uint32_t      last_video_frame_time;
 #if defined(__APPLE__)
     int           metal_native_enabled;
+    int           metal_native_auto;
+    int           metal_native_auto_decided;
     int           metal_native_failed_logged;
     void         *native_metal_renderer;
     uint32_t      native_stats_tick;
     struct tb_native_metal_stats native_stats_previous;
+    struct tb_native_metal_stats native_auto_baseline;
 #endif
     int           system_cursor_hidden;
 
@@ -549,7 +553,9 @@ static SDL_Renderer *tb_disp_create_accelerated_renderer(SDL_Window *win) {
         /* The native path owns only the video overlay. SDL/OpenGL remains
          * underneath for the waiting screen, controls and input loop. */
         if (strcasecmp(forced_driver, "metal-native") == 0 ||
-            strcasecmp(forced_driver, "native-metal") == 0) {
+            strcasecmp(forced_driver, "native-metal") == 0 ||
+            strcasecmp(forced_driver, "auto") == 0 ||
+            strcasecmp(forced_driver, "adaptive") == 0) {
             return tb_disp_try_renderer(win, "opengl");
         }
         return tb_disp_try_renderer(win, forced_driver);
@@ -601,17 +607,22 @@ struct tb_display *tb_disp_create(int fullscreen) {
     SDL_SetYUVConversionMode(SDL_YUV_CONVERSION_BT709);
     SDL_RenderSetLogicalSize(d->ren, 0, 0);
 
-    /* Report which backend SDL picked and enable the experimental direct
-     * CAMetalLayer path only when explicitly requested. */
+    /* Report which backend SDL picked. Adaptive mode validates the direct
+     * CAMetalLayer path with real frames and retains OpenGL underneath as an
+     * immediate fallback. */
     SDL_RendererInfo info;
     if (SDL_GetRendererInfo(d->ren, &info) == 0) {
         fprintf(stderr, "[disp] renderer = %s\n", info.name);
     }
 #if defined(__APPLE__)
     const char *forced_driver = getenv("TB_RECEIVER_RENDER_DRIVER");
-    const int native_requested = forced_driver &&
+    const int native_forced = forced_driver &&
         (strcasecmp(forced_driver, "metal-native") == 0 ||
          strcasecmp(forced_driver, "native-metal") == 0);
+    const int native_auto = forced_driver &&
+        (strcasecmp(forced_driver, "auto") == 0 ||
+         strcasecmp(forced_driver, "adaptive") == 0);
+    const int native_requested = native_forced || native_auto;
     if (native_requested) {
         const char *zero_copy = getenv("TB_RECEIVER_METAL_ZERO_COPY");
         const int disabled = zero_copy &&
@@ -621,7 +632,11 @@ struct tb_display *tb_disp_create(int fullscreen) {
         if (!disabled) d->native_metal_renderer = tb_native_metal_create();
         if (!disabled && d->native_metal_renderer) {
             d->metal_native_enabled = 1;
-            fprintf(stderr, "[disp] native Metal CAMetalLayer path enabled\n");
+            d->metal_native_auto = native_auto;
+            fprintf(stderr,
+                    native_auto
+                        ? "[disp] adaptive renderer: validating native Metal, OpenGL fallback armed\n"
+                        : "[disp] native Metal CAMetalLayer path enabled\n");
         } else if (!disabled) {
             fprintf(stderr, "[disp] native Metal unavailable; using OpenGL NV12 upload\n");
         }
@@ -1215,6 +1230,62 @@ static void tb_disp_log_native_stats(struct tb_display *d) {
     d->native_stats_previous = stats;
     d->native_stats_tick = now;
 }
+
+static uint64_t tb_disp_counter_delta(uint64_t value, uint64_t baseline) {
+    return value >= baseline ? value - baseline : 0;
+}
+
+static void tb_disp_evaluate_native_auto(struct tb_display *d) {
+    if (!d || !d->metal_native_auto || d->metal_native_auto_decided ||
+        !d->metal_native_enabled || !d->native_metal_renderer) return;
+
+    struct tb_native_metal_stats stats;
+    tb_native_metal_get_stats(d->native_metal_renderer, &stats);
+    if (d->native_auto_baseline.submitted_frames == 0 &&
+        d->native_auto_baseline.completed_frames == 0 &&
+        d->native_auto_baseline.dropped_frames == 0) {
+        d->native_auto_baseline = stats;
+        return;
+    }
+
+    const struct tb_renderer_health_sample sample = {
+        tb_disp_counter_delta(stats.submitted_frames,
+                              d->native_auto_baseline.submitted_frames),
+        tb_disp_counter_delta(stats.completed_frames,
+                              d->native_auto_baseline.completed_frames),
+        tb_disp_counter_delta(stats.dropped_frames,
+                              d->native_auto_baseline.dropped_frames),
+        stats.gpu_time_ms_total >= d->native_auto_baseline.gpu_time_ms_total
+            ? stats.gpu_time_ms_total - d->native_auto_baseline.gpu_time_ms_total
+            : 0.0
+    };
+    const struct tb_renderer_health_result result =
+        tb_renderer_evaluate_health(&sample);
+    if (result.decision == TB_RENDERER_HEALTH_WAIT) return;
+
+    d->metal_native_auto_decided = 1;
+    if (result.decision == TB_RENDERER_HEALTH_KEEP_METAL) {
+        fprintf(stderr,
+                "[disp] adaptive renderer selected native Metal: "
+                "completed=%llu gpuAvg=%.3fms drops=%.1f%%\n",
+                (unsigned long long)sample.completed_frames,
+                result.gpu_average_ms,
+                result.drop_ratio * 100.0);
+        return;
+    }
+
+    d->metal_native_enabled = 0;
+    tb_native_metal_set_visible(d->native_metal_renderer, 0);
+    fprintf(stderr,
+            "[disp] adaptive renderer selected OpenGL fallback: "
+            "submitted=%llu completed=%llu outstanding=%llu "
+            "gpuAvg=%.3fms drops=%.1f%%\n",
+            (unsigned long long)sample.submitted_frames,
+            (unsigned long long)sample.completed_frames,
+            (unsigned long long)result.outstanding_frames,
+            result.gpu_average_ms,
+            result.drop_ratio * 100.0);
+}
 #endif
 
 int tb_disp_render_native_nv12(struct tb_display *d,
@@ -1234,6 +1305,7 @@ int tb_disp_render_native_nv12(struct tb_display *d,
     if (result >= 0) {
         d->last_video_frame_time = SDL_GetTicks();
         tb_disp_log_native_stats(d);
+        tb_disp_evaluate_native_auto(d);
         (void)w;
         (void)h;
         return 1;

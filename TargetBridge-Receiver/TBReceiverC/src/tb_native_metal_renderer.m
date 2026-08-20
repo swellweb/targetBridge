@@ -127,6 +127,14 @@ fragment float4 tbVideoFragment(RasterData in [[stage_in]],
 }
 )METAL";
 
+static BOOL tb_pixel_buffer_uses_display_p3(CVPixelBufferRef pixelBuffer) {
+    if (!pixelBuffer) return NO;
+    CFTypeRef primaries = CVBufferGetAttachment(
+        pixelBuffer, kCVImageBufferColorPrimariesKey, NULL);
+    return primaries && CFGetTypeID(primaries) == CFStringGetTypeID() &&
+           CFEqual(primaries, kCVImageBufferColorPrimaries_P3_D65);
+}
+
 @interface TBNativeMetalRenderer : NSObject
 - (instancetype)initRenderer;
 - (void)setVisible:(BOOL)visible;
@@ -147,6 +155,8 @@ fragment float4 tbVideoFragment(RasterData in [[stage_in]],
           cursorType:(int)cursorType
          cursorLarge:(BOOL)cursorLarge;
 - (void)copyStats:(struct tb_native_metal_stats *)stats;
+- (const char *)colorSpaceName;
+- (void)waitUntilIdle;
 @end
 
 @implementation TBNativeMetalRenderer {
@@ -156,11 +166,13 @@ fragment float4 tbVideoFragment(RasterData in [[stage_in]],
     CVMetalTextureCacheRef _textureCache;
     TBNativeMetalView *_view;
     CAMetalLayer *_metalLayer;
+    CGColorSpaceRef _layerColorSpace;
     dispatch_semaphore_t _inflightSemaphore;
     CVPixelBufferRef _latestFrame;
     os_unfair_lock _statsLock;
     struct tb_native_metal_stats _stats;
     BOOL _loggedFirstFrame;
+    BOOL _displayP3;
 }
 
 - (instancetype)initRenderer {
@@ -216,6 +228,11 @@ fragment float4 tbVideoFragment(RasterData in [[stage_in]],
 
 - (void)dealloc {
     [self setVisible:NO];
+    if (_metalLayer) _metalLayer.colorspace = nil;
+    if (_layerColorSpace) {
+        CGColorSpaceRelease(_layerColorSpace);
+        _layerColorSpace = NULL;
+    }
     if (_textureCache) {
         CVMetalTextureCacheFlush(_textureCache, 0);
         CFRelease(_textureCache);
@@ -253,6 +270,11 @@ fragment float4 tbVideoFragment(RasterData in [[stage_in]],
      * Follow the largest visible receiver window instead of retaining the
      * initial 980x620 window forever. */
     if (_view) {
+        if (_metalLayer) _metalLayer.colorspace = nil;
+        if (_layerColorSpace) {
+            CGColorSpaceRelease(_layerColorSpace);
+            _layerColorSpace = NULL;
+        }
         [_view removeFromSuperview];
         _view = nil;
         _metalLayer = nil;
@@ -271,8 +293,12 @@ fragment float4 tbVideoFragment(RasterData in [[stage_in]],
     CGColorSpaceRef srgb = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
     if (srgb) {
         _metalLayer.colorspace = srgb;
-        CGColorSpaceRelease(srgb);
+        /* CAMetalLayer's CF-typed property does not declare ownership in the
+         * Objective-C header. Retain our own reference until the layer is
+         * detached so older macOS releases cannot observe a dangling space. */
+        _layerColorSpace = srgb;
     }
+    _displayP3 = NO;
     _metalLayer.framebufferOnly = YES;
     _metalLayer.opaque = YES;
     _metalLayer.presentsWithTransaction = NO;
@@ -291,6 +317,23 @@ fragment float4 tbVideoFragment(RasterData in [[stage_in]],
             window.backingScaleFactor,
             window.title.UTF8String ?: "");
     return YES;
+}
+
+- (void)updateColorSpaceForPixelBuffer:(CVPixelBufferRef)pixelBuffer {
+    if (!_metalLayer) return;
+    const BOOL displayP3 = tb_pixel_buffer_uses_display_p3(pixelBuffer);
+    if (_metalLayer.colorspace && displayP3 == _displayP3) return;
+
+    CGColorSpaceRef colorSpace = CGColorSpaceCreateWithName(
+        displayP3 ? kCGColorSpaceDisplayP3 : kCGColorSpaceSRGB);
+    if (!colorSpace) return;
+    CGColorSpaceRef previousColorSpace = _layerColorSpace;
+    _layerColorSpace = colorSpace;
+    _metalLayer.colorspace = colorSpace;
+    if (previousColorSpace) CGColorSpaceRelease(previousColorSpace);
+    _displayP3 = displayP3;
+    fprintf(stderr, "[metal-native] output color space = %s\n",
+            displayP3 ? "Display P3" : "sRGB");
 }
 
 - (void)updateDrawableSize {
@@ -341,6 +384,7 @@ fragment float4 tbVideoFragment(RasterData in [[stage_in]],
     @autoreleasepool {
         if (!pixelBuffer || ![self attachViewIfNeeded]) return -1;
         [self updateDrawableSize];
+        [self updateColorSpaceForPixelBuffer:pixelBuffer];
         _view.hidden = NO;
 
         if (rememberFrame && pixelBuffer != _latestFrame) {
@@ -438,6 +482,13 @@ fragment float4 tbVideoFragment(RasterData in [[stage_in]],
             if (completed.GPUEndTime > completed.GPUStartTime) {
                 gpuMS = (completed.GPUEndTime - completed.GPUStartTime) * 1000.0;
             }
+            CVPixelBufferRelease(pixelBuffer);
+            CFRelease(lumaRef);
+            CFRelease(chromaRef);
+            /* Publish completion only after all retained frame resources are
+             * released. Callers use this counter as a destruction barrier in
+             * benchmarks and diagnostics, so incrementing it earlier exposed
+             * a narrow use-after-release race at shutdown. */
             os_unfair_lock_lock(&self->_statsLock);
             self->_stats.completed_frames++;
             self->_stats.gpu_time_ms_total += gpuMS;
@@ -445,9 +496,6 @@ fragment float4 tbVideoFragment(RasterData in [[stage_in]],
                 self->_stats.gpu_time_ms_max = gpuMS;
             }
             os_unfair_lock_unlock(&self->_statsLock);
-            CVPixelBufferRelease(pixelBuffer);
-            CFRelease(lumaRef);
-            CFRelease(chromaRef);
             dispatch_semaphore_signal(self->_inflightSemaphore);
         }];
 
@@ -492,6 +540,21 @@ fragment float4 tbVideoFragment(RasterData in [[stage_in]],
     os_unfair_lock_unlock(&_statsLock);
 }
 
+- (const char *)colorSpaceName {
+    return _displayP3 ? "Display P3" : "sRGB";
+}
+
+- (void)waitUntilIdle {
+    /* Acquiring every in-flight slot waits for all command-buffer completion
+     * handlers, then restores the semaphore for an orderly deallocation. */
+    for (int slot = 0; slot < 3; slot++) {
+        dispatch_semaphore_wait(_inflightSemaphore, DISPATCH_TIME_FOREVER);
+    }
+    for (int slot = 0; slot < 3; slot++) {
+        dispatch_semaphore_signal(_inflightSemaphore);
+    }
+}
+
 @end
 
 void *tb_native_metal_create(void) {
@@ -505,6 +568,7 @@ void tb_native_metal_destroy(void *renderer) {
     if (!renderer) return;
     @autoreleasepool {
         TBNativeMetalRenderer *object = CFBridgingRelease(renderer);
+        [object waitUntilIdle];
         [object setVisible:NO];
     }
 }
@@ -568,5 +632,18 @@ void tb_native_metal_get_stats(void *renderer,
     if (!renderer) return;
     @autoreleasepool {
         [(__bridge TBNativeMetalRenderer *)renderer copyStats:stats];
+    }
+}
+
+const char *tb_native_metal_pixel_buffer_color_space(void *pixel_buffer) {
+    return tb_pixel_buffer_uses_display_p3((CVPixelBufferRef)pixel_buffer)
+        ? "Display P3"
+        : "sRGB";
+}
+
+const char *tb_native_metal_color_space_name(void *renderer) {
+    if (!renderer) return "unavailable";
+    @autoreleasepool {
+        return [(__bridge TBNativeMetalRenderer *)renderer colorSpaceName];
     }
 }

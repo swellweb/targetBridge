@@ -45,6 +45,12 @@ int tb_native_metal_render_cursor(void *renderer,
 void tb_native_metal_get_stats(void *renderer,
                                struct tb_native_metal_stats *stats);
 
+/* Color diagnostics. The renderer tags its CAMetalLayer as Display P3 only
+ * when the decoded CVPixelBuffer carries P3-D65 primaries; all other and
+ * untagged frames use the conservative sRGB path. */
+const char *tb_native_metal_pixel_buffer_color_space(void *pixel_buffer);
+const char *tb_native_metal_color_space_name(void *renderer);
+
 #ifdef __cplusplus
 }
 #endif
