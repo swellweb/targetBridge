@@ -49,20 +49,96 @@ int tb_receiver_content_display_pixels(uint32_t *width, uint32_t *height) {
 }
 
 static BOOL g_monitor_shield_active = NO;
+static uint64_t g_monitor_shield_generation = 0;
+static NSMutableArray *g_monitor_shield_observers = nil;
+
+static NSWindowLevel tb_monitor_shield_level(void) {
+    NSWindowLevel status_level =
+        (NSWindowLevel)CGWindowLevelForKey(kCGStatusWindowLevelKey);
+    NSWindowLevel popup_level =
+        (NSWindowLevel)CGWindowLevelForKey(kCGPopUpMenuWindowLevelKey);
+
+    /* Notification Center banners use the status-window level. A banner that
+     * arrives after the Receiver can therefore cover it when both windows
+     * share that level. Use the first free level above status windows, while
+     * deliberately staying below pop-up menus and the screen saver/lock UI. */
+    return status_level + 1 < popup_level ? status_level + 1 : status_level;
+}
 
 static void tb_apply_monitor_shield(void) {
     NSWindow *content = tb_receiver_content_window();
     if (!content) return;
 
-    /* The public status-window level keeps ordinary local banners and the menu
-     * bar behind the active monitor surface without using invasive private or
-     * screen-saver window levels. */
+    /* Keep local banners and the menu bar behind the active monitor surface
+     * without using invasive private or screen-saver window levels. */
     NSWindowLevel desired = g_monitor_shield_active
-        ? (NSWindowLevel)CGWindowLevelForKey(kCGStatusWindowLevelKey)
+        ? tb_monitor_shield_level()
         : NSNormalWindowLevel;
-    if (content.level != desired) {
+    BOOL level_changed = content.level != desired;
+    if (level_changed) {
         content.level = desired;
     }
+    if (g_monitor_shield_active && level_changed) {
+        /* Do not make the Receiver key, but keep it first within its level if
+         * macOS or SDL has reordered windows during a fullscreen transition. */
+        [content orderFrontRegardless];
+    }
+}
+
+static void tb_schedule_monitor_shield_reapply(uint64_t generation,
+                                               int64_t delay_ms) {
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, delay_ms * NSEC_PER_MSEC),
+                   dispatch_get_main_queue(), ^{
+        if (g_monitor_shield_active &&
+            generation == g_monitor_shield_generation) {
+            tb_apply_monitor_shield();
+        }
+    });
+}
+
+static void tb_install_monitor_shield_observers(void) {
+    if (g_monitor_shield_observers) return;
+
+    NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
+    NSArray<NSNotificationName> *names = @[
+        NSWindowDidEnterFullScreenNotification,
+        NSWindowDidExitFullScreenNotification,
+        NSWindowDidChangeScreenNotification,
+        NSWindowDidChangeBackingPropertiesNotification,
+        NSApplicationDidChangeScreenParametersNotification,
+    ];
+    g_monitor_shield_observers = [NSMutableArray arrayWithCapacity:names.count];
+
+    for (NSNotificationName name in names) {
+        id token = [center addObserverForName:name
+                                       object:nil
+                                        queue:NSOperationQueue.mainQueue
+                                   usingBlock:^(NSNotification *notification) {
+            if (!g_monitor_shield_active) return;
+
+            id object = notification.object;
+            if ([object isKindOfClass:NSWindow.class] &&
+                object != tb_receiver_content_window()) {
+                return;
+            }
+
+            /* Apply after AppKit finishes dispatching the transition event,
+             * then once more after its final window-server reconciliation. */
+            uint64_t generation = g_monitor_shield_generation;
+            tb_schedule_monitor_shield_reapply(generation, 0);
+            tb_schedule_monitor_shield_reapply(generation, 250);
+        }];
+        [g_monitor_shield_observers addObject:token];
+    }
+}
+
+static void tb_remove_monitor_shield_observers(void) {
+    if (!g_monitor_shield_observers) return;
+    NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
+    for (id token in g_monitor_shield_observers) {
+        [center removeObserver:token];
+    }
+    g_monitor_shield_observers = nil;
 }
 
 void tb_receiver_set_monitor_shield(int active) {
@@ -70,21 +146,28 @@ void tb_receiver_set_monitor_shield(int active) {
         BOOL normalized = active ? YES : NO;
         BOOL changed = normalized != g_monitor_shield_active;
         g_monitor_shield_active = normalized;
+        uint64_t generation = ++g_monitor_shield_generation;
+        if (normalized) {
+            tb_install_monitor_shield_observers();
+        } else {
+            tb_remove_monitor_shield_observers();
+        }
         tb_apply_monitor_shield();
 
-        /* SDL completes part of its native fullscreen transition after the
-         * call returns. Reapply the latest desired state once afterward. */
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 300 * NSEC_PER_MSEC),
-                       dispatch_get_main_queue(), ^{
-            tb_apply_monitor_shield();
-        });
+        /* SDL can return before AppKit and the window server finish the Space
+         * transition. Use bounded retries; no polling remains after 2.5 s. */
+        if (normalized) {
+            tb_schedule_monitor_shield_reapply(generation, 250);
+            tb_schedule_monitor_shield_reapply(generation, 1000);
+            tb_schedule_monitor_shield_reapply(generation, 2500);
+        }
 
         if (changed) {
             fprintf(stderr,
                     "[display] monitor shield=%d level=%ld\n",
                     normalized ? 1 : 0,
                     (long)(normalized
-                        ? CGWindowLevelForKey(kCGStatusWindowLevelKey)
+                        ? tb_monitor_shield_level()
                         : NSNormalWindowLevel));
         }
     }
