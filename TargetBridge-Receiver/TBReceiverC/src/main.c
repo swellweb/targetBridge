@@ -1931,6 +1931,12 @@ int main(int argc, char **argv) {
     a.disp = tb_disp_create(fullscreen);
     if (!a.disp) { fprintf(stderr, "tb_disp_create failed\n"); return 1; }
 
+    /* SDL starts with screen-saver inhibition enabled. A Receiver that has not
+     * accepted a client yet never reaches close_client(), so release the
+     * assertion immediately while it is waiting for its first session. */
+    SDL_EnableScreenSaver();
+    fprintf(stderr, "[main] display sleep enabled while receiver is idle\n");
+
     /* Open SDL Audio Device */
     SDL_AudioSpec spec;
     SDL_zero(spec);
