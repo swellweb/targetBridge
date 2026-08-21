@@ -21,6 +21,7 @@ enum InstallRole: String, CaseIterable {
         }
     }
 }
+
 enum RoleConfidence: Equatable {
     case exact
     case inferred
