@@ -46,6 +46,8 @@ struct tb_decoder {
 
     tb_frame_cb       cb;
     void             *ud;
+    tb_native_frame_cb native_cb;
+    void             *native_ud;
 
     int               opened;
 };
@@ -99,6 +101,14 @@ struct tb_decoder *tb_dec_create(tb_frame_cb cb, void *ud) {
         tb_dec_destroy(d); return NULL;
     }
     return d;
+}
+
+void tb_dec_set_native_frame_cb(struct tb_decoder *d,
+                                tb_native_frame_cb cb,
+                                void *ud) {
+    if (!d) return;
+    d->native_cb = cb;
+    d->native_ud = ud;
 }
 
 int tb_dec_supports_hevc_hwdecode(void) {
@@ -368,13 +378,17 @@ int tb_dec_feed_frame(struct tb_decoder *d, const uint8_t *avcc, size_t len) {
          * Major win on Intel iMac + Radeon (~6× faster in practice). */
         if (d->hw_frame->format == d->hw_pix_fmt && d->hw_frame->data[3]) {
             CVPixelBufferRef pb = (CVPixelBufferRef)d->hw_frame->data[3];
+            int w = (int)CVPixelBufferGetWidth(pb);
+            int h = (int)CVPixelBufferGetHeight(pb);
+            if (d->native_cb && d->native_cb((void *)pb, w, h, d->native_ud)) {
+                av_frame_unref(d->hw_frame);
+                continue;
+            }
             if (CVPixelBufferLockBaseAddress(pb, kCVPixelBufferLock_ReadOnly) == 0) {
                 uint8_t *y   = (uint8_t *)CVPixelBufferGetBaseAddressOfPlane(pb, 0);
                 size_t   ys  =            CVPixelBufferGetBytesPerRowOfPlane(pb, 0);
                 uint8_t *uv  = (uint8_t *)CVPixelBufferGetBaseAddressOfPlane(pb, 1);
                 size_t   uvs =            CVPixelBufferGetBytesPerRowOfPlane(pb, 1);
-                int      w   = (int)CVPixelBufferGetWidth(pb);
-                int      h   = (int)CVPixelBufferGetHeight(pb);
                 d->cb(y, (int)ys, uv, (int)uvs, w, h, d->ud);
                 CVPixelBufferUnlockBaseAddress(pb, kCVPixelBufferLock_ReadOnly);
             }

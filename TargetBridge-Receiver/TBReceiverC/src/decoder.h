@@ -16,9 +16,18 @@ typedef void (*tb_frame_cb)(const uint8_t *y, int y_stride,
                             const uint8_t *uv, int uv_stride,
                             int width, int height, void *ud);
 
+/* macOS fast path. The callback receives the VideoToolbox CVPixelBuffer as an
+ * opaque pointer and returns non-zero when it consumed the frame. Returning
+ * zero asks the decoder to use its portable CPU-plane callback instead. */
+typedef int (*tb_native_frame_cb)(void *pixel_buffer,
+                                  int width, int height, void *ud);
+
 struct tb_decoder;
 
 struct tb_decoder *tb_dec_create(tb_frame_cb cb, void *ud);
+void               tb_dec_set_native_frame_cb(struct tb_decoder *d,
+                                               tb_native_frame_cb cb,
+                                               void *ud);
 void               tb_dec_destroy(struct tb_decoder *d);
 int                tb_dec_supports_hevc_hwdecode(void);
 
