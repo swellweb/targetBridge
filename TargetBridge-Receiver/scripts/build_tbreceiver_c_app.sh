@@ -28,9 +28,10 @@ chmod +x "$APP_DIR/Contents/MacOS/$BIN_NAME"
 cp "$REPO_ROOT/TargetBridge-Shared/Languages/"*.json "$APP_DIR/Contents/Resources/Languages/"
 
 # Bundle dylib dependencies (ffmpeg and SDL) inside the .app.
-# Homebrew's SDL2 is currently sdl2-compat, which loads SDL3 at runtime via
-# dlopen. dylibbundler cannot discover that dynamic dependency, so copy it
-# explicitly to keep the released receiver self-contained.
+# Some Homebrew installations provide sdl2-compat, which loads SDL3 at runtime
+# through dlopen. dylibbundler cannot discover that dependency, while genuine
+# SDL2 does not need SDL3 at all. Inspect the bundled SDL2 artifact instead of
+# assuming which formula Homebrew resolved on the build Mac.
 mkdir -p "$APP_DIR/Contents/Frameworks"
 if ! command -v dylibbundler &>/dev/null; then
   echo "Installing dylibbundler..."
@@ -42,12 +43,21 @@ dylibbundler -od -b \
   -p @executable_path/../Frameworks/ \
   >/dev/null 2>&1
 
-SDL3_DYLIB="$(brew --prefix sdl3)/lib/libSDL3.dylib"
-if [[ ! -f "$SDL3_DYLIB" ]]; then
-  echo "SDL3 runtime library not found: $SDL3_DYLIB" >&2
-  exit 1
+SDL2_IN_APP="$(find "$APP_DIR/Contents/Frameworks" -type f -name 'libSDL2*.dylib' -print -quit)"
+if [[ -n "$SDL2_IN_APP" ]] && strings -a "$SDL2_IN_APP" | grep -q 'libSDL3'; then
+  SDL3_PREFIX="$(brew --prefix sdl3 2>/dev/null || true)"
+  SDL3_DYLIB="${SDL3_PREFIX}/lib/libSDL3.dylib"
+  if [[ -z "$SDL3_PREFIX" || ! -f "$SDL3_DYLIB" ]]; then
+    echo "SDL3 runtime library is required by bundled sdl2-compat but was not found" >&2
+    exit 1
+  fi
+  cp -L "$SDL3_DYLIB" "$APP_DIR/Contents/Frameworks/libSDL3.dylib"
+  install_name_tool \
+    -id "@executable_path/../Frameworks/libSDL3.dylib" \
+    "$APP_DIR/Contents/Frameworks/libSDL3.dylib"
+else
+  echo "Bundled SDL2 is native; SDL3 runtime is not required."
 fi
-cp -L "$SDL3_DYLIB" "$APP_DIR/Contents/Frameworks/libSDL3.dylib"
 
 if [[ -f "$ICON_FILE" ]]; then
   mkdir -p "${ICONSET_DIR}/TargetBridgeReceiver.iconset"
@@ -103,6 +113,24 @@ find "$APP_DIR/Contents/Frameworks" -name "*.dylib" | while read dylib; do
   codesign --force --sign - "$dylib" >/dev/null 2>&1 || true
 done
 codesign --force --deep --sign - "$APP_DIR" >/dev/null 2>&1 || true
+
+# A released bundle must never depend on the Homebrew installation used to
+# compile it. Check the executable and every bundled dynamic library after
+# dylibbundler and the optional SDL3 copy have completed.
+MACHO_FILES=(
+  "$APP_DIR/Contents/MacOS/$BIN_NAME"
+  "$APP_DIR/Contents/Frameworks/"*.dylib(N)
+)
+EXTERNAL_HOMEBREW_REFS="$(
+  otool -L "${MACHO_FILES[@]}" 2>/dev/null |
+    awk '$1 ~ /^\/(usr\/local|opt\/homebrew)\// { print }'
+)"
+if [[ -n "$EXTERNAL_HOMEBREW_REFS" ]]; then
+  echo "Receiver bundle still contains external Homebrew references:" >&2
+  echo "$EXTERNAL_HOMEBREW_REFS" >&2
+  exit 1
+fi
+
 xattr -cr "$APP_DIR" >/dev/null 2>&1 || true
 rm -rf "$ICONSET_DIR"
 
