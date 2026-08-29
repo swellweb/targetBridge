@@ -42,12 +42,19 @@ dylibbundler -od -b \
   -p @executable_path/../Frameworks/ \
   >/dev/null 2>&1
 
-SDL3_DYLIB="$(brew --prefix sdl3)/lib/libSDL3.dylib"
-if [[ ! -f "$SDL3_DYLIB" ]]; then
-  echo "SDL3 runtime library not found: $SDL3_DYLIB" >&2
-  exit 1
+# Only sdl2-compat dlopens SDL3; a genuine SDL2 keg (as on the Intel iMac) does
+# not, so look at the SDL2 that actually got bundled before requiring SDL3.
+SDL2_IN_APP="$(find "$APP_DIR/Contents/Frameworks" -name 'libSDL2*.dylib' -print -quit)"
+if [[ -n "$SDL2_IN_APP" ]] && strings -a "$SDL2_IN_APP" | grep -q 'libSDL3'; then
+  SDL3_DYLIB="$(brew --prefix sdl3)/lib/libSDL3.dylib"
+  if [[ ! -f "$SDL3_DYLIB" ]]; then
+    echo "SDL3 runtime library not found: $SDL3_DYLIB" >&2
+    exit 1
+  fi
+  cp -L "$SDL3_DYLIB" "$APP_DIR/Contents/Frameworks/libSDL3.dylib"
+else
+  echo "Bundled SDL2 is not sdl2-compat; skipping SDL3 runtime copy."
 fi
-cp -L "$SDL3_DYLIB" "$APP_DIR/Contents/Frameworks/libSDL3.dylib"
 
 if [[ -f "$ICON_FILE" ]]; then
   mkdir -p "${ICONSET_DIR}/TargetBridgeReceiver.iconset"
