@@ -10,6 +10,7 @@ final class TBReceiverDiscoveryModelTests: XCTestCase {
     private func makeReceiver(
         serviceName: String = "TargetBridge Test-iMac",
         receiverName: String = "Test-iMac",
+        receiverID: String = "",
         preferredIP: String = "192.168.1.64",
         thunderboltIP: String = "",
         usbIP: String = "",
@@ -22,6 +23,7 @@ final class TBReceiverDiscoveryModelTests: XCTestCase {
         TBDiscoveredReceiver(
             serviceName: serviceName,
             receiverName: receiverName,
+            receiverID: receiverID,
             preferredIP: preferredIP,
             thunderboltIP: thunderboltIP,
             usbIP: usbIP,
@@ -81,20 +83,61 @@ final class TBReceiverDiscoveryModelTests: XCTestCase {
 
     // MARK: - Identity
 
-    func testIDCombinesServiceNameAndPreferredIP() {
+    func testLegacyIDCombinesServiceNameAndPreferredIP() {
         let receiver = makeReceiver(serviceName: "TargetBridge Jonathans-iMac", preferredIP: "192.168.1.64")
-        XCTAssertEqual(receiver.id, "TargetBridge Jonathans-iMac|192.168.1.64")
+        XCTAssertEqual(receiver.legacyID, "TargetBridge Jonathans-iMac|192.168.1.64")
+        XCTAssertEqual(receiver.id, "service:TargetBridge Jonathans-iMac")
     }
 
     func testStableIdentityDoesNotChangeWhenTheReceiverIPChanges() {
-        let beforeWake = makeReceiver(serviceName: "TargetBridge Jonathans-iMac", preferredIP: "169.254.89.80")
-        let afterWake = makeReceiver(serviceName: "TargetBridge Jonathans-iMac", preferredIP: "169.254.12.44")
+        let beforeWake = makeReceiver(
+            serviceName: "TargetBridge Jonathans-iMac",
+            receiverID: "A4E28721-22A7-42A9-89D7-70F3DBB0E906",
+            preferredIP: "169.254.89.80"
+        )
+        let afterWake = makeReceiver(
+            serviceName: "TargetBridge Jonathans-iMac (2)",
+            receiverID: "A4E28721-22A7-42A9-89D7-70F3DBB0E906",
+            preferredIP: "169.254.12.44"
+        )
 
-        XCTAssertNotEqual(beforeWake.id, afterWake.id)
+        XCTAssertEqual(beforeWake.id, afterWake.id)
         XCTAssertEqual(beforeWake.stableIdentity, afterWake.stableIdentity)
     }
 
+    func testDifferentReceiversWithTheSameNameRemainDistinct() {
+        let first = makeReceiver(receiverID: "A4E28721-22A7-42A9-89D7-70F3DBB0E906")
+        let second = makeReceiver(receiverID: "B4E28721-22A7-42A9-89D7-70F3DBB0E906")
+
+        XCTAssertNotEqual(first.id, second.id)
+    }
+
+    func testPersistedIdentityMigratesLegacyServiceAndIPValue() {
+        let receiver = makeReceiver(
+            serviceName: "TargetBridge Jonathans-iMac",
+            receiverID: "A4E28721-22A7-42A9-89D7-70F3DBB0E906",
+            preferredIP: "169.254.12.44"
+        )
+
+        XCTAssertTrue(receiver.matchesPersistedIdentity("receiver:a4e28721-22a7-42a9-89d7-70f3dbb0e906"))
+        XCTAssertTrue(receiver.matchesPersistedIdentity("A4E28721-22A7-42A9-89D7-70F3DBB0E906"))
+        XCTAssertTrue(receiver.matchesPersistedIdentity("service:TargetBridge Jonathans-iMac"))
+        XCTAssertTrue(receiver.matchesPersistedIdentity("TargetBridge Jonathans-iMac|169.254.89.80"))
+        XCTAssertFalse(receiver.matchesPersistedIdentity("TargetBridge Other-iMac|169.254.89.80"))
+    }
+
     // MARK: - shortHostName
+
+    func testMalformedAdvertisedIDFallsBackToLegacyIdentity() {
+        XCTAssertEqual(makeReceiver(receiverID: "not-a-uuid").id,
+                       "service:TargetBridge Test-iMac")
+    }
+
+    func testAdvertisedUUIDCaseDoesNotChangePickerIdentity() {
+        let uuid = "A4E28721-22A7-42A9-89D7-70F3DBB0E906"
+        XCTAssertEqual(makeReceiver(receiverID: uuid).id,
+                       makeReceiver(receiverID: uuid.lowercased()).id)
+    }
 
     func testShortHostNameStripsTrailingDotAndDomain() {
         let receiver = makeReceiver(hostName: "Jonathans-iMac.local.")

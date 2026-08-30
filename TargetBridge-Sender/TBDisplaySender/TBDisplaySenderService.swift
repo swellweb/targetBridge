@@ -1082,7 +1082,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     }
     var shortHostName: String? {
         if let receiver = TBDisplaySenderService.shared.discoveredReceivers.first(where: {
-            $0.id == selectedReceiverID ||
+            $0.matchesPersistedIdentity(selectedReceiverID) ||
             $0.preferredIP == receiverIP ||
             $0.thunderboltIP == receiverIP ||
             $0.networkIP == receiverIP
@@ -1767,7 +1767,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         // changes. Using the address here made macOS forget a receiver's virtual
         // display identity and saved placement after a wake or reconnect.
         if let receiver = TBDisplaySenderService.shared.discoveredReceivers.first(where: {
-            $0.id == selectedReceiverID ||
+            $0.matchesPersistedIdentity(selectedReceiverID) ||
             $0.preferredIP == receiverIP ||
             $0.thunderboltIP == receiverIP ||
             $0.networkIP == receiverIP
@@ -1776,9 +1776,14 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         }
 
         let selectedID = selectedReceiverID.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let serviceName = selectedID.split(separator: "|", maxSplits: 1).first,
-           !serviceName.isEmpty {
-            return "service:\(serviceName)"
+        if !selectedID.isEmpty {
+            if selectedID.hasPrefix("receiver:") || selectedID.hasPrefix("service:") {
+                return selectedID
+            }
+            if let serviceName = selectedID.split(separator: "|", maxSplits: 1).first,
+               !serviceName.isEmpty {
+                return "service:\(serviceName)"
+            }
         }
 
         if let host = shortHostName?.trimmingCharacters(in: .whitespacesAndNewlines),

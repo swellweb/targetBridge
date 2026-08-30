@@ -474,6 +474,7 @@ final class TBDisplaySenderService: ObservableObject {
     }
 
     func applyDiscoveredReceiver(_ receiver: TBDiscoveredReceiver, to session: TBDisplaySenderSession) {
+        session.selectedReceiverID = receiver.stableIdentity
         session.receiverIP = receiver.ip(for: session.transportKind)
         session.receiverSupportsHEVCDecodeHint = receiver.supportsHEVCDecode
         if session.localInterfaceIP.isEmpty {
@@ -493,16 +494,13 @@ final class TBDisplaySenderService: ObservableObject {
             !session.selectedReceiverID.isEmpty &&
             !session.isConnected &&
             !session.isStreaming {
-            let savedServiceName = String(
-                session.selectedReceiverID.split(separator: "|", maxSplits: 1).first ?? ""
-            )
             guard let receiver = receivers.first(where: {
-                $0.id == session.selectedReceiverID || $0.serviceName == savedServiceName
+                $0.matchesPersistedIdentity(session.selectedReceiverID)
             }) else {
                 continue
             }
 
-            session.selectedReceiverID = receiver.id
+            session.selectedReceiverID = receiver.stableIdentity
             session.receiverIP = receiver.ip(for: session.transportKind)
             session.receiverSupportsHEVCDecodeHint = receiver.supportsHEVCDecode
         }
@@ -570,7 +568,9 @@ final class TBDisplaySenderService: ObservableObject {
 
     func transportDidChange(for session: TBDisplaySenderSession) {
         session.localInterfaceIP = defaultLocalInterfaceIP(for: session.transportKind)
-        if let receiver = discoveredReceivers.first(where: { $0.id == session.selectedReceiverID }) {
+        if let receiver = discoveredReceivers.first(where: {
+            $0.matchesPersistedIdentity(session.selectedReceiverID)
+        }) {
             session.receiverIP = receiver.ip(for: session.transportKind)
         }
         objectWillChange.send()

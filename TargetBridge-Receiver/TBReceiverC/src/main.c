@@ -88,6 +88,7 @@ struct app {
     char     net_ip_text[64];
     char     ethernet_ip_text[64];
     char     wifi_ip_text[64];
+    char     receiver_id[64];
     char     display_host[128]; /* short hostname (or hostname+IP), cached at startup */
     char     status_text[128];
     char     sender_text[128];
@@ -574,6 +575,41 @@ static void bonjour_deinit(struct app *a) {
     }
 }
 
+static int tb_receiver_load_or_create_id(char *dest, size_t size, CFStringRef app_id) {
+    if (!dest || size == 0) return -1;
+    dest[0] = '\0';
+    if (size < 37 || !app_id) return -1;
+
+    CFStringRef key = CFSTR("receiverID");
+    CFPropertyListRef stored = CFPreferencesCopyAppValue(key, app_id);
+    CFUUIDRef uuid = NULL;
+    if (stored && CFGetTypeID(stored) == CFStringGetTypeID() &&
+        CFStringGetLength((CFStringRef)stored) == 36) {
+        uuid = CFUUIDCreateFromString(kCFAllocatorDefault, (CFStringRef)stored);
+    }
+    if (stored) CFRelease(stored);
+
+    const Boolean needs_persistence = uuid == NULL;
+    if (!uuid) uuid = CFUUIDCreate(kCFAllocatorDefault);
+    if (!uuid) return -1;
+    CFStringRef value = CFUUIDCreateString(kCFAllocatorDefault, uuid);
+    CFRelease(uuid);
+    if (!value) return -1;
+
+    const Boolean copied = CFStringGetCString(value, dest, (CFIndex)size, kCFStringEncodingUTF8);
+    Boolean persisted = true;
+    if (copied && dest[0] != '\0' && needs_persistence) {
+        CFPreferencesSetAppValue(key, value, app_id);
+        persisted = CFPreferencesAppSynchronize(app_id);
+    }
+    CFRelease(value);
+    if (!copied || !persisted) {
+        dest[0] = '\0';
+        return -1;
+    }
+    return dest[0] != '\0' ? 0 : -1;
+}
+
 static void on_bonjour_register(DNSServiceRef sdRef,
                                 DNSServiceFlags flags,
                                 DNSServiceErrorType errorCode,
@@ -599,6 +635,9 @@ static void bonjour_update(struct app *a, uint16_t port) {
     TXTRecordRef txt;
     TXTRecordCreate(&txt, 0, NULL);
     TXTRecordSetValue(&txt, "name", (uint8_t)strlen(a->bonjour_name), a->bonjour_name);
+    if (a->receiver_id[0] != '\0') {
+        TXTRecordSetValue(&txt, "receiverID", (uint8_t)strlen(a->receiver_id), a->receiver_id);
+    }
     TXTRecordSetValue(&txt, "ip", (uint8_t)strlen(a->ip_text), a->ip_text);
     if (a->tb_ip_text[0] != '\0') {
         TXTRecordSetValue(&txt, "tbIP", (uint8_t)strlen(a->tb_ip_text), a->tb_ip_text);
@@ -1960,6 +1999,12 @@ int main(int argc, char **argv) {
     memset(&a, 0, sizeof(a));
     a.server_fd = -1;
     a.client_fd = -1;
+    if (tb_receiver_load_or_create_id(a.receiver_id, sizeof(a.receiver_id),
+                                     CFSTR("com.targetbridge.receiver")) == 0) {
+        fprintf(stderr, "[identity] receiver ID ready\n");
+    } else {
+        fprintf(stderr, "[identity] unable to persist receiver ID; using Bonjour name fallback\n");
+    }
     {
         char host[96] = {0};
         if (gethostname(host, sizeof(host)) != 0 || host[0] == '\0') {
