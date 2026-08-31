@@ -552,6 +552,11 @@ static SDL_Renderer *tb_disp_create_accelerated_renderer(SDL_Window *win) {
 }
 
 struct tb_display *tb_disp_create(int fullscreen) {
+    /* SDL otherwise disables the screen saver automatically for every
+     * fullscreen window, overriding the session policy in main.c. Explicit
+     * SDL_DisableScreenSaver() still honours the user's always-on preference. */
+    SDL_SetHint(SDL_HINT_VIDEO_ALLOW_SCREENSAVER, "1");
+
     /* Best-quality scaling (linear filter; Metal backend uses bilinear
      * regardless but this sets the hint correctly). "best" enables
      * anisotropic where supported. Must be set BEFORE renderer creation. */

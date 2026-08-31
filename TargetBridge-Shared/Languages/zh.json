@@ -51,7 +51,7 @@
   "sender.mode_line_5": "先选择来源，再用码流配置在流畅度与清晰度之间取舍。",
   "sender.toggle.show_menu_bar_icon": "在菜单栏显示图标",
   "sender.toggle.large_cursor": "在接收端使用大光标",
-  "sender.toggle.prevent_display_sleep": "传输期间阻止屏幕保护程序和显示器休眠",
+  "sender.toggle.prevent_display_sleep": "传输期间阻止接收端显示器休眠",
   "sender.toggle.auto_restart_on_wake": "唤醒或解锁后自动重启捕获",
   "sender.toggle.stream_audio": "传输音频",
   "sender.toggle.default_stream_audio": "为新会话默认传输音频",

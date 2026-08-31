@@ -28,6 +28,7 @@
 #include <CoreFoundation/CoreFoundation.h>
 #include <CoreGraphics/CoreGraphics.h>
 #include <CoreAudio/CoreAudio.h>
+#include <IOKit/pwr_mgt/IOPMLib.h>
 
 /* kAudioObjectPropertyElementMain is the macOS 12+ SDK spelling; older SDKs
  * only define kAudioObjectPropertyElementMaster (both are numerically 0). */
@@ -53,6 +54,11 @@
  * heartbeats every 2s and streams frames continuously, so 10s of silence
  * (5 missed heartbeats) means it died without a FIN. */
 #define TB_SENDER_IDLE_TIMEOUT_MS 10000
+
+/* Heartbeats arrive every two seconds. A little scheduling margin makes a
+ * keyboard-only action on the Sender reliably count as remote user activity. */
+#define TB_REMOTE_INPUT_ACTIVE_WINDOW_SECONDS 3.5
+#define TB_REMOTE_ACTIVITY_SIGNAL_INTERVAL_MS 1000
 
 struct app {
     struct tb_display *disp;
@@ -80,6 +86,9 @@ struct app {
      * just a transient probe like a UI-language push). Gates the fullscreen
      * "connecting" splash so a bare/short-lived connection doesn't flash it. */
     int      session_active;
+    int      prevent_display_sleep;
+    IOPMAssertionID remote_activity_assertion_id;
+    uint64_t last_remote_activity_signal_ms;
 
     char     ip_text[64];
     char     tb_ip_text[64];
@@ -170,6 +179,60 @@ static uint64_t now_ms(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (uint64_t)ts.tv_sec * 1000ULL + ts.tv_nsec / 1000000ULL;
+}
+
+static void tb_receiver_release_remote_activity(struct app *a) {
+    if (!a || a->remote_activity_assertion_id == kIOPMNullAssertionID) return;
+    IOPMAssertionRelease(a->remote_activity_assertion_id);
+    a->remote_activity_assertion_id = kIOPMNullAssertionID;
+}
+
+static void tb_receiver_set_prevent_display_sleep(struct app *a, int prevent) {
+    if (!a) return;
+    const int normalized = prevent ? 1 : 0;
+    if (a->prevent_display_sleep == normalized) return;
+
+    a->prevent_display_sleep = normalized;
+    if (normalized) {
+        tb_receiver_release_remote_activity(a);
+        SDL_DisableScreenSaver();
+        fprintf(stderr, "[power] display sleep blocked by sender preference\n");
+    } else {
+        SDL_EnableScreenSaver();
+        fprintf(stderr, "[power] normal macOS display sleep enabled during session\n");
+    }
+}
+
+static void tb_receiver_note_remote_activity(struct app *a, const char *source) {
+    if (!a || a->prevent_display_sleep) return;
+
+    const uint64_t activity_ms = now_ms();
+    if (a->last_remote_activity_signal_ms > 0 &&
+        activity_ms >= a->last_remote_activity_signal_ms &&
+        activity_ms - a->last_remote_activity_signal_ms < TB_REMOTE_ACTIVITY_SIGNAL_INTERVAL_MS) {
+        return;
+    }
+
+    const int display_was_asleep = CGDisplayIsAsleep(CGMainDisplayID());
+
+    tb_receiver_release_remote_activity(a);
+    IOPMAssertionID assertion_id = kIOPMNullAssertionID;
+    IOReturn result = IOPMAssertionDeclareUserActivity(
+        CFSTR("TargetBridge remote input"),
+        kIOPMUserActiveLocal,
+        &assertion_id
+    );
+    if (result == kIOReturnSuccess) {
+        a->remote_activity_assertion_id = assertion_id;
+        a->last_remote_activity_signal_ms = activity_ms;
+        if (display_was_asleep) {
+            fprintf(stderr, "[power] waking display for remote %s activity\n",
+                    source ? source : "input");
+        }
+    } else {
+        fprintf(stderr, "[power] unable to report remote activity result=%d\n",
+                (int)result);
+    }
 }
 
 static void tb_copy_i18n(char *dest, size_t size, const char *key);
@@ -1119,6 +1182,7 @@ static void on_packet(uint8_t type, const uint8_t *payload, size_t len, void *ud
             (void)extract_json_bool_field(payload, len, "\"visible\"", &visible);
             (void)extract_json_int_field(payload, len, "\"type\"", &type);
             (void)extract_json_bool_field(payload, len, "\"large\"", &large);
+            tb_receiver_note_remote_activity(a, "pointer");
             tb_disp_set_cursor(a->disp, x, y, w, h, visible, type, large);
         }
         break;
@@ -1186,12 +1250,31 @@ static void on_packet(uint8_t type, const uint8_t *payload, size_t len, void *ud
         }
         break;
     case TB_PKT_INPUT_EVENT:
+        tb_receiver_note_remote_activity(a, "input");
         tb_receiver_apply_input_event(payload, len);
         break;
     case TB_PKT_INPUT_CONTROL:
         tb_receiver_apply_input_control_mode(a, payload, len);
         break;
     case TB_PKT_HEARTBEAT:
+        {
+            int prevent = 0;
+            if (extract_json_bool_field(payload, len, "\"preventDisplaySleep\"", &prevent)) {
+                tb_receiver_set_prevent_display_sleep(a, prevent);
+            }
+
+            double input_idle_seconds = 0.0;
+            if (extract_json_double_field(payload, len, "\"inputIdleSeconds\"", &input_idle_seconds) &&
+                input_idle_seconds >= 0.0) {
+                if (input_idle_seconds <= TB_REMOTE_INPUT_ACTIVE_WINDOW_SECONDS) {
+                    tb_receiver_note_remote_activity(a, "keyboard");
+                } else {
+                    /* User-activity declarations wake the panel immediately but
+                     * are not meant to become a second display-sleep timer. */
+                    tb_receiver_release_remote_activity(a);
+                }
+            }
+        }
         break;
     case TB_PKT_TEST_DATA:
         /* Performance test data; discard */
@@ -1804,6 +1887,9 @@ static void close_client(struct app *a) {
     a->close_requested = 0;
     a->have_video_frame = 0;
     snprintf(a->input_control_mode, sizeof(a->input_control_mode), "off");
+    tb_receiver_release_remote_activity(a);
+    a->last_remote_activity_signal_ms = 0;
+    a->prevent_display_sleep = 0;
     SDL_EnableScreenSaver();
     tb_receiver_refresh_input_capture(a);
     tb_disp_set_connection_state(a->disp, 0);
@@ -1949,6 +2035,12 @@ int main(int argc, char **argv) {
         fprintf(stderr, "[main] warning: SDL_OpenAudioDevice failed: %s\n", SDL_GetError());
     }
 
+    /* SDL starts with screen-saver inhibition enabled. Keep normal macOS display
+     * sleep available both while idle and, by default, during a session. A new
+     * Sender heartbeat can explicitly request the old always-on behaviour. */
+    SDL_EnableScreenSaver();
+    fprintf(stderr, "[main] display sleep enabled while receiver is idle\n");
+
     struct tb_display_info boot_info;
     if (tb_disp_get_info(a.disp, &boot_info) == 0) {
         snprintf(a.panel_text, sizeof(a.panel_text), "%u x %u px (%s)",
@@ -2041,7 +2133,8 @@ int main(int argc, char **argv) {
                 a.reported_night_shift = -1;   /* force one report per session */
                 a.reported_true_tone = -1;
                 a.last_recv_ms = t;
-                SDL_DisableScreenSaver();
+                a.prevent_display_sleep = 0;
+                SDL_EnableScreenSaver();
                 fprintf(stderr, "[main] client connected\n");
                 tb_parser_free(&a.parser);
                 tb_parser_init(&a.parser, on_packet, &a);
@@ -2184,6 +2277,7 @@ int main(int argc, char **argv) {
     if (a.audio_device != 0) {
         SDL_CloseAudioDevice(a.audio_device);
     }
+    tb_receiver_release_remote_activity(&a);
     tb_disp_destroy(a.disp);
     fprintf(stderr, "[main] bye\n");
     return 0;

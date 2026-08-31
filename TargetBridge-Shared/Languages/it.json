@@ -51,7 +51,7 @@
   "sender.mode_line_5": "Scegli la sorgente, poi bilancia fluidità e nitidezza col profilo stream.",
   "sender.toggle.show_menu_bar_icon": "Mostra icona nella top bar",
   "sender.toggle.large_cursor": "Cursore ingrandito sul receiver",
-  "sender.toggle.prevent_display_sleep": "Impedisci screensaver e sospensione display durante lo streaming",
+  "sender.toggle.prevent_display_sleep": "Impedisci la sospensione dello schermo del ricevitore durante lo streaming",
   "sender.toggle.auto_restart_on_wake": "Riavvia automaticamente la cattura al risveglio o sblocco",
   "sender.toggle.stream_audio": "Trasmetti audio",
   "sender.toggle.default_stream_audio": "Abilita audio di default per le nuove sessioni",
