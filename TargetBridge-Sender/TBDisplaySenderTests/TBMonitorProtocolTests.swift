@@ -207,6 +207,28 @@ final class TBMonitorProtocolTests: XCTestCase {
         XCTAssertEqual(TBMonitorProtocol.decodeJSON(TBMonitorHeartbeat.self, from: payload)?.sequence, 42)
     }
 
+    func testSessionMetricsPacketRoundTrip() throws {
+        XCTAssertEqual(TBMonitorPacketType.sessionMetrics.rawValue, 0x39)
+        let metrics = TBMonitorSessionMetrics(
+            receiverFPS: 59,
+            renderedFrames: 123_456,
+            decodeErrors: 2,
+            renderer: "metal",
+            decoder: "VideoToolbox",
+            codec: "HEVC"
+        )
+        guard var buffer = TBMonitorProtocol.makeJSONPacket(type: .sessionMetrics, value: metrics),
+              let (type, payload) = try TBMonitorProtocol.drainPacket(from: &buffer)
+        else {
+            XCTFail("session metrics did not encode and drain")
+            return
+        }
+
+        XCTAssertEqual(type, .sessionMetrics)
+        XCTAssertEqual(TBMonitorProtocol.decodeJSON(TBMonitorSessionMetrics.self, from: payload), metrics)
+        XCTAssertTrue(buffer.isEmpty)
+    }
+
     func testCursorPayloadPreservesLargeCursorPreference() throws {
         let cursor = TBMonitorCursor(
             x: 120,

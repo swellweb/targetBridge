@@ -36,6 +36,7 @@ struct tb_decoder {
     struct SwsContext *sws;
     enum AVPixelFormat hw_pix_fmt;
     int               using_software_decode;
+    uint64_t          error_count;
 
     uint8_t          *extradata;
     int               extradata_size;
@@ -130,6 +131,29 @@ int tb_dec_supports_hevc_hwdecode(void) {
     return status >= 0 ? 1 : 0;
 }
 
+const char *tb_dec_backend_name(const struct tb_decoder *d) {
+    if (!d || !d->opened) return "pending";
+    if (d->using_software_decode || !d->hw_dev) return "software";
+#if defined(__APPLE__)
+    return "VideoToolbox";
+#else
+    return "hardware";
+#endif
+}
+
+const char *tb_dec_codec_name(const struct tb_decoder *d) {
+    if (!d || !d->opened) return "pending";
+    switch (d->codec_id) {
+    case AV_CODEC_ID_H264: return "H.264";
+    case AV_CODEC_ID_HEVC: return "HEVC";
+    default: return "unknown";
+    }
+}
+
+uint64_t tb_dec_error_count(const struct tb_decoder *d) {
+    return d ? d->error_count : 0;
+}
+
 void tb_dec_reset(struct tb_decoder *d) {
     if (!d) return;
     if (d->ctx) avcodec_free_context(&d->ctx);
@@ -137,6 +161,7 @@ void tb_dec_reset(struct tb_decoder *d) {
     d->extradata      = NULL;
     d->extradata_size = 0;
     d->opened         = 0;
+    d->error_count    = 0;
     /* hw_dev, hw_frame, sw_frame, pkt stay allocated for reuse. */
 }
 
@@ -289,6 +314,7 @@ int tb_dec_set_param_sets(struct tb_decoder *d, const uint8_t *payload, size_t l
         d->extradata      = prev_ed;
         d->extradata_size = prev_sz;
         fprintf(stderr, "[dec] build_extradata failed\n");
+        d->error_count++;
         return -1;
     }
 
@@ -303,7 +329,11 @@ int tb_dec_set_param_sets(struct tb_decoder *d, const uint8_t *payload, size_t l
 
     av_free(prev_ed);
     fprintf(stderr, "[dec] param sets changed, opening decoder\n");
-    return open_decoder(d);
+    if (open_decoder(d) < 0) {
+        d->error_count++;
+        return -1;
+    }
+    return 0;
 }
 
 /* Convert AVCC (length-prefixed) frame to Annex B (start codes) in scratch. */
@@ -340,11 +370,17 @@ static int avcc_to_annexb(struct tb_decoder *d,
 }
 
 int tb_dec_feed_frame(struct tb_decoder *d, const uint8_t *avcc, size_t len) {
-    if (!d->opened) return -1;
+    if (!d->opened) {
+        d->error_count++;
+        return -1;
+    }
 
     uint8_t *anb = NULL;
     size_t   anb_len = 0;
-    if (avcc_to_annexb(d, avcc, len, &anb, &anb_len) < 0) return -1;
+    if (avcc_to_annexb(d, avcc, len, &anb, &anb_len) < 0) {
+        d->error_count++;
+        return -1;
+    }
 
     d->pkt->data = anb;
     d->pkt->size = (int)anb_len;
@@ -352,13 +388,18 @@ int tb_dec_feed_frame(struct tb_decoder *d, const uint8_t *avcc, size_t len) {
     int r = avcodec_send_packet(d->ctx, d->pkt);
     if (r < 0 && r != AVERROR(EAGAIN)) {
         fprintf(stderr, "[dec] send_packet=%d\n", r);
+        d->error_count++;
         return -1;
     }
 
     while (1) {
         r = avcodec_receive_frame(d->ctx, d->hw_frame);
         if (r == AVERROR(EAGAIN) || r == AVERROR_EOF) return 0;
-        if (r < 0) { fprintf(stderr, "[dec] recv_frame=%d\n", r); return -1; }
+        if (r < 0) {
+            fprintf(stderr, "[dec] recv_frame=%d\n", r);
+            d->error_count++;
+            return -1;
+        }
 
 #if defined(__APPLE__)
         /* Zero-copy fast path: VideoToolbox decoded frames carry a
@@ -389,6 +430,7 @@ int tb_dec_feed_frame(struct tb_decoder *d, const uint8_t *avcc, size_t len) {
             d->sw_frame->format = AV_PIX_FMT_NV12;
             if (av_hwframe_transfer_data(d->sw_frame, d->hw_frame, 0) < 0) {
                 fprintf(stderr, "[dec] hwframe_transfer failed\n");
+                d->error_count++;
                 av_frame_unref(d->hw_frame);
                 continue;
             }
@@ -410,9 +452,11 @@ int tb_dec_feed_frame(struct tb_decoder *d, const uint8_t *avcc, size_t len) {
             d->nv12_frame->height = out->height;
             if (!d->sws || av_frame_get_buffer(d->nv12_frame, 32) < 0) {
                 fprintf(stderr, "[dec] could not allocate NV12 software frame\n");
+                d->error_count++;
             } else if (sws_scale(d->sws, (const uint8_t * const *)out->data, out->linesize,
                                  0, out->height, d->nv12_frame->data, d->nv12_frame->linesize) <= 0) {
                 fprintf(stderr, "[dec] software frame conversion failed\n");
+                d->error_count++;
             } else {
                 d->cb(d->nv12_frame->data[0], d->nv12_frame->linesize[0],
                       d->nv12_frame->data[1], d->nv12_frame->linesize[1],

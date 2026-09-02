@@ -65,6 +65,9 @@ int          tb_disp_pop_input_event(struct tb_display *d, struct tb_input_event
 /* Query active display/window/drawable information for UI/debug metadata. */
 int  tb_disp_get_info(struct tb_display *d, struct tb_display_info *info);
 
+/* Actual SDL renderer selected at runtime (for example opengl or metal). */
+const char *tb_disp_renderer_name(struct tb_display *d);
+
 /* Render a simple launcher/status UI before the video stream starts. */
 void tb_disp_render_status(struct tb_display *d,
                            const char *ip,

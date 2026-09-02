@@ -21,6 +21,9 @@ struct tb_decoder;
 struct tb_decoder *tb_dec_create(tb_frame_cb cb, void *ud);
 void               tb_dec_destroy(struct tb_decoder *d);
 int                tb_dec_supports_hevc_hwdecode(void);
+const char        *tb_dec_backend_name(const struct tb_decoder *d);
+const char        *tb_dec_codec_name(const struct tb_decoder *d);
+uint64_t           tb_dec_error_count(const struct tb_decoder *d);
 
 /* Reset decoder state on client disconnect.
  * Forces re-open on next param sets so a stale FFmpeg context doesn't

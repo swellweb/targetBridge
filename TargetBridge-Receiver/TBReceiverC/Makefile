@@ -34,7 +34,7 @@ ifeq ($(UNAME_S),Darwin)
 LDFLAGS  += -framework ApplicationServices -framework AppKit -framework CoreFoundation -framework CoreGraphics -framework CoreText -framework VideoToolbox -framework CoreMedia -framework CoreVideo -framework IOSurface -framework CoreServices -framework CoreAudio -framework SystemConfiguration
 endif
 
-C_SRC = src/main.c src/net.c src/decoder.c src/display.c src/input_queue.c src/receiver_profile.c src/tb_i18n.c
+C_SRC = src/main.c src/net.c src/decoder.c src/display.c src/input_queue.c src/receiver_profile.c src/session_metrics.c src/tb_i18n.c
 OBJC_SRC = src/tb_gesture_bridge.m src/tb_display_tweaks.m
 OBJ = $(C_SRC:.c=.o) $(OBJC_SRC:.m=.o)
 BIN = tbreceiver
@@ -51,7 +51,7 @@ $(BIN): $(OBJ)
 	$(CC) $(CFLAGS) -fobjc-arc -c -o $@ $<
 
 clean:
-	rm -f $(OBJ) $(BIN) $(TEST_BIN) $(TEST_INPUT_QUEUE_BIN) $(TEST_RECEIVER_PROFILE_BIN)
+	rm -f $(OBJ) $(BIN) $(TEST_BIN) $(TEST_INPUT_QUEUE_BIN) $(TEST_RECEIVER_PROFILE_BIN) $(TEST_SESSION_METRICS_BIN)
 
 # Unit tests for the packet parser. net.c is pure POSIX, so this needs no
 # ffmpeg/SDL/pkgconf — it runs anywhere, including CI, with no hardware.
@@ -63,6 +63,7 @@ endif
 TEST_BIN = test_net_parser
 TEST_INPUT_QUEUE_BIN = test_input_queue
 TEST_RECEIVER_PROFILE_BIN = test_receiver_profile
+TEST_SESSION_METRICS_BIN = test_session_metrics
 
 test_net_parser: tests/test_net_parser.c src/net.c src/net.h src/proto.h
 	$(CC) $(TEST_CFLAGS) -Isrc tests/test_net_parser.c src/net.c $(TEST_LDFLAGS) -o $@
@@ -73,9 +74,13 @@ $(TEST_INPUT_QUEUE_BIN): tests/test_input_queue.c src/input_queue.c src/input_qu
 $(TEST_RECEIVER_PROFILE_BIN): tests/test_receiver_profile.c src/receiver_profile.c src/receiver_profile.h
 	$(CC) $(TEST_CFLAGS) -Isrc tests/test_receiver_profile.c src/receiver_profile.c -o $@
 
-test: $(TEST_BIN) $(TEST_INPUT_QUEUE_BIN) $(TEST_RECEIVER_PROFILE_BIN)
+$(TEST_SESSION_METRICS_BIN): tests/test_session_metrics.c src/session_metrics.c src/session_metrics.h
+	$(CC) $(TEST_CFLAGS) -Isrc tests/test_session_metrics.c src/session_metrics.c -o $@
+
+test: $(TEST_BIN) $(TEST_INPUT_QUEUE_BIN) $(TEST_RECEIVER_PROFILE_BIN) $(TEST_SESSION_METRICS_BIN)
 	./$(TEST_BIN)
 	./$(TEST_INPUT_QUEUE_BIN)
 	./$(TEST_RECEIVER_PROFILE_BIN)
+	./$(TEST_SESSION_METRICS_BIN)
 
 .PHONY: all clean test

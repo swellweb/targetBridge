@@ -256,8 +256,10 @@ private struct TBDisplaySenderSessionCard: View {
         LazyVGrid(columns: summaryColumns, alignment: .leading, spacing: 12) {
             summaryTile(
                 title: transportTitle,
-                value: session.transportKind.title(service.language),
-                subtitle: service.interfaceDisplayText(for: session.localInterfaceIP)
+                value: session.activeConnectionPathKind.map {
+                    TBDisplaySenderL10n.connectionPathTitle($0, language: service.language)
+                } ?? session.transportKind.title(service.language),
+                subtitle: "\(service.interfaceDisplayText(for: session.localInterfaceIP)) · \(TBDisplaySenderL10n.measuredSpeed(throughputGbps: session.measuredThroughputGbps, latencyMilliseconds: session.measuredLatencyMilliseconds, language: service.language))"
             )
 
             summaryTile(
@@ -274,8 +276,12 @@ private struct TBDisplaySenderSessionCard: View {
 
             summaryTile(
                 title: fpsTitle,
-                value: "\(session.senderFPS)",
-                subtitle: session.isStreaming ? liveSubtitle : idleSubtitle,
+                value: session.liveMetrics.receiverRenderer.isEmpty
+                    ? "\(session.senderFPS) FPS"
+                    : "\(session.liveMetrics.receiverFPS) FPS",
+                subtitle: session.isStreaming
+                    ? TBDisplaySenderL10n.frameRate(session.liveMetrics, language: service.language)
+                    : idleSubtitle,
                 accent: session.isStreaming ? .green : .secondary
             )
         }
@@ -290,7 +296,30 @@ private struct TBDisplaySenderSessionCard: View {
                     infoRow(TBDisplaySenderL10n.receiverLabel(service.language), session.receiverPanelText)
                     infoRow(TBDisplaySenderL10n.virtualDisplayLabel(service.language), session.virtualDisplayText)
                     infoRow(TBDisplaySenderL10n.streamLabel(service.language), session.streamResolutionText)
-                    infoRow(TBDisplaySenderL10n.fpsLabel(service.language), "\(session.senderFPS)")
+                    infoRow(
+                        TBDisplaySenderL10n.text("sender.diagnostics.active_path", service.language),
+                        "\(TBDisplaySenderL10n.connectionPathTitle(session.activeConnectionPathKind, language: service.language)) · \(service.interfaceDisplayText(for: session.localInterfaceIP))"
+                    )
+                    infoRow(
+                        TBDisplaySenderL10n.text("sender.diagnostics.measured_capacity", service.language),
+                        TBDisplaySenderL10n.measuredSpeed(
+                            throughputGbps: session.measuredThroughputGbps,
+                            latencyMilliseconds: session.measuredLatencyMilliseconds,
+                            language: service.language
+                        )
+                    )
+                    infoRow(
+                        TBDisplaySenderL10n.text("sender.diagnostics.video_engine", service.language),
+                        TBDisplaySenderL10n.videoPath(session.liveMetrics, language: service.language)
+                    )
+                    infoRow(
+                        TBDisplaySenderL10n.text("sender.diagnostics.frame_rate", service.language),
+                        TBDisplaySenderL10n.frameRate(session.liveMetrics, language: service.language)
+                    )
+                    infoRow(
+                        TBDisplaySenderL10n.text("sender.diagnostics.frame_drops", service.language),
+                        TBDisplaySenderL10n.frameDrops(session.liveMetrics, language: service.language)
+                    )
                 }
             }
         }
@@ -464,16 +493,6 @@ private struct TBDisplaySenderSessionCard: View {
         case .german: return "Lautstärke"
         case .french: return "Volume"
         case .chinese: return "音量"
-        }
-    }
-
-    private var liveSubtitle: String {
-        switch service.language {
-        case .italian: return "Frame in invio"
-        case .english: return "Frames currently sending"
-        case .german: return "Frames werden gesendet"
-        case .french: return "Images en cours d’envoi"
-        case .chinese: return "正在发送画面帧"
         }
     }
 
@@ -794,6 +813,33 @@ private struct TBDisplaySenderSessionSettingsSheet: View {
                             Divider().overlay(Color.white.opacity(0.08))
 
                             VStack(alignment: .leading, spacing: 8) {
+                                Text(TBDisplaySenderL10n.text("sender.diagnostics.session_title", service.language))
+                                    .font(.subheadline.weight(.semibold))
+                                infoRow(
+                                    TBDisplaySenderL10n.text("sender.diagnostics.active_path", service.language),
+                                    "\(TBDisplaySenderL10n.connectionPathTitle(session.activeConnectionPathKind, language: service.language)) · \(service.interfaceDisplayText(for: session.localInterfaceIP))"
+                                )
+                                infoRow(
+                                    TBDisplaySenderL10n.text("sender.diagnostics.measured_capacity", service.language),
+                                    TBDisplaySenderL10n.measuredSpeed(
+                                        throughputGbps: session.measuredThroughputGbps,
+                                        latencyMilliseconds: session.measuredLatencyMilliseconds,
+                                        language: service.language
+                                    )
+                                )
+                                infoRow(
+                                    TBDisplaySenderL10n.text("sender.diagnostics.video_engine", service.language),
+                                    TBDisplaySenderL10n.videoPath(session.liveMetrics, language: service.language)
+                                )
+                                infoRow(
+                                    TBDisplaySenderL10n.text("sender.diagnostics.frame_rate", service.language),
+                                    TBDisplaySenderL10n.frameRate(session.liveMetrics, language: service.language)
+                                )
+                                infoRow(
+                                    TBDisplaySenderL10n.text("sender.diagnostics.frame_drops", service.language),
+                                    TBDisplaySenderL10n.frameDrops(session.liveMetrics, language: service.language)
+                                )
+                                Divider().overlay(Color.white.opacity(0.08))
                                 infoRow("Capture", session.captureDisplayText)
                                 infoRow("State", session.displayStateText)
                             }

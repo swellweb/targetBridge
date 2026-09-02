@@ -19,6 +19,8 @@ enum TBMonitorPacketType: UInt8 {
     case volume = 0x37
     /// Night Shift / True Tone on the receiver's panel.
     case displayTweaks = 0x38
+    /// Once-per-second receiver telemetry. Older senders skip unknown packets.
+    case sessionMetrics = 0x39
     case testData = 0x40
 }
 
@@ -108,6 +110,15 @@ struct TBMonitorVolume: Codable {
 struct TBMonitorDisplayTweaks: Codable {
     var nightShift: Bool
     var trueTone: Bool
+}
+
+struct TBMonitorSessionMetrics: Codable, Equatable {
+    var receiverFPS: Int
+    var renderedFrames: UInt64
+    var decodeErrors: UInt64
+    var renderer: String
+    var decoder: String
+    var codec: String
 }
 
 struct TBMonitorClipboard: Codable {
