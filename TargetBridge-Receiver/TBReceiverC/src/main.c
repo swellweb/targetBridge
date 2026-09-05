@@ -16,6 +16,7 @@
 #include "net.h"
 #include "decoder.h"
 #include "display.h"
+#include "idle_watchdog.h"
 #include "receiver_profile.h"
 #include "proto.h"
 #include "tb_gesture_bridge.h"
@@ -108,6 +109,7 @@ struct app {
     int      input_tap_consumes_events;
 
     SDL_AudioDeviceID audio_device;
+    uint64_t audio_retry_after_ms;
 
     uint8_t audio_buf[AUDIO_BUF_CAP];
     int     audio_buf_head;
@@ -979,6 +981,62 @@ static void audio_callback(void *userdata, Uint8 *stream, int len) {
     }
 }
 
+/* Keep the output device closed while Receiver is waiting for a Sender.  On
+ * macOS an open SDL output device is enough for coreaudiod to assert
+ * PreventUserIdleSystemSleep, even when the callback only produces silence.
+ * Opening lazily also means sessions with audio disabled never touch the
+ * system output device. */
+static int tb_audio_open_for_frame(struct app *a) {
+    if (!a) return 0;
+    if (a->audio_device != 0) return 1;
+
+    uint64_t now = now_ms();
+    if (now < a->audio_retry_after_ms) return 0;
+
+    SDL_AudioSpec spec;
+    SDL_zero(spec);
+    spec.freq = 48000;
+    spec.format = AUDIO_S16LSB;
+    spec.channels = 2;
+    spec.samples = 1024;
+    spec.callback = audio_callback;
+    spec.userdata = a;
+
+    SDL_AudioSpec obtained;
+    SDL_zero(obtained);
+    a->audio_device = SDL_OpenAudioDevice(NULL, 0, &spec, &obtained, 0);
+    if (a->audio_device == 0) {
+        /* Audio packets arrive frequently.  Avoid retrying (and logging) for
+         * every packet if the output device is temporarily unavailable. */
+        a->audio_retry_after_ms = now + 5000;
+        fprintf(stderr, "[main] warning: SDL_OpenAudioDevice failed: %s; retrying in 5s\n",
+                SDL_GetError());
+        return 0;
+    }
+
+    a->audio_retry_after_ms = 0;
+    fprintf(stderr,
+            "[main] SDL audio device opened on first audio frame: "
+            "48000Hz stereo 16-bit PCM (obtained %d samples)\n",
+            obtained.samples);
+    return 1;
+}
+
+static void tb_audio_close_for_idle(struct app *a) {
+    if (!a) return;
+
+    if (a->audio_device != 0) {
+        SDL_CloseAudioDevice(a->audio_device);
+        a->audio_device = 0;
+        fprintf(stderr, "[main] SDL audio device closed for idle Receiver\n");
+    }
+
+    a->audio_buf_head = 0;
+    a->audio_buf_tail = 0;
+    a->audio_buf_size = 0;
+    a->audio_retry_after_ms = 0;
+}
+
 /* Drive the receiver's master output volume knob (with the system volume HUD).
  * level is clamped to 0.0..1.0. Sets the default output device's scalar volume,
  * preferring the master element and falling back to per-channel when a device
@@ -1157,7 +1215,10 @@ static void on_packet(uint8_t type, const uint8_t *payload, size_t len, void *ud
         }
         break;
     case TB_PKT_AUDIO_FRAME:
-        if (a->audio_device != 0) {
+        {
+            int opened_for_frame = a->audio_device == 0;
+            if (!tb_audio_open_for_frame(a)) break;
+
             SDL_LockAudioDevice(a->audio_device);
 
             // Limit audio backlog to 150ms (150 * 192 = 28800 bytes) to cushion
@@ -1183,6 +1244,10 @@ static void on_packet(uint8_t type, const uint8_t *payload, size_t len, void *ud
             }
 
             SDL_UnlockAudioDevice(a->audio_device);
+
+            /* SDL opens devices paused.  Queue the first packet before
+             * starting playback so the callback does not begin with silence. */
+            if (opened_for_frame) SDL_PauseAudioDevice(a->audio_device, 0);
         }
         break;
     case TB_PKT_INPUT_EVENT:
@@ -1813,13 +1878,7 @@ static void close_client(struct app *a) {
     tb_parser_free(&a->parser);
     tb_parser_init(&a->parser, on_packet, a);
     tb_dec_reset(a->dec);   /* fresh decoder for next session */
-    if (a->audio_device != 0) {
-        SDL_LockAudioDevice(a->audio_device);
-        a->audio_buf_head = 0;
-        a->audio_buf_tail = 0;
-        a->audio_buf_size = 0;
-        SDL_UnlockAudioDevice(a->audio_device);
-    }
+    tb_audio_close_for_idle(a);
     fprintf(stderr, "[main] client disconnected\n");
 }
 
@@ -1931,23 +1990,11 @@ int main(int argc, char **argv) {
     a.disp = tb_disp_create(fullscreen);
     if (!a.disp) { fprintf(stderr, "tb_disp_create failed\n"); return 1; }
 
-    /* Open SDL Audio Device */
-    SDL_AudioSpec spec;
-    SDL_zero(spec);
-    spec.freq = 48000;
-    spec.format = AUDIO_S16LSB; // 16-bit signed, little-endian PCM
-    spec.channels = 2;          // Stereo
-    spec.samples = 1024;        // Buffer size (approx 21.3ms)
-    spec.callback = audio_callback;
-    spec.userdata = &a;
-    SDL_AudioSpec obtained;
-    a.audio_device = SDL_OpenAudioDevice(NULL, 0, &spec, &obtained, 0);
-    if (a.audio_device != 0) {
-        SDL_PauseAudioDevice(a.audio_device, 0); // Start playing (unpaused)
-        fprintf(stderr, "[main] SDL audio device opened: 48000Hz stereo 16-bit PCM (obtained %d samples)\n", obtained.samples);
-    } else {
-        fprintf(stderr, "[main] warning: SDL_OpenAudioDevice failed: %s\n", SDL_GetError());
-    }
+    /* SDL starts with screen-saver inhibition enabled. A Receiver that has not
+     * accepted a client yet never reaches close_client(), so release the
+     * assertion immediately while it is waiting for its first session. */
+    SDL_EnableScreenSaver();
+    fprintf(stderr, "[main] display sleep enabled while receiver is idle\n");
 
     struct tb_display_info boot_info;
     if (tb_disp_get_info(a.disp, &boot_info) == 0) {
@@ -2054,19 +2101,33 @@ int main(int argc, char **argv) {
                 close_client(&a);
             } else {
                 socket_activity = drain_result;
-                if (drain_result > 0) a.last_recv_ms = t;
+                if (drain_result > 0) a.last_recv_ms = now_ms();
                 if (a.close_requested) {
                     close_client(&a);
-                } else if (t - a.last_recv_ms >= TB_SENDER_IDLE_TIMEOUT_MS) {
-                    /* The sender streams frames continuously and heartbeats
-                     * every 2s. Total silence means it died without a FIN
-                     * (crash, pulled cable, force sleep). Without this reap,
-                     * the dead fd is held forever and — because the receiver
-                     * is single-client — every future connect is locked out
-                     * until the app is restarted. */
-                    fprintf(stderr, "[main] no data from sender for %llu ms; closing stale session\n",
-                            (unsigned long long)(t - a.last_recv_ms));
-                    close_client(&a);
+                } else {
+                    const uint64_t watchdog_now_ms = now_ms();
+                    uint64_t idle_ms = 0;
+                    enum tb_idle_watchdog_result watchdog_result =
+                        tb_idle_watchdog_check(watchdog_now_ms,
+                                               &a.last_recv_ms,
+                                               TB_SENDER_IDLE_TIMEOUT_MS,
+                                               &idle_ms);
+                    if (watchdog_result == TB_IDLE_WATCHDOG_CLOCK_REWOUND) {
+                        fprintf(stderr,
+                                "[main] monotonic clock moved backwards; "
+                                "rebasing sender idle watchdog\n");
+                    } else if (watchdog_result == TB_IDLE_WATCHDOG_EXPIRED) {
+                        /* The sender streams frames continuously and heartbeats
+                         * every 2s. Total silence means it died without a FIN
+                         * (crash, pulled cable, force sleep). Without this reap,
+                         * the dead fd is held forever and — because the receiver
+                         * is single-client — every future connect is locked out
+                         * until the app is restarted. */
+                        fprintf(stderr,
+                                "[main] no data from sender for %llu ms; closing stale session\n",
+                                (unsigned long long)idle_ms);
+                        close_client(&a);
+                    }
                 }
             }
         }
@@ -2181,9 +2242,7 @@ int main(int argc, char **argv) {
     bonjour_deinit(&a);
     tb_parser_free(&a.parser);
     tb_dec_destroy(a.dec);
-    if (a.audio_device != 0) {
-        SDL_CloseAudioDevice(a.audio_device);
-    }
+    tb_audio_close_for_idle(&a);
     tb_disp_destroy(a.disp);
     fprintf(stderr, "[main] bye\n");
     return 0;

@@ -84,6 +84,20 @@ open build/TargetBridge.app   # sender: pick the LAN interface, enter the Mac's 
 This exercises the true capture → encode → decode → render path minus the
 Thunderbolt link itself.
 
+## 6. Monitor shield lifecycle (macOS GUI session)
+
+```bash
+cd TargetBridge-Receiver/TBReceiverC
+make test-monitor-shield
+```
+
+Opens a small test window and checks repeated activation, delayed window-level
+restoration, backing-property notifications, observer cleanup, and cancellation
+of pending retries after stopping. Requires AppKit and a logged-in GUI session,
+but no screen recording or input permissions. This is separate from `make test`
+so the portable test suite remains usable without a GUI. It does not replace
+live verification of notification suppression during a real stream.
+
 ## Debugging a live connection
 
 The sender logs its connection lifecycle (dial target, interface, waiting/

@@ -28,17 +28,26 @@ and improves the project. A special thank-you for this release goes to:
 
 - [@aalpgiray](https://github.com/aalpgiray) for receiver brightness, volume, Night Shift, and True Tone controls.
 - [@preggocl](https://github.com/preggocl) for the physical Receiver display profile and the software decode fallback.
-- [@Betafer](https://github.com/Betafer) for input-queue safety and the low-latency Receiver Master cursor overlay.
+- [@Betafer](https://github.com/Betafer) for input-queue safety, cursor work, idle audio/display handling, watchdog protection, monitor shielding, and build improvements.
 
 ## TargetBridge 3.5.1
 
 TargetBridge 3.5.1 is a maintenance release focused on safer input control,
-accurate Receiver display profiles, and improved compatibility with older Macs:
+accurate Receiver display profiles, idle resource handling, and improved compatibility with older Macs:
 
 - preserve keyboard and mouse release events when the Receiver input queue is under pressure
-- use the low-latency cursor overlay in Receiver Master mode to avoid duplicate cursors
+- preserve native macOS cursor shapes by default, including the screenshot crosshair; the custom overlay is reserved for the explicit large-cursor option
 - advertise the Receiver's actual panel geometry instead of always reporting a fixed 5K profile
+- preserve native 5K panel dimensions when macOS uses a scaled HiDPI desktop
 - fall back safely to software video decode when VideoToolbox cannot decode a stream on older hardware
+- allow display sleep while the Receiver is waiting, including before the first session
+- open audio output only when audio arrives and release it when the session ends
+- handle watchdog clock underflow without incorrectly dropping the connection
+- keep local notification banners behind the active monitor surface across display/fullscreen transitions
+- package SDL runtimes safely and support explicit build/version overrides
+
+See the [full 3.5.1 release notes](docs/releases/3.5.1.md) and
+[testing guide](docs/Testing.md), including the new monitor-shield lifecycle test.
 
 It also keeps the established multi-Mac workspace features:
 

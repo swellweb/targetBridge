@@ -352,7 +352,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -euo pipefail\nSTAMP=\"$(date +%Y%m%d%H%M%S)\"\ncat > \"${SRCROOT}/TBDisplaySender/TBDisplaySenderBuildInfo.swift\" <<EOI\nenum TBDisplaySenderBuildInfo {\n    static let marketingVersion = \"3.5.1\"\n    static let buildNumber = \"${STAMP}\"\n    static let versionDisplay = \"\\\\(marketingVersion) + build \\\\(buildNumber)\"\n}\nEOI\n";
+			shellScript = "set -euo pipefail\nSTAMP=\"${TB_SENDER_BUILD:-$(date +%Y%m%d%H%M%S)}\"\ncat > \"${SRCROOT}/TBDisplaySender/TBDisplaySenderBuildInfo.swift\" <<EOI\nenum TBDisplaySenderBuildInfo {\n    static let marketingVersion = \"3.5.1\"\n    static let buildNumber = \"${STAMP}\"\n    static let versionDisplay = \"\\\\(marketingVersion) + build \\\\(buildNumber)\"\n}\nEOI\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
