@@ -51,7 +51,7 @@ $(BIN): $(OBJ)
 	$(CC) $(CFLAGS) -fobjc-arc -c -o $@ $<
 
 clean:
-	rm -f $(OBJ) $(BIN) $(TEST_BIN) $(TEST_INPUT_QUEUE_BIN) $(TEST_IDLE_WATCHDOG_BIN) $(TEST_RECEIVER_PROFILE_BIN)
+	rm -f $(OBJ) $(BIN) $(TEST_BIN) $(TEST_INPUT_QUEUE_BIN) $(TEST_IDLE_WATCHDOG_BIN) $(TEST_RECEIVER_PROFILE_BIN) test_monitor_shield
 
 # Unit tests for the packet parser. net.c is pure POSIX, so this needs no
 # ffmpeg/SDL/pkgconf — it runs anywhere, including CI, with no hardware.
@@ -83,4 +83,11 @@ test: $(TEST_BIN) $(TEST_INPUT_QUEUE_BIN) $(TEST_IDLE_WATCHDOG_BIN) $(TEST_RECEI
 	./$(TEST_IDLE_WATCHDOG_BIN)
 	./$(TEST_RECEIVER_PROFILE_BIN)
 
-.PHONY: all clean test
+# AppKit lifecycle coverage requires a logged-in macOS GUI session.
+test_monitor_shield: tests/test_monitor_shield.m src/tb_gesture_bridge.m src/tb_gesture_bridge.h
+	$(CC) -fobjc-arc -framework AppKit -framework CoreGraphics tests/test_monitor_shield.m -o $@
+
+test-monitor-shield: test_monitor_shield
+	./test_monitor_shield
+
+.PHONY: all clean test test-monitor-shield

@@ -145,6 +145,11 @@ void tb_receiver_set_monitor_shield(int active) {
     @autoreleasepool {
         BOOL normalized = active ? YES : NO;
         BOOL changed = normalized != g_monitor_shield_active;
+        // Repeated input-state refreshes must not invalidate pending retries.
+        if (!changed) {
+            tb_apply_monitor_shield();
+            return;
+        }
         g_monitor_shield_active = normalized;
         uint64_t generation = ++g_monitor_shield_generation;
         if (normalized) {
