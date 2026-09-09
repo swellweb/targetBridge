@@ -10,6 +10,7 @@ BUILD_DIR="${DERIVED_DATA_DIR}/Build/Products/${CONFIGURATION}"
 SOURCE_APP="${BUILD_DIR}/TargetBridge.app"
 DEST_DIR="${REPO_ROOT}/build"
 DEST_APP="${DEST_DIR}/TargetBridge.app"
+"$SCRIPT_DIR/sign_targetbridge_sender_app.sh" --check-identity
 
 cd "$ROOT"
 
@@ -25,12 +26,24 @@ xcodebuild \
   build
 
 mkdir -p "$DEST_DIR"
-rm -rf "$DEST_APP"
-ditto "$SOURCE_APP" "$DEST_APP"
+STAGING_DIR=$(mktemp -d "$DEST_DIR/.sender-signing.XXXXXX")
+STAGED_APP="$STAGING_DIR/TargetBridge.app"
+ditto "$SOURCE_APP" "$STAGED_APP"
 echo "Cleaning extended attributes..."
-xattr -cr "$DEST_APP" || true
+xattr -cr "$STAGED_APP"
 echo "Signing sender application..."
-codesign --force --deep --sign - "$DEST_APP" || true
+"$SCRIPT_DIR/sign_targetbridge_sender_app.sh" "$STAGED_APP"
+if [[ -e "$DEST_APP" ]]; then
+  # Retain the old artifact inside the staging directory for recovery.
+  mv "$DEST_APP" "$STAGING_DIR/Previous TargetBridge.app"
+fi
+if ! mv "$STAGED_APP" "$DEST_APP"; then
+  if [[ ! -e "$DEST_APP" && -e "$STAGING_DIR/Previous TargetBridge.app" ]]; then
+    mv "$STAGING_DIR/Previous TargetBridge.app" "$DEST_APP"
+  fi
+  echo "Could not activate the signed build; recovery files: $STAGING_DIR" >&2
+  exit 1
+fi
 touch "$DEST_APP"
 
 echo "TargetBridge sender built: $DEST_APP"
