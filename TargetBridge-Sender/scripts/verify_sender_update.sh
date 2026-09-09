@@ -14,6 +14,7 @@ for APP in "$OLD" "$NEW"; do
 done
 REQUIREMENT=$(/usr/bin/codesign -d -r- "$OLD" 2>&1 | /usr/bin/sed -nE 's/^#? ?designated => //p')
 [[ -n "$REQUIREMENT" ]] || fail "Missing installed identity requirement"
-/usr/bin/codesign --verify --deep --strict --all-architectures -R "$REQUIREMENT" "$NEW" || fail "Candidate does not satisfy the installed Sender identity"
+# '=' marks a literal requirement; without it codesign treats the text as a path.
+/usr/bin/codesign --verify --deep --strict --all-architectures -R "=$REQUIREMENT" "$NEW" || fail "Candidate does not satisfy the installed Sender identity"
 print -- "PASS: candidate satisfies the installed Sender identity on every architecture."
 print -- "This verifies signing continuity, not a TCC grant. Install at /Applications/TargetBridge.app without re-signing."
