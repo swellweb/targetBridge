@@ -13,8 +13,13 @@ fingerprint, or store that public fingerprint in:
 
 `~/Library/Application Support/TargetBridge/Build/sender-signing-identity.txt`
 
-The regular Sender build now refuses to silently produce an ad-hoc artifact.
-Signing errors and verification failures are fatal. It stages the candidate
+The regular Sender build preserves upstream's disposable ad-hoc CI/development
+build when no signing configuration was requested, with a prominent warning.
+Set `TARGETBRIDGE_REQUIRE_PERSISTENT_SIGNING=1` to require an update-safe build
+even on an unconfigured machine. Configuring an identity or a configuration
+file also enables strict preflight: a missing/invalid configured identity never
+falls back to ad-hoc. Signing errors and verification failures are fatal.
+The build stages the candidate
 before replacing the previous build, so a missing/locked signing key leaves the
 previous artifact intact.
 
@@ -34,7 +39,7 @@ For distribution, use Developer ID plus the required notarization workflow;
 these scripts alone do not implement notarization. Do not mix local and upstream signers if preserving existing consent
 is required. No Apple Developer membership is provisioned by these scripts.
 
-For a disposable development build only, explicitly opt in to both
+When using the signing helper directly, a disposable development build must opt in to both
 `TARGETBRIDGE_CODESIGN_IDENTITY=-` and `TARGETBRIDGE_ALLOW_ADHOC=1`. Never install
 it over a Sender that is already persistently signed.
 
