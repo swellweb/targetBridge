@@ -10,7 +10,18 @@ BUILD_DIR="${DERIVED_DATA_DIR}/Build/Products/${CONFIGURATION}"
 SOURCE_APP="${BUILD_DIR}/TargetBridge.app"
 DEST_DIR="${REPO_ROOT}/build"
 DEST_APP="${DEST_DIR}/TargetBridge.app"
-"$SCRIPT_DIR/sign_targetbridge_sender_app.sh" --check-identity
+# Preserve the upstream disposable CI/development build when no signing setup
+# was requested. Once configured (or explicitly required), never fall back.
+SIGNING_CONFIG="${TARGETBRIDGE_SIGNING_CONFIG:-$HOME/Library/Application Support/TargetBridge/Build/sender-signing-identity.txt}"
+if [[ -n "${TARGETBRIDGE_CODESIGN_IDENTITY:-}" ||
+      -n "${TARGETBRIDGE_SIGNING_CONFIG:-}" || -e "$SIGNING_CONFIG" ||
+      "${TARGETBRIDGE_REQUIRE_PERSISTENT_SIGNING:-0}" == 1 ]]; then
+  "$SCRIPT_DIR/sign_targetbridge_sender_app.sh" --check-identity
+else
+  echo "WARNING: unconfigured disposable build; this ad-hoc app is not an identity-preserving update." >&2
+  export TARGETBRIDGE_CODESIGN_IDENTITY=-
+  export TARGETBRIDGE_ALLOW_ADHOC=1
+fi
 
 cd "$ROOT"
 
