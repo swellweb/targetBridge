@@ -3,6 +3,7 @@ import Foundation
 struct TBDiscoveredReceiver: Identifiable, Equatable {
     let serviceName: String
     let receiverName: String
+    let receiverID: String
     let preferredIP: String
     let thunderboltIP: String
     let usbIP: String
@@ -18,6 +19,7 @@ struct TBDiscoveredReceiver: Identifiable, Equatable {
     init(
         serviceName: String,
         receiverName: String,
+        receiverID: String = "",
         preferredIP: String,
         thunderboltIP: String,
         usbIP: String = "",
@@ -32,6 +34,7 @@ struct TBDiscoveredReceiver: Identifiable, Equatable {
     ) {
         self.serviceName = serviceName
         self.receiverName = receiverName
+        self.receiverID = UUID(uuidString: receiverID)?.uuidString ?? ""
         self.preferredIP = preferredIP
         self.thunderboltIP = thunderboltIP
         self.usbIP = usbIP
@@ -45,11 +48,37 @@ struct TBDiscoveredReceiver: Identifiable, Equatable {
         self.hostName = hostName
     }
 
-    var id: String { "\(serviceName)|\(preferredIP)" }
+    /// SwiftUI selection and persisted sessions both use this stable identity.
+    /// New receivers advertise a UUID; older receivers fall back to their
+    /// Bonjour service name so existing installations remain selectable.
+    var id: String { stableIdentity }
 
-    /// Bonjour service names survive link-local IP address changes after wake.
-    /// Use this only for persisted receiver preferences, not Picker selection.
-    var stableIdentity: String { "service:\(serviceName)" }
+    var legacyID: String { "\(serviceName)|\(preferredIP)" }
+
+    /// Stable across network changes, and across renaming for UUID receivers.
+    var stableIdentity: String {
+        receiverID.isEmpty ? "service:\(serviceName)" : "receiver:\(receiverID)"
+    }
+
+    /// Accept the stable UUID, the previous service-name identity, and the
+    /// oldest `service|ip` picker value. This migrates saved sessions without
+    /// ever treating a changed IP as a different physical display.
+    func matchesPersistedIdentity(_ value: String) -> Bool {
+        let needle = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !needle.isEmpty else { return false }
+
+        if needle == id.lowercased() ||
+            needle == stableIdentity.lowercased() ||
+            needle == legacyID.lowercased() ||
+            needle == receiverID.lowercased() ||
+            needle == serviceName.lowercased() ||
+            needle == "service:\(serviceName)".lowercased() {
+            return true
+        }
+
+        let legacyServiceName = needle.split(separator: "|", maxSplits: 1).first.map(String.init) ?? ""
+        return !legacyServiceName.isEmpty && legacyServiceName == serviceName.lowercased()
+    }
 
     var shortHostName: String? {
         guard let host = hostName, !host.isEmpty else { return nil }
@@ -158,6 +187,7 @@ final class TBReceiverDiscovery: NSObject, ObservableObject {
         }
 
         let receiverName = stringValue("name").isEmpty ? service.name : stringValue("name")
+        let receiverID = stringValue("receiverID")
         let receiverIP = stringValue("ip")
         let thunderboltIP = stringValue("tbIP")
         let usbIP = stringValue("usbIP")
@@ -194,6 +224,7 @@ final class TBReceiverDiscovery: NSObject, ObservableObject {
         let receiver = TBDiscoveredReceiver(
             serviceName: service.name,
             receiverName: receiverName,
+            receiverID: receiverID,
             preferredIP: preferredIP,
             thunderboltIP: thunderboltIP,
             usbIP: usbIP,
@@ -207,7 +238,12 @@ final class TBReceiverDiscovery: NSObject, ObservableObject {
             hostName: service.hostName
         )
 
-        if let index = receivers.firstIndex(where: { $0.serviceName == receiver.serviceName }) {
+        if let index = receivers.firstIndex(where: {
+            if !receiver.receiverID.isEmpty && !$0.receiverID.isEmpty {
+                return $0.receiverID == receiver.receiverID
+            }
+            return $0.serviceName == receiver.serviceName
+        }) {
             receivers[index] = receiver
         } else {
             receivers.append(receiver)
