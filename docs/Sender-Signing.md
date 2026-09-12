@@ -23,6 +23,10 @@ The build stages the candidate
 before replacing the previous build, so a missing/locked signing key leaves the
 previous artifact intact.
 
+The packaging build disables Xcode's debug-dylib/preview executor layout, so
+the standalone app can be strictly signed without unsigned preview dylibs.
+This does not change normal interactive builds in Xcode.
+
 For private local builds only, a persistent self-signed code-signing identity
 can be configured using Apple's Certificate Assistant in Keychain Access.
 Any change to its trust settings requires the Mac owner's explicit approval;

@@ -27,6 +27,8 @@ cd "$ROOT"
 
 xcodegen generate
 
+# Package a standalone app, not Xcode's preview executor plus unsigned debug
+# dylibs. This also lets strict signing verify the same bundle on Xcode 16+.
 xcodebuild \
   -scheme TBDisplaySender \
   -configuration "$CONFIGURATION" \
@@ -34,6 +36,7 @@ xcodebuild \
   CODE_SIGN_IDENTITY="" \
   CODE_SIGNING_REQUIRED=NO \
   CODE_SIGNING_ALLOWED=NO \
+  ENABLE_DEBUG_DYLIB=NO \
   build
 
 mkdir -p "$DEST_DIR"
