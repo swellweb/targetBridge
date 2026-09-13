@@ -11,6 +11,17 @@ import Network
 @preconcurrency import ScreenCaptureKit
 import VideoToolbox
 
+/// Reserve network capacity before encoding. Once encoded, even a non-keyframe
+/// may be a reference for subsequent frames and must not be discarded locally.
+enum TBVideoQueueBudget {
+    static func canEncode(pending: Int, inFlight: Int, packetLimit: Int, encodeLimit: Int) -> Bool {
+        let limit = min(64, max(1, packetLimit))
+        let encoding = min(64, max(1, encodeLimit))
+        return pending >= 0 && inFlight >= 0 && pending < limit &&
+            inFlight < encoding && inFlight < limit - pending
+    }
+}
+
 enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
     case standard1440p
     case smooth1440p60
@@ -646,9 +657,10 @@ private final class TBVideoPipeline: @unchecked Sendable {
         guard running, let encoder = vtEncoder,
               let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer)
         else { return }
-        if preset.dropsBeforeEncodeWhenBacklogged,
-           (pendingVideoPackets >= preset.maxPendingVideoPackets ||
-            inFlightEncodeFrames >= preset.maxInFlightEncodeFrames) {
+        if !TBVideoQueueBudget.canEncode(pending: pendingVideoPackets,
+                                        inFlight: inFlightEncodeFrames,
+                                        packetLimit: preset.maxPendingVideoPackets,
+                                        encodeLimit: preset.maxInFlightEncodeFrames) {
             droppedBeforeEncodeFrames += 1
             return
         }
@@ -672,9 +684,10 @@ private final class TBVideoPipeline: @unchecked Sendable {
             droppedByFrameRatePacer += 1
             return
         }
-        if preset.dropsBeforeEncodeWhenBacklogged,
-           (pendingVideoPackets >= preset.maxPendingVideoPackets ||
-            inFlightEncodeFrames >= preset.maxInFlightEncodeFrames) {
+        if !TBVideoQueueBudget.canEncode(pending: pendingVideoPackets,
+                                        inFlight: inFlightEncodeFrames,
+                                        packetLimit: preset.maxPendingVideoPackets,
+                                        encodeLimit: preset.maxInFlightEncodeFrames) {
             droppedBeforeEncodeFrames += 1
             return
         }
@@ -742,10 +755,8 @@ private final class TBVideoPipeline: @unchecked Sendable {
         let notSync = attachments?.first?[kCMSampleAttachmentKey_NotSync] as? Bool ?? false
         let isKeyframe = !notSync
 
-        if !isKeyframe, pendingVideoPackets >= preset.maxPendingVideoPackets {
-            droppedAfterEncodeFrames += 1
-            return
-        }
+        // Capacity was reserved before encoding. Preserve the complete encoded
+        // reference chain; dropping here corrupts HEVC/H.264 until the next IDR.
 
         if isKeyframe,
            let format = CMSampleBufferGetFormatDescription(sampleBuffer),
