@@ -6,6 +6,11 @@ source = File.read(File.join(root, 'TBDisplaySender/TBDisplaySenderService.swift
 policy = source[/enum TBVideoQueueBudget \{.*?(?=\nenum TBDisplayCapturePreset)/m]
 abort 'missing production budget policy' unless policy
 abort 'both capture paths must reserve capacity' unless source.scan('if !TBVideoQueueBudget.canEncode(').size == 2
+capture = source[/func encode\(_ sampleBuffer: CMSampleBuffer\).*?(?=    \/\/\/ CGDisplayStream)/m]
+abort 'missing usable-frame guard before health accounting' unless capture&.match?(
+  /guard running, let pixelBuffer = CMSampleBufferGetImageBuffer\(sampleBuffer\) else \{ return \}\s+markCaptureFrame\(\)/
+)
+abort 'capture budget must follow the usable-frame guard' unless capture.index('markCaptureFrame()') < capture.index('TBVideoQueueBudget.canEncode(')
 encoded = source[/private func handleEncoded\(.*?(?=    \/\/\/ Raw passthrough)/m]
 abort 'encoded frames are still dropped' if encoded.include?('droppedAfterEncodeFrames +=')
 tests = <<~'SWIFT'

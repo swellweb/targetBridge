@@ -78,6 +78,31 @@ Quit from the menu bar cancels that loop and removes
 file as a `PathState` marker so crash recovery remains automatic while a user Stop remains
 stopped. Packaging such a LaunchAgent is intentionally outside this change.
 
+## Read-only permission diagnostics
+
+Run the executable inside the app you want to check, rather than `open -a`:
+
+```bash
+"/Applications/TargetBridge.app/Contents/MacOS/TargetBridge" --permission-status
+"/Applications/TargetBridge Receiver.app/Contents/MacOS/TargetBridgeReceiver" --permission-status
+```
+
+Each command prints one line and exits without opening the normal UI, creating a
+virtual display, starting capture, or requesting permissions:
+
+```text
+TB_PERMISSION_STATUS:screen_recording=1:accessibility=1:input_monitoring=1
+```
+
+The values above are an example: `1` means granted and `0` means not granted.
+The Receiver always reports `screen_recording=0` because it does not capture the
+screen; that value does not indicate a missing Receiver permission.
+
+Results apply to the exact binary and execution context being checked. A temporary
+build or an SSH/terminal launch can differ from the installed app's normal launch.
+This command neither grants permissions nor proves that a full session will work.
+Check both Macs in their intended roles when troubleshooting remote input.
+
 ## Recipes
 
 **Connect from another Mac over SSH** — the Sender must be at a logged-in desktop with
