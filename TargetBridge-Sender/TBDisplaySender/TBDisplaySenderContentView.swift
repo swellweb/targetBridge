@@ -615,6 +615,32 @@ private struct TBDisplaySenderSessionSettingsSheet: View {
                         .disabled(session.isConnected || session.isStreaming)
                     }
 
+                    settingRow(
+                        TBDisplaySenderL10n.videoCompression(service.language),
+                        details: TBDisplaySenderL10n.codecPreferenceHint(
+                            session.codecPreference,
+                            language: service.language
+                        )
+                    ) {
+                        Picker(
+                            TBDisplaySenderL10n.videoCompression(service.language),
+                            selection: Binding(
+                                get: { session.codecPreference },
+                                set: { service.setCodecPreference($0, for: session) }
+                            )
+                        ) {
+                            ForEach(TBDisplayCodecPreference.allCases) { preference in
+                                Text(TBDisplaySenderL10n.codecPreferenceTitle(
+                                    preference,
+                                    language: service.language
+                                ))
+                                .tag(preference)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .disabled(session.isConnected || session.isStreaming)
+                    }
+
                     if session.captureSource == .extendedDesktop {
                         settingRow(renderMatchingTitle, details: renderMatchingDetails) {
                             Toggle("", isOn: $session.matchRenderToStream)

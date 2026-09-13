@@ -488,6 +488,28 @@ enum TBDisplaySenderL10n {
         ])
     }
 
+    static func videoCompression(_ language: TBDisplaySenderLanguage) -> String {
+        text("sender.codec.label", language)
+    }
+
+    static func codecPreferenceTitle(
+        _ preference: TBDisplayCodecPreference,
+        language: TBDisplaySenderLanguage
+    ) -> String {
+        text("sender.codec.\(preference.rawValue)", language)
+    }
+
+    static func codecPreferenceHint(
+        _ preference: TBDisplayCodecPreference,
+        language: TBDisplaySenderLanguage
+    ) -> String {
+        text("sender.codec.hint.\(preference.rawValue)", language)
+    }
+
+    static func codecUnavailable(_ language: TBDisplaySenderLanguage) -> String {
+        text("sender.codec.unavailable", language)
+    }
+
     static func missingScreenRecordingPermission(language: TBDisplaySenderLanguage) -> String {
         text("sender.error.screen_recording_permission", language)
     }

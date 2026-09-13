@@ -319,6 +319,19 @@ struct TBFrameRatePacer {
     }
 }
 
+enum TBDisplayCodecPreference: String, CaseIterable, Identifiable, Codable {
+    case automatic
+    case h264
+    case hevc
+
+    var id: String { rawValue }
+}
+
+struct TBDisplayCodecDecision: Equatable {
+    let codecType: CMVideoCodecType
+    let usedFallback: Bool
+}
+
 enum TBDisplayCaptureSource: String, CaseIterable, Identifiable {
     case desktopMirror
     case extendedDesktop
@@ -1178,6 +1191,17 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
             }
         }
     }
+    @Published var codecPreference: TBDisplayCodecPreference = .automatic {
+        didSet {
+            if !isStreaming {
+                streamResolutionText = TBDisplaySenderL10n.streamSummary(
+                    preset: capturePreset,
+                    source: captureSource,
+                    language: language
+                )
+            }
+        }
+    }
     @Published var captureSource: TBDisplayCaptureSource = .desktopMirror {
         didSet {
             if !isStreaming {
@@ -1268,7 +1292,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     /// While a binding trigger key is held (matched), swallow its key-up so the
     /// raw trigger key never reaches the slave.
     private var suppressedTriggerKeyCode: UInt16?
-    private static var cachedSupportsHEVCHardwareEncode: Bool?
+    private static var cachedHardwareEncoderSupport: [String: Bool] = [:]
     private var receivedInputEventCount: UInt64 = 0
     var onRemoteSwitchRequest: ((Int) -> Void)?
     var onRemoteDeactivateInputRequest: (() -> Void)?
@@ -1334,9 +1358,14 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         statusText = state.text(language)
     }
 
-    private static func probeHEVCHardwareEncoderSupport() -> Bool {
-        if let cachedSupportsHEVCHardwareEncode {
-            return cachedSupportsHEVCHardwareEncode
+    private static func probeHardwareEncoderSupport(
+        codecType: CMVideoCodecType,
+        width: Int,
+        height: Int
+    ) -> Bool {
+        let cacheKey = "\(codecType)-\(width)x\(height)"
+        if let cached = cachedHardwareEncoderSupport[cacheKey] {
+            return cached
         }
 
         let encoderSpecification: CFDictionary = [
@@ -1347,9 +1376,9 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         var session: VTCompressionSession?
         let status = VTCompressionSessionCreate(
             allocator: kCFAllocatorDefault,
-            width: 1920,
-            height: 1080,
-            codecType: kCMVideoCodecType_HEVC,
+            width: Int32(width),
+            height: Int32(height),
+            codecType: codecType,
             encoderSpecification: encoderSpecification,
             imageBufferAttributes: nil,
             compressedDataAllocator: nil,
@@ -1362,21 +1391,74 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         }
 
         let supported = status == noErr
-        cachedSupportsHEVCHardwareEncode = supported
+        cachedHardwareEncoderSupport[cacheKey] = supported
         return supported
     }
 
-    private func resolvedCodecType(for preset: TBDisplayCapturePreset, profile: TBMonitorDisplayProfile?) -> CMVideoCodecType {
-        switch preset {
-        case .standard1440p, .smooth1440p60, .smooth1800p60:
-            let receiverSupportsHEVC = profile?.supportsHEVCDecode ?? receiverSupportsHEVCDecodeHint ?? false
-            if receiverSupportsHEVC, Self.probeHEVCHardwareEncoderSupport() {
-                return kCMVideoCodecType_HEVC
-            }
-            return kCMVideoCodecType_H264
-        case .crisp2160p60, .retina4k60, .native5k, .native5k60Experimental:
-            return preset.codecType
+    static func chooseCodec(
+        preference: TBDisplayCodecPreference,
+        preset: TBDisplayCapturePreset,
+        receiverSupportsHEVC: Bool,
+        senderSupportsH264: Bool,
+        senderSupportsHEVC: Bool
+    ) -> TBDisplayCodecDecision? {
+        let h264Available = senderSupportsH264
+        let hevcAvailable = receiverSupportsHEVC && senderSupportsHEVC
+        let preferredCodec: CMVideoCodecType
+
+        switch preference {
+        case .automatic:
+            preferredCodec = preset.codecType == kCMVideoCodecType_HEVC || hevcAvailable
+                ? kCMVideoCodecType_HEVC
+                : kCMVideoCodecType_H264
+        case .h264:
+            preferredCodec = kCMVideoCodecType_H264
+        case .hevc:
+            preferredCodec = kCMVideoCodecType_HEVC
         }
+
+        if preferredCodec == kCMVideoCodecType_HEVC, hevcAvailable {
+            return TBDisplayCodecDecision(codecType: kCMVideoCodecType_HEVC, usedFallback: false)
+        }
+        if preferredCodec == kCMVideoCodecType_H264, h264Available {
+            return TBDisplayCodecDecision(codecType: kCMVideoCodecType_H264, usedFallback: false)
+        }
+        if preferredCodec == kCMVideoCodecType_HEVC, h264Available {
+            return TBDisplayCodecDecision(codecType: kCMVideoCodecType_H264, usedFallback: true)
+        }
+        if preferredCodec == kCMVideoCodecType_H264, hevcAvailable {
+            return TBDisplayCodecDecision(codecType: kCMVideoCodecType_HEVC, usedFallback: true)
+        }
+
+        return nil
+    }
+
+    private func resolvedCodecDecision(
+        for preset: TBDisplayCapturePreset,
+        profile: TBMonitorDisplayProfile?
+    ) -> TBDisplayCodecDecision? {
+        let receiverSupportsHEVC = profile?.supportsHEVCDecode
+            ?? receiverSupportsHEVCDecodeHint
+            ?? false
+        return Self.chooseCodec(
+            preference: codecPreference,
+            preset: preset,
+            receiverSupportsHEVC: receiverSupportsHEVC,
+            senderSupportsH264: Self.probeHardwareEncoderSupport(
+                codecType: kCMVideoCodecType_H264,
+                width: preset.width,
+                height: preset.height
+            ),
+            senderSupportsHEVC: Self.probeHardwareEncoderSupport(
+                codecType: kCMVideoCodecType_HEVC,
+                width: preset.width,
+                height: preset.height
+            )
+        )
+    }
+
+    private func resolvedCodecType(for preset: TBDisplayCapturePreset, profile: TBMonitorDisplayProfile?) -> CMVideoCodecType {
+        resolvedCodecDecision(for: preset, profile: profile)?.codecType ?? preset.codecType
     }
 
     private func codecName(for codecType: CMVideoCodecType) -> String {
@@ -2543,10 +2625,28 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
 
             let preset = capturePreset
             let usesRawNV12 = rawNV12Enabled(for: profile)
-            let codecType = resolvedCodecType(for: preset, profile: profile)
+            let codecDecision: TBDisplayCodecDecision
+            if usesRawNV12 {
+                codecDecision = TBDisplayCodecDecision(codecType: preset.codecType, usedFallback: false)
+            } else {
+                guard let resolvedDecision = resolvedCodecDecision(for: preset, profile: profile) else {
+                    setStatus(.captureError(TBDisplaySenderL10n.codecUnavailable(language)))
+                    TBLog.connection.error(
+                        "capture: no compatible hardware codec preset=\(preset.rawValue, privacy: .public) preference=\(self.codecPreference.rawValue, privacy: .public)"
+                    )
+                    return false
+                }
+                codecDecision = resolvedDecision
+            }
+            let codecType = codecDecision.codecType
             let codecName = usesRawNV12 ? "NV12 RAW" : codecName(for: codecType)
             activeCodecType = usesRawNV12 ? nil : codecType
             activeCodecName = codecName
+            if codecDecision.usedFallback {
+                TBLog.connection.notice(
+                    "capture: codec fallback preference=\(self.codecPreference.rawValue, privacy: .public) selected=\(codecName, privacy: .public)"
+                )
+            }
             guard let connection else { return false }
 
             // The encode/send pipeline runs entirely on its own serial queue,
