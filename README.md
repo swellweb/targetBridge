@@ -1,3 +1,10 @@
+> [!IMPORTANT]
+> **A personal update from the maintainer**
+>
+> First, thank you to everyone who uses, tests, contributes to, and supports TargetBridge. Unexpected health issues have recently prevented me from continuing work on new features. Thank you for your patience and understanding while I focus on my health.
+>
+> If TargetBridge has been useful to you, please consider [supporting the project through GitHub Sponsors](https://github.com/sponsors/swellweb), with a one-time or monthly contribution. Your support helps sustain maintenance and future updates so more people can benefit. Contributions are entirely optional; testing, feedback, and code contributions are just as appreciated.
+
 ![TargetBridge Overview](images/connection-diagram.svg)
 
 # TargetBridge
