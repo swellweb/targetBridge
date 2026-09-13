@@ -1253,6 +1253,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     private var lastCheckedCursor: NSCursor?
     private var lastCheckedCursorType: Int = 0
     private var baselineDisplayIDs = Set<CGDirectDisplayID>()
+    private var headlessMirrorUsesVirtualDisplay = false
     private var cursorDisplayID: CGDirectDisplayID = kCGNullDirectDisplay
     private var lastCursorPacket: TBMonitorCursor?
     private var injectedRemoteMouseLocation: CGPoint?
@@ -1753,6 +1754,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         sentSnapshot = 0
         sessionAckSent = false
         baselineDisplayIDs = []
+        headlessMirrorUsesVirtualDisplay = false
         cursorDisplayID = kCGNullDirectDisplay
         lastCursorPacket = nil
         captureDisplayText = TBDisplaySenderL10n.captureDisplayNotAvailable(language)
@@ -2448,6 +2450,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
             // Wake and hold the graphical session before virtual display setup.
             self.beginCaptureActivity()
             self.setStatus(.creatingVirtualDisplay)
+            self.headlessMirrorUsesVirtualDisplay = false
             self.baselineDisplayIDs = self.captureSource == .extendedDesktop
                 ? await self.fetchShareableDisplayIDs()
                 : []
@@ -2475,8 +2478,18 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
                 return
             }
             if self.captureSource == .desktopMirror {
-                if CGDisplayIsInMirrorSet(self.session.displayID) == 0 {
-                    let displayReady = await self.waitForOnlineDisplay(self.session.displayID)
+                let displayReady = await self.waitForOnlineDisplay(self.session.displayID)
+                self.headlessMirrorUsesVirtualDisplay = displayReady && Self.shouldUseHeadlessVirtualDisplay(
+                    virtualDisplayID: self.session.displayID,
+                    mainDisplayID: CGMainDisplayID(),
+                    onlineDisplayIDs: self.onlineDisplayIDs()
+                )
+                if self.headlessMirrorUsesVirtualDisplay {
+                    NSLog(
+                        "TargetBridge: headless mirror mode uses virtual display %u directly",
+                        self.session.displayID
+                    )
+                } else if CGDisplayIsInMirrorSet(self.session.displayID) == 0 {
                     let mirrorConfigured = displayReady && self.configureDesktopMirror(for: self.session.displayID)
                     if !mirrorConfigured {
                         NSLog(
@@ -2520,7 +2533,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
 
             if self.captureSource == .extendedDesktop {
                 self.scheduleExtendedDesktopRecovery(for: self.session.displayID)
-            } else if self.captureSource == .desktopMirror {
+            } else if self.captureSource == .desktopMirror && !self.headlessMirrorUsesVirtualDisplay {
                 self.scheduleDesktopMirrorRecovery(for: self.session.displayID)
             }
 
@@ -2571,11 +2584,14 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
 
             let display: SCDisplay
             if captureSource == .desktopMirror {
-                if let mirrorDisplay = try await resolveMirrorCaptureDisplay() {
+                if headlessMirrorUsesVirtualDisplay {
+                    TBLog.connection.info("capture: headless virtual display uses direct stream id=\(self.session.displayID, privacy: .public)")
+                    return await startDirectDisplayStream(displayID: session.displayID, preset: preset)
+                } else if let mirrorDisplay = try await resolveMirrorCaptureDisplay() {
                     display = mirrorDisplay
                 } else if let fallbackDisplayID = directMirrorFallbackDisplayID() {
                     TBLog.connection.warning("capture: no virtual ScreenCaptureKit display; using direct fallback id=\(fallbackDisplayID, privacy: .public)")
-                    return startDirectDisplayStream(displayID: fallbackDisplayID, preset: preset)
+                    return await startDirectDisplayStream(displayID: fallbackDisplayID, preset: preset)
                 } else {
                     return false
                 }
@@ -2699,7 +2715,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         return nil
     }
 
-    private func startDirectDisplayStream(displayID: CGDirectDisplayID, preset: TBDisplayCapturePreset) -> Bool {
+    private func startDirectDisplayStream(displayID: CGDirectDisplayID, preset: TBDisplayCapturePreset) async -> Bool {
         guard let pipeline else { return false }
         let usesCursorOverlay = inputControlRole.usesLowLatencyCursorOverlay(
             largeCursorEnabled: largeCursor
@@ -2720,6 +2736,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         }
 
         directDisplayStream = directCapture
+        await startAuxiliaryAudioCapture(preferredDisplayID: displayID)
         captureDisplayText = TBDisplaySenderL10n.captureDisplayCGDisplayStream(language, id: displayID)
         isStreaming = true
         if usesCursorOverlay { startCursorUpdates(displayID: displayID) }
@@ -2727,6 +2744,65 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         startFPSTimer()
         startCaptureWatchdog()
         return true
+    }
+
+    /// CGDisplayStream is the most reliable video source when the virtual
+    /// display is the headless Mac's only online display, but it has no audio
+    /// output. Keep that low-latency video path and run an audio-only
+    /// ScreenCaptureKit stream beside it when audio relay is enabled.
+    private func startAuxiliaryAudioCapture(preferredDisplayID: CGDirectDisplayID) async {
+        guard Self.needsAuxiliaryAudioCapture(
+            usingDirectDisplayStream: true,
+            shouldRelayAudio: shouldRelayAudio
+        ) else { return }
+
+        do {
+            let content = try await SCShareableContent.excludingDesktopWindows(
+                false,
+                onScreenWindowsOnly: false
+            )
+            guard let display = content.displays.first(where: { $0.displayID == preferredDisplayID })
+                    ?? content.displays.first else {
+                TBLog.connection.warning("capture: auxiliary audio unavailable because ScreenCaptureKit exposed no display")
+                return
+            }
+
+            let configuration = SCStreamConfiguration()
+            configuration.width = 2
+            configuration.height = 2
+            configuration.minimumFrameInterval = CMTime(value: 1, timescale: 1)
+            configuration.queueDepth = 1
+            configuration.showsCursor = false
+            configuration.capturesAudio = true
+            configuration.excludesCurrentProcessAudio = true
+            configuration.sampleRate = 48000
+            configuration.channelCount = 2
+
+            let delegate = CaptureDelegate()
+            delegate.onAudio = { [weak self] sampleBuffer in
+                self?.processAudio(sampleBuffer)
+            }
+            delegate.onError = { error in
+                NSLog("TargetBridge: auxiliary audio stream stopped: %@", error.localizedDescription)
+            }
+
+            let filter = SCContentFilter(display: display, excludingWindows: [])
+            let stream = SCStream(filter: filter, configuration: configuration, delegate: delegate)
+            try stream.addStreamOutput(
+                delegate,
+                type: .audio,
+                sampleHandlerQueue: DispatchQueue(
+                    label: "fd.tbmonitor.sender.direct-audio",
+                    qos: .userInteractive
+                )
+            )
+            try await stream.startCapture()
+            captureDelegate = delegate
+            scStream = stream
+            TBLog.connection.info("capture: auxiliary audio stream active beside direct video")
+        } catch {
+            TBLog.connection.warning("capture: auxiliary audio unavailable: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     private func activityOptions() -> ProcessInfo.ActivityOptions {
@@ -2881,6 +2957,28 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         }
 
         return false
+    }
+
+    static func shouldUseHeadlessVirtualDisplay(
+        virtualDisplayID: CGDirectDisplayID,
+        mainDisplayID: CGDirectDisplayID,
+        onlineDisplayIDs: [CGDirectDisplayID]
+    ) -> Bool {
+        guard virtualDisplayID != kCGNullDirectDisplay,
+              mainDisplayID == virtualDisplayID,
+              onlineDisplayIDs.contains(virtualDisplayID)
+        else { return false }
+
+        return onlineDisplayIDs.allSatisfy {
+            $0 == kCGNullDirectDisplay || $0 == virtualDisplayID
+        }
+    }
+
+    static func needsAuxiliaryAudioCapture(
+        usingDirectDisplayStream: Bool,
+        shouldRelayAudio: Bool
+    ) -> Bool {
+        usingDirectDisplayStream && shouldRelayAudio
     }
 
     private func scheduleExtendedDesktopRecovery(for virtualDisplayID: CGDirectDisplayID) {
