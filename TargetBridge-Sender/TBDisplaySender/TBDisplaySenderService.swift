@@ -1275,6 +1275,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     private var lastCursorPacket: TBMonitorCursor?
     private var injectedRemoteMouseLocation: CGPoint?
     private var injectedLeftClickTracker = TBInjectedClickStateTracker()
+    private let localPointerModifierBridge = TBLocalPointerModifierBridge()
     private var injectedCommandDown = false
     private var injectedShiftDown = false
     private var injectedOptionDown = false
@@ -2196,6 +2197,11 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         case 57: injectedCapsDown = isDown
         default: break
         }
+        if TBInputBindingEngine.modifierBit(for: keyCode) != nil {
+            let flags = currentInjectedModifierFlags()
+            localPointerModifierBridge.update(inputControlRole == .receiverMaster ? flags : [])
+            TBInputDebugLog.log("sender remote modifier key=\(keyCode) down=\(isDown) flags=\(flags.rawValue)")
+        }
         guard let event = CGEvent(keyboardEventSource: localInputEventSource(), virtualKey: CGKeyCode(keyCode), keyDown: isDown) else { return }
         event.flags = currentInjectedModifierFlags()
         event.post(tap: .cghidEventTap)
@@ -2242,6 +2248,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
             postLocalKey(keyCode: 57, isDown: false)
             injectedCapsDown = false
         }
+        localPointerModifierBridge.stop()
     }
 
     private func postLocalSpaceSwitch(direction: Int) {
