@@ -11,6 +11,17 @@ import Network
 @preconcurrency import ScreenCaptureKit
 import VideoToolbox
 
+/// Reserve network capacity before encoding. Once encoded, even a non-keyframe
+/// may be a reference for subsequent frames and must not be discarded locally.
+enum TBVideoQueueBudget {
+    static func canEncode(pending: Int, inFlight: Int, packetLimit: Int, encodeLimit: Int) -> Bool {
+        let limit = min(64, max(1, packetLimit))
+        let encoding = min(64, max(1, encodeLimit))
+        return pending >= 0 && inFlight >= 0 && pending < limit &&
+            inFlight < encoding && inFlight < limit - pending
+    }
+}
+
 enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
     case standard1440p
     case smooth1440p60
@@ -410,6 +421,7 @@ private final class TBDirectDisplayStreamCapture {
             // Delivered on `queue` — the pipeline's own serial queue — so encode
             // runs here, off the main thread, with no extra hop.
             guard let self else { return }
+            self.pipeline.observeCaptureStatus(TBCaptureHealth.State(status))
             if status == .stopped {
                 // The stream has fully drained; no further frames will arrive, so
                 // it is now safe to release the stream and drop the self-retain.
@@ -449,7 +461,7 @@ private final class TBDirectDisplayStreamCapture {
 /// dedicated serial queue, off the main thread. SwiftUI layout (or any other
 /// main-thread work) therefore cannot stall frame delivery. All mutable encode
 /// state is confined to `queue`; the two values the main thread polls
-/// (`sentFrames`, `lastCaptureFrameAt`) are guarded by a small lock instead of
+/// (`sentFrames`, capture health) are guarded by a small lock instead of
 /// a per-frame hop back to main.
 private final class TBVideoPipeline: @unchecked Sendable {
     let queue = DispatchQueue(label: "fd.tbmonitor.sender.pipeline", qos: .userInteractive)
@@ -480,7 +492,7 @@ private final class TBVideoPipeline: @unchecked Sendable {
     private var droppedByFrameRatePacer = 0
     private var droppedBeforeEncodeFrames = 0
     private var droppedAfterEncodeFrames = 0
-    private var _lastCaptureFrameAt = Date()
+    private var captureHealth = TBCaptureHealth(now: ProcessInfo.processInfo.systemUptime)
 
     init(preset: TBDisplayCapturePreset,
          codecType: CMVideoCodecType,
@@ -537,9 +549,14 @@ private final class TBVideoPipeline: @unchecked Sendable {
         return _sentFrames
     }
 
-    var lastCaptureFrameAtSnapshot: Date {
+    var captureHealthSnapshot: TBCaptureHealth {
         lock.lock(); defer { lock.unlock() }
-        return _lastCaptureFrameAt
+        return captureHealth
+    }
+
+    func observeCaptureStatus(_ state: TBCaptureHealth.State) {
+        lock.lock(); defer { lock.unlock() }
+        captureHealth.observe(state, now: ProcessInfo.processInfo.systemUptime)
     }
 
     func diagnosticsSnapshot() -> (pending: Int, inFlight: Int, ptsSeq: CMTimeValue, captured: Int, droppedPacing: Int, droppedPre: Int, droppedPost: Int) {
@@ -558,7 +575,9 @@ private final class TBVideoPipeline: @unchecked Sendable {
 
     private func markCaptureFrame() {
         capturedFrames += 1
-        lock.lock(); _lastCaptureFrameAt = Date(); lock.unlock()
+        lock.lock()
+        captureHealth.recordFrame(now: ProcessInfo.processInfo.systemUptime)
+        lock.unlock()
     }
 
     // MARK: - Encoder setup (on `queue`)
@@ -633,6 +652,7 @@ private final class TBVideoPipeline: @unchecked Sendable {
     /// direct Thunderbolt Bridge link comfortably sustains.
     /// SCStream capture path. Must be dispatched onto `queue` by the caller.
     func encode(_ sampleBuffer: CMSampleBuffer) {
+        guard running, let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         markCaptureFrame()
         let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
         guard frameRatePacer.shouldEmit(presentationTime: pts) else {
@@ -643,12 +663,11 @@ private final class TBVideoPipeline: @unchecked Sendable {
             sendRawFrame(sampleBuffer)
             return
         }
-        guard running, let encoder = vtEncoder,
-              let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer)
-        else { return }
-        if preset.dropsBeforeEncodeWhenBacklogged,
-           (pendingVideoPackets >= preset.maxPendingVideoPackets ||
-            inFlightEncodeFrames >= preset.maxInFlightEncodeFrames) {
+        guard let encoder = vtEncoder else { return }
+        if !TBVideoQueueBudget.canEncode(pending: pendingVideoPackets,
+                                        inFlight: inFlightEncodeFrames,
+                                        packetLimit: preset.maxPendingVideoPackets,
+                                        encodeLimit: preset.maxInFlightEncodeFrames) {
             droppedBeforeEncodeFrames += 1
             return
         }
@@ -658,8 +677,8 @@ private final class TBVideoPipeline: @unchecked Sendable {
     /// CGDisplayStream capture path. Delivered directly on `queue` by
     /// `TBDirectDisplayStreamCapture`.
     func encodeDisplaySurface(_ surface: IOSurfaceRef, displayTime: UInt64) {
-        markCaptureFrame()
         guard running, let encoder = vtEncoder else { return }
+        markCaptureFrame()
 
         var pts = displayTime != 0
             ? CMClockMakeHostTimeFromSystemUnits(displayTime)
@@ -672,9 +691,10 @@ private final class TBVideoPipeline: @unchecked Sendable {
             droppedByFrameRatePacer += 1
             return
         }
-        if preset.dropsBeforeEncodeWhenBacklogged,
-           (pendingVideoPackets >= preset.maxPendingVideoPackets ||
-            inFlightEncodeFrames >= preset.maxInFlightEncodeFrames) {
+        if !TBVideoQueueBudget.canEncode(pending: pendingVideoPackets,
+                                        inFlight: inFlightEncodeFrames,
+                                        packetLimit: preset.maxPendingVideoPackets,
+                                        encodeLimit: preset.maxInFlightEncodeFrames) {
             droppedBeforeEncodeFrames += 1
             return
         }
@@ -742,10 +762,8 @@ private final class TBVideoPipeline: @unchecked Sendable {
         let notSync = attachments?.first?[kCMSampleAttachmentKey_NotSync] as? Bool ?? false
         let isKeyframe = !notSync
 
-        if !isKeyframe, pendingVideoPackets >= preset.maxPendingVideoPackets {
-            droppedAfterEncodeFrames += 1
-            return
-        }
+        // Capacity was reserved before encoding. Preserve the complete encoded
+        // reference chain; dropping here corrupts HEVC/H.264 until the next IDR.
 
         if isKeyframe,
            let format = CMSampleBufferGetFormatDescription(sampleBuffer),
@@ -1257,6 +1275,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     private var lastCursorPacket: TBMonitorCursor?
     private var injectedRemoteMouseLocation: CGPoint?
     private var injectedLeftClickTracker = TBInjectedClickStateTracker()
+    private let localPointerModifierBridge = TBLocalPointerModifierBridge()
     private var injectedCommandDown = false
     private var injectedShiftDown = false
     private var injectedOptionDown = false
@@ -1274,6 +1293,8 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     var onRemoteDeactivateInputRequest: (() -> Void)?
     nonisolated(unsafe) private var wakeObservers: [NSObjectProtocol] = []
     private var isRestartingCaptureAfterWake = false
+    private var captureRestartGeneration: UInt64 = 0
+    private var lastLoggedCaptureHealthState: TBCaptureHealth.State?
     nonisolated(unsafe) private var displayReconfigurationCallbackRegistered = false
     private var verboseLoggingTimer: Timer?
     private var captureHealthWatchdog: Timer?
@@ -1290,27 +1311,9 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
 
     private final class CaptureDelegate: NSObject, SCStreamOutput, SCStreamDelegate {
         var onFrame: ((CMSampleBuffer) -> Void)?
+        var onFrameStatus: ((TBCaptureHealth.State) -> Void)?
         var onAudio: ((CMSampleBuffer) -> Void)?
         var onError: ((Error) -> Void)?
-
-        private static func shouldProcessFrame(_ sampleBuffer: CMSampleBuffer) -> Bool {
-            guard let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: false)
-                as? [[SCStreamFrameInfo: Any]],
-                  let rawStatus = attachments.first?[SCStreamFrameInfo.status] as? Int,
-                  let status = SCFrameStatus(rawValue: rawStatus)
-            else {
-                return true
-            }
-
-            switch status {
-            case .complete, .started:
-                return true
-            case .idle, .blank, .suspended, .stopped:
-                return false
-            @unknown default:
-                return true
-            }
-        }
 
         nonisolated func stream(_ stream: SCStream,
                                 didOutputSampleBuffer sampleBuffer: CMSampleBuffer,
@@ -1320,7 +1323,9 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
                 return
             }
             guard type == .screen else { return }
-            guard Self.shouldProcessFrame(sampleBuffer) else { return }
+            let state = TBCaptureHealth.State(sampleBuffer: sampleBuffer)
+            onFrameStatus?(state)
+            guard state.canContainFrame else { return }
             onFrame?(sampleBuffer)
         }
 
@@ -1693,6 +1698,8 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         teardownCompletion: (@MainActor @Sendable () -> Void)? = nil
     ) {
         let connectionToClose = connection
+        captureRestartGeneration &+= 1
+        isRestartingCaptureAfterWake = false
         if persistArrangement {
             persistExtendedDisplayArrangementIfNeeded()
         }
@@ -2129,7 +2136,8 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         if shouldWarp {
             CGWarpMouseCursorPosition(target)
         }
-        guard let event = CGEvent(mouseEventSource: localInputEventSource(), mouseType: type, mouseCursorPosition: target, mouseButton: button) else { return }
+        guard let event = TBInjectedPointerEvent.mouse(source: localInputEventSource(), type: type,
+            position: target, button: button, modifiers: currentInjectedModifierFlags()) else { return }
         event.setIntegerValueField(.mouseEventDeltaX, value: Int64(dx))
         event.setIntegerValueField(.mouseEventDeltaY, value: Int64(dy))
         event.post(tap: .cghidEventTap)
@@ -2141,7 +2149,8 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
            let frame = screenFrame(containing: target),
            target.x <= frame.minX || target.x >= frame.maxX - 1 ||
            target.y <= frame.minY || target.y >= frame.maxY - 1,
-           let edgeEvent = CGEvent(mouseEventSource: localInputEventSource(), mouseType: .mouseMoved, mouseCursorPosition: target, mouseButton: button) {
+           let edgeEvent = TBInjectedPointerEvent.mouse(source: localInputEventSource(), type: .mouseMoved,
+               position: target, button: button, modifiers: currentInjectedModifierFlags()) {
             edgeEvent.setIntegerValueField(.mouseEventDeltaX, value: Int64(dx))
             edgeEvent.setIntegerValueField(.mouseEventDeltaY, value: Int64(dy))
             edgeEvent.post(tap: .cghidEventTap)
@@ -2151,7 +2160,8 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     private func postLocalMouseButton(type: CGEventType, button: CGMouseButton, clickCount: Int? = nil) {
         logLocalInputInjectionStateIfNeeded(context: "mouseButton")
         guard let current = injectedRemoteMouseLocation ?? currentLocalMouseLocation() else { return }
-        guard let event = CGEvent(mouseEventSource: localInputEventSource(), mouseType: type, mouseCursorPosition: current, mouseButton: button) else { return }
+        guard let event = TBInjectedPointerEvent.mouse(source: localInputEventSource(), type: type,
+            position: current, button: button, modifiers: currentInjectedModifierFlags()) else { return }
         if let clickCount {
             event.setIntegerValueField(.mouseEventClickState, value: Int64(min(max(clickCount, 1), 3)))
         } else if button == .left {
@@ -2172,14 +2182,8 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
 
     private func postLocalScroll(scrollX: Int, scrollY: Int) {
         logLocalInputInjectionStateIfNeeded(context: "scroll")
-        guard let event = CGEvent(
-            scrollWheelEvent2Source: localInputEventSource(),
-            units: .line,
-            wheelCount: 2,
-            wheel1: Int32(scrollY),
-            wheel2: Int32(scrollX),
-            wheel3: 0
-        ) else { return }
+        guard let event = TBInjectedPointerEvent.scroll(source: localInputEventSource(),
+            x: Int32(scrollX), y: Int32(scrollY), modifiers: currentInjectedModifierFlags()) else { return }
         event.post(tap: .cghidEventTap)
     }
 
@@ -2192,6 +2196,11 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         case 59, 62: injectedControlDown = isDown
         case 57: injectedCapsDown = isDown
         default: break
+        }
+        if TBInputBindingEngine.modifierBit(for: keyCode) != nil {
+            let flags = currentInjectedModifierFlags()
+            localPointerModifierBridge.update(inputControlRole == .receiverMaster ? flags : [])
+            TBInputDebugLog.log("sender remote modifier key=\(keyCode) down=\(isDown) flags=\(flags.rawValue)")
         }
         guard let event = CGEvent(keyboardEventSource: localInputEventSource(), virtualKey: CGKeyCode(keyCode), keyDown: isDown) else { return }
         event.flags = currentInjectedModifierFlags()
@@ -2239,6 +2248,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
             postLocalKey(keyCode: 57, isDown: false)
             injectedCapsDown = false
         }
+        localPointerModifierBridge.stop()
     }
 
     private func postLocalSpaceSwitch(direction: Int) {
@@ -2615,6 +2625,9 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
             )
 
             let delegate = CaptureDelegate()
+            delegate.onFrameStatus = { state in
+                pipeline.observeCaptureStatus(state)
+            }
             delegate.onFrame = { sampleBuffer in
                 // ScreenCaptureKit already invokes this closure on pipeline.queue.
                 // Encode immediately so its IOSurface returns to WindowServer
@@ -2626,7 +2639,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
             }
             delegate.onError = { [weak self] error in
                 Task { @MainActor [weak self] in
-                    guard let self else { return }
+                    guard let self, self.pipeline === pipeline else { return }
                     self.setStatus(.captureError(self.formattedCaptureErrorMessage(for: error)))
                     self.stop(resetStatusTo: nil)
                 }
@@ -3285,6 +3298,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
 
     private func startCaptureWatchdog() {
         captureHealthWatchdog?.invalidate()
+        lastLoggedCaptureHealthState = nil
         captureHealthWatchdog = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.checkCaptureHealth()
@@ -3299,10 +3313,15 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
 
     private func checkCaptureHealth() {
         guard isStreaming, activeProfile != nil, !isRestartingCaptureAfterWake, let pipeline else { return }
-        let elapsed = Date().timeIntervalSince(pipeline.lastCaptureFrameAtSnapshot)
-        guard elapsed >= 8.0 else { return }
-        NSLog("TargetBridge: capture watchdog tripped — %.1fs since last frame, soft restart", elapsed)
-        scheduleCaptureRestart(reason: "watchdog (\(Int(elapsed))s without frames)", delaySeconds: 0.5)
+        let health = pipeline.captureHealthSnapshot
+        let now = ProcessInfo.processInfo.systemUptime
+        if health.state != lastLoggedCaptureHealthState {
+            lastLoggedCaptureHealthState = health.state
+            NSLog("TargetBridge: capture health state=%@ frames=%llu idleEvents=%llu", health.state.rawValue, health.frameCount, health.idleCount)
+        }
+        guard health.shouldRestart(now: now) else { return }
+        NSLog("TargetBridge: capture watchdog tripped — state=%@ frames=%llu idleEvents=%llu", health.state.rawValue, health.frameCount, health.idleCount)
+        scheduleCaptureRestart(reason: "watchdog (\(health.state.rawValue))", delaySeconds: 0.5, onlyIfUnhealthy: true)
     }
 
     private func logStreamSnapshot() {
@@ -3347,21 +3366,30 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         isStreaming && activeProfile != nil && !isRestartingCaptureAfterWake
     }
 
-    private func scheduleCaptureRestart(reason: String, delaySeconds: Double) {
-        guard isStreaming, !isRestartingCaptureAfterWake, let profile = activeProfile else { return }
+    private func scheduleCaptureRestart(reason: String, delaySeconds: Double, onlyIfUnhealthy: Bool = false) {
+        guard isStreaming, !isRestartingCaptureAfterWake, let profile = activeProfile, let scheduledPipeline = pipeline else { return }
         isRestartingCaptureAfterWake = true
-        NSLog("TargetBridge: \(reason) — soft restart of capture pipeline")
+        captureRestartGeneration &+= 1
+        let generation = captureRestartGeneration
         Task { @MainActor [weak self] in
             if delaySeconds > 0 {
                 try? await Task.sleep(nanoseconds: UInt64(delaySeconds * 1_000_000_000))
             }
-            guard let self else { return }
-            guard self.isStreaming, self.activeProfile?.receiverName == profile.receiverName else {
-                self.isRestartingCaptureAfterWake = false
+            guard let self, self.captureRestartGeneration == generation else { return }
+            defer {
+                if self.captureRestartGeneration == generation {
+                    self.isRestartingCaptureAfterWake = false
+                }
+            }
+            // A delayed recovery must never restart a replacement connection,
+            // or interrupt a stream that recovered during the grace period.
+            guard self.isStreaming, self.pipeline === scheduledPipeline else { return }
+            if onlyIfUnhealthy && !scheduledPipeline.captureHealthSnapshot.shouldRestart(now: ProcessInfo.processInfo.systemUptime) {
+                NSLog("TargetBridge: capture watchdog recovery cancelled — capture is healthy")
                 return
             }
+            NSLog("TargetBridge: \(reason) — soft restart of capture pipeline")
             await self.softRestartCapture(for: profile)
-            self.isRestartingCaptureAfterWake = false
         }
     }
 

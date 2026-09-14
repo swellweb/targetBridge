@@ -30,10 +30,18 @@ and improves the project. A special thank-you for this release goes to:
 - [@preggocl](https://github.com/preggocl) for the physical Receiver display profile and the software decode fallback.
 - [@Betafer](https://github.com/Betafer) for input-queue safety, cursor work, idle audio/display handling, watchdog protection, monitor shielding, and build improvements.
 
-## TargetBridge 3.5.1
+## TargetBridge 3.5.2
 
-TargetBridge 3.5.1 is a maintenance release focused on safer input control,
-accurate Receiver display profiles, idle resource handling, and improved compatibility with older Macs:
+TargetBridge 3.5.2 is a focused maintenance update to the Input Dockstation.
+When the Receiver is the input master, Shift and Command now remain active for
+multi-file selection even when the keyboard is connected to the Receiver and
+the mouse or trackpad is used locally on the Sender. This fixes Finder range
+selection and non-contiguous selection without changing ordinary local input.
+
+It also includes the video queue, capture-health and permission-status fixes
+prepared for this maintenance line. For the wider 3.5.1 maintenance work,
+including Receiver display profiles, idle resource handling, and compatibility
+with older Macs:
 
 - preserve keyboard and mouse release events when the Receiver input queue is under pressure
 - preserve native macOS cursor shapes by default, including the screenshot crosshair; the custom overlay is reserved for the explicit large-cursor option
@@ -46,7 +54,8 @@ accurate Receiver display profiles, idle resource handling, and improved compati
 - keep local notification banners behind the active monitor surface across display/fullscreen transitions
 - package SDL runtimes safely and support explicit build/version overrides
 
-See the [full 3.5.1 release notes](docs/releases/3.5.1.md) and
+See the [full 3.5.2 release notes](docs/releases/3.5.2.md), the
+[3.5.1 release notes](docs/releases/3.5.1.md), and the
 [testing guide](docs/Testing.md), including the new monitor-shield lifecycle test.
 
 It also keeps the established multi-Mac workspace features:

@@ -40,6 +40,12 @@ jobs:
           cd TargetBridge-Sender
           xcodebuild test -project TargetBridge.xcodeproj -scheme TBDisplaySender -destination 'platform=macOS' -derivedDataPath .build/DerivedData
 
+      - name: Check Integrated Video Queue Guards
+        run: ruby TargetBridge-Sender/scripts/test_video_queue_budget.rb
+
+      - name: Check Sender Permission Probe
+        run: ruby TargetBridge-Sender/scripts/test_permission_status.rb sender build/TargetBridge.app/Contents/MacOS/TargetBridge
+
   build-receiver:
     name: Build Receiver (${{ matrix.os }} - ${{ matrix.arch }})
     strategy:
@@ -71,3 +77,6 @@ jobs:
         run: |
           cd TargetBridge-Receiver
           ./scripts/build_tbreceiver_c_app.sh
+
+      - name: Check Receiver Permission Probe
+        run: ruby TargetBridge-Sender/scripts/test_permission_status.rb receiver 'build/TargetBridge Receiver.app/Contents/MacOS/TargetBridgeReceiver'
