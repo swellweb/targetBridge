@@ -1356,6 +1356,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     private var cursorDisplayID: CGDirectDisplayID = kCGNullDirectDisplay
     private var lastCursorPacket: TBMonitorCursor?
     private var injectedRemoteMouseLocation: CGPoint?
+    private var cachedLocalInputEventSource: CGEventSource?
     private var injectedLeftClickTracker = TBInjectedClickStateTracker()
     private let localPointerModifierBridge = TBLocalPointerModifierBridge()
     private var injectedCommandDown = false
@@ -2263,14 +2264,21 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     }
 
     private func localInputEventSource() -> CGEventSource? {
+        if let cachedLocalInputEventSource {
+            return cachedLocalInputEventSource
+        }
         let source = CGEventSource(stateID: .hidSystemState)
         source?.localEventsSuppressionInterval = 0
+        cachedLocalInputEventSource = source
         return source
     }
 
     private func logLocalInputInjectionStateIfNeeded(context: String) {
-        let trusted = AXIsProcessTrusted()
-        TBInputDebugLog.log("sender input injection state trusted=\(trusted) context=\(context)")
+        if context == "mouseMove" {
+            TBInputDebugLog.logInputEvent("sender input injection state trusted=\(AXIsProcessTrusted()) context=\(context)")
+        } else {
+            TBInputDebugLog.log("sender input injection state trusted=\(AXIsProcessTrusted()) context=\(context)")
+        }
     }
 
     private func postLocalMouseMove(dx: Int, dy: Int, type: CGEventType = .mouseMoved, button: CGMouseButton = .left) {
@@ -2423,7 +2431,11 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     }
 
     private func applyIncomingInputEvent(_ event: TBMonitorInputEvent, payload: Data) {
-        TBInputDebugLog.log("sender applying incoming event kind=\(event.kind)")
+        if event.kind == "move" || event.kind.hasSuffix("Drag") || event.kind == "scroll" {
+            TBInputDebugLog.logInputEvent("sender applying incoming event kind=\(event.kind)")
+        } else {
+            TBInputDebugLog.log("sender applying incoming event kind=\(event.kind)")
+        }
         switch event.kind {
         case "move":
             postLocalMouseMove(dx: event.dx ?? 0, dy: event.dy ?? 0)
