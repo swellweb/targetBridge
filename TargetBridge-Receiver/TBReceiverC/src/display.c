@@ -36,6 +36,8 @@ struct tb_display {
     int           tex_w, tex_h;
     int           quit;
     int           preferred_fullscreen;
+    int           fullscreen_mode_active;
+    int           fullscreen_transition_deferred;
     int           is_connected;
     int           is_connecting;
     int           input_capture_active;
@@ -493,12 +495,40 @@ static void tb_disp_refresh_window_mode(struct tb_display *d) {
     const int monitor_shield_active =
         (d->is_connected || d->is_connecting) && d->preferred_fullscreen;
 
-    if (monitor_shield_active) {
-        SDL_SetWindowFullscreen(d->win, SDL_WINDOW_FULLSCREEN_DESKTOP);
+    if (monitor_shield_active != d->fullscreen_mode_active) {
+#if defined(__APPLE__)
+        /* SDL's Cocoa fullscreen transition waits synchronously for a Space
+         * change. When the physical panel is asleep macOS never completes
+         * that change, which used to freeze the Receiver's main/network loop.
+         * Keep serving the socket and reconcile the window after wake. */
+        if (CGDisplayIsAsleep(CGMainDisplayID())) {
+            if (!d->fullscreen_transition_deferred) {
+                fprintf(stderr,
+                        "[disp] fullscreen transition deferred while display sleeps (%d -> %d)\n",
+                        d->fullscreen_mode_active,
+                        monitor_shield_active);
+            }
+            d->fullscreen_transition_deferred = 1;
+        } else
+#endif
+        {
+            const Uint32 flags = monitor_shield_active
+                ? SDL_WINDOW_FULLSCREEN_DESKTOP
+                : 0;
+            if (SDL_SetWindowFullscreen(d->win, flags) < 0) {
+                fprintf(stderr, "[disp] fullscreen transition failed: %s\n", SDL_GetError());
+                d->fullscreen_transition_deferred = 1;
+            } else {
+                d->fullscreen_mode_active = monitor_shield_active;
+                d->fullscreen_transition_deferred = 0;
+                if (!monitor_shield_active) {
+                    SDL_SetWindowSize(d->win, 980, 620);
+                    SDL_SetWindowPosition(d->win, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
+                }
+            }
+        }
     } else {
-        SDL_SetWindowFullscreen(d->win, 0);
-        SDL_SetWindowSize(d->win, 980, 620);
-        SDL_SetWindowPosition(d->win, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
+        d->fullscreen_transition_deferred = 0;
     }
     tb_receiver_set_monitor_shield(monitor_shield_active);
 
@@ -1361,7 +1391,10 @@ int tb_disp_get_info(struct tb_display *d, struct tb_display_info *info) {
 
 static void tb_disp_set_stream_state(struct tb_display *d, int connected, int connecting) {
     if (!d) return;
-    if (d->is_connected == connected && d->is_connecting == connecting) return;
+    if (d->is_connected == connected && d->is_connecting == connecting) {
+        if (d->fullscreen_transition_deferred) tb_disp_refresh_window_mode(d);
+        return;
+    }
     d->is_connected = connected;
     d->is_connecting = connecting;
     tb_disp_refresh_window_mode(d);
@@ -1377,13 +1410,17 @@ static void tb_disp_set_connecting_state(struct tb_display *d, int connecting) {
 
 void tb_disp_set_input_capture_active(struct tb_display *d, int active) {
     if (!d) return;
-    d->input_capture_active = active ? 1 : 0;
+    const int normalized = active ? 1 : 0;
+    if (d->input_capture_active == normalized) return;
+    d->input_capture_active = normalized;
     tb_disp_refresh_window_mode(d);
 }
 
 void tb_disp_set_input_intercept_active(struct tb_display *d, int active) {
     if (!d) return;
-    d->input_intercept_active = active ? 1 : 0;
+    const int normalized = active ? 1 : 0;
+    if (d->input_intercept_active == normalized) return;
+    d->input_intercept_active = normalized;
     tb_disp_refresh_window_mode(d);
 }
 
