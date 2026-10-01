@@ -267,6 +267,7 @@ final class TBSenderAutomationParsingTests: XCTestCase {
         TBDiscoveredReceiver(
             serviceName: "TargetBridge Jonathans-iMac",
             receiverName: "Jonathans-iMac",
+            receiverID: "A4E28721-22A7-42A9-89D7-70F3DBB0E906",
             preferredIP: "192.168.1.64",
             thunderboltIP: "169.254.89.80",
             usbIP: "169.254.189.3",
@@ -299,6 +300,8 @@ final class TBSenderAutomationParsingTests: XCTestCase {
     }
 
     func testMatchesByID() {
+        XCTAssertTrue(TBSenderAutomation.matches("receiver:A4E28721-22A7-42A9-89D7-70F3DBB0E906", makeReceiver()))
+        XCTAssertTrue(TBSenderAutomation.matches("A4E28721-22A7-42A9-89D7-70F3DBB0E906", makeReceiver()))
         XCTAssertTrue(TBSenderAutomation.matches("targetbridge jonathans-imac|192.168.1.64", makeReceiver()))
     }
 
@@ -307,7 +310,80 @@ final class TBSenderAutomationParsingTests: XCTestCase {
         XCTAssertFalse(TBSenderAutomation.matches("10.0.0.1", makeReceiver()))
     }
 
+    func testAutomaticReceiverUsesPreferredStableIdentityAmongSeveral() {
+        let preferred = makeReceiver()
+        let other = TBDiscoveredReceiver(
+            serviceName: "TargetBridge Other-iMac",
+            receiverName: "Other-iMac",
+            receiverID: "other-receiver",
+            preferredIP: "192.168.1.70",
+            thunderboltIP: "",
+            networkIP: "192.168.1.70",
+            panelSummary: "iMac 4K",
+            version: "3.5.2",
+            supportsHEVCDecode: true,
+            hostName: "Other-iMac.local."
+        )
+
+        XCTAssertEqual(
+            TBSenderAutomation.automaticReceiver(
+                in: [other, preferred],
+                preferredIdentity: preferred.stableIdentity
+            ),
+            preferred
+        )
+    }
+
+    func testAutomaticReceiverUsesOnlyReceiverWithoutPreference() {
+        let receiver = makeReceiver()
+        XCTAssertEqual(
+            TBSenderAutomation.automaticReceiver(in: [receiver], preferredIdentity: ""),
+            receiver
+        )
+    }
+
+    func testAutomaticReceiverRefusesAmbiguousFirstChoice() {
+        let first = makeReceiver()
+        let second = TBDiscoveredReceiver(
+            serviceName: "TargetBridge Other-iMac",
+            receiverName: "Other-iMac",
+            receiverID: "other-receiver",
+            preferredIP: "192.168.1.70",
+            thunderboltIP: "",
+            networkIP: "192.168.1.70",
+            panelSummary: "iMac 4K",
+            version: "3.5.2",
+            supportsHEVCDecode: true,
+            hostName: "Other-iMac.local."
+        )
+
+        XCTAssertNil(
+            TBSenderAutomation.automaticReceiver(in: [first, second], preferredIdentity: "")
+        )
+    }
+
     // MARK: - resolveSessionIndex tri-state
+
+    func testAutomaticReceiverDoesNotReplaceMissingPreferredMonitor() {
+        XCTAssertNil(TBSenderAutomation.automaticReceiver(
+            in: [makeReceiver()], preferredIdentity: "receiver:B4E28721-22A7-42A9-89D7-70F3DBB0E906"))
+    }
+
+    func testAutomaticReceiverRejectsAmbiguousLegacyPreference() {
+        let first = makeReceiver()
+        XCTAssertNil(TBSenderAutomation.automaticReceiver(
+            in: [first, first], preferredIdentity: "service:\(first.serviceName)"))
+    }
+
+    func testMissingIdentityDoesNotBecomeRawHostname() {
+        for value in ["receiver:unknown", "service:TargetBridge iMac", "iMac|169.254.1.2",
+                      "A4E28721-22A7-42A9-89D7-70F3DBB0E906"] {
+            XCTAssertTrue(TBSenderAutomation.isPersistedReceiverReference(value))
+        }
+        for value in ["iMac.local", "192.168.1.64", "fe80::1234"] {
+            XCTAssertFalse(TBSenderAutomation.isPersistedReceiverReference(value))
+        }
+    }
     //
     // Returns `nil` = invalid input, `.some(nil)` = target all sessions,
     // `.some(index)` = zero-based session index.

@@ -193,9 +193,24 @@ enum TBSenderAutomation {
         }
 
         let receiver = params["receiver"].flatMap { $0.isEmpty ? nil : $0 } ?? "auto"
+        let discoveredReceivers = await waitForReceivers(
+            service,
+            preferredIdentity: receiver.lowercased() == "auto"
+                ? session.selectedReceiverID
+                : receiver
+        )
         if receiver.lowercased() == "auto" {
-            guard let discovered = await waitForReceiver(service) else {
-                NSLog("[automation] no receivers discovered; aborting connect")
+            guard let discovered = automaticReceiver(
+                in: discoveredReceivers,
+                preferredIdentity: session.selectedReceiverID
+            ) else {
+                if !session.selectedReceiverID.isEmpty {
+                    NSLog("[automation] preferred monitor unavailable or ambiguous; waiting for that monitor")
+                } else if discoveredReceivers.count > 1 {
+                    NSLog("[automation] multiple receivers discovered and no preferred monitor is selected; waiting for user choice")
+                } else {
+                    NSLog("[automation] no receivers discovered; aborting connect")
+                }
                 return nil
             }
             if let pathPreference {
@@ -211,8 +226,7 @@ enum TBSenderAutomation {
             } else {
                 service.applyDiscoveredReceiver(discovered, to: session)
             }
-            session.selectedReceiverID = discovered.id
-        } else if let discovered = service.discoveredReceivers.first(where: { matches(receiver, $0) }) {
+        } else if let discovered = discoveredReceivers.first(where: { matches(receiver, $0) }) {
             if let pathPreference {
                 guard let selected = await selectConnectionPath(
                     receiver: discovered,
@@ -226,8 +240,11 @@ enum TBSenderAutomation {
             } else {
                 service.applyDiscoveredReceiver(discovered, to: session)
             }
-            session.selectedReceiverID = discovered.id
         } else {
+            guard !isPersistedReceiverReference(receiver) else {
+                NSLog("[automation] requested monitor identity is not available; aborting connect")
+                return nil
+            }
             // Treat as a raw IP / hostname (bypasses Bonjour).
             session.receiverIP = receiver
             session.selectedReceiverID = ""
@@ -329,13 +346,69 @@ enum TBSenderAutomation {
         return nil
     }
 
-    /// Discovery is async (Bonjour); briefly wait for the first receiver to appear.
-    private static func waitForReceiver(_ service: TBDisplaySenderService) async -> TBDiscoveredReceiver? {
-        for _ in 0..<20 {
-            if let first = service.discoveredReceivers.first { return first }
-            try? await Task.sleep(nanoseconds: 300_000_000)
+    /// Bonjour results arrive incrementally. Waiting for a short settled window
+    /// prevents `auto` from connecting to whichever of several displays happens
+    /// to advertise first. A previously selected stable identity may return
+    /// immediately because it is unambiguous.
+    private static func waitForReceivers(
+        _ service: TBDisplaySenderService,
+        preferredIdentity: String
+    ) async -> [TBDiscoveredReceiver] {
+        var lastSignature: [String] = []
+        var unchangedIterations = 0
+        var firstNonEmptyIteration: Int?
+
+        for iteration in 0..<24 {
+            let receivers = service.discoveredReceivers
+            if !preferredIdentity.isEmpty,
+               receivers.contains(where: { $0.matchesPersistedIdentity(preferredIdentity) }) {
+                return receivers
+            }
+
+            if !receivers.isEmpty {
+                if firstNonEmptyIteration == nil { firstNonEmptyIteration = iteration }
+                let signature = receivers
+                    .map { "\($0.stableIdentity)|\($0.preferredIP)" }
+                    .sorted()
+                if signature == lastSignature {
+                    unchangedIterations += 1
+                } else {
+                    lastSignature = signature
+                    unchangedIterations = 0
+                }
+
+                if let firstNonEmptyIteration,
+                   iteration - firstNonEmptyIteration >= 6,
+                   unchangedIterations >= 3 {
+                    return receivers
+                }
+            }
+            try? await Task.sleep(nanoseconds: 250_000_000)
         }
-        return service.discoveredReceivers.first
+        return service.discoveredReceivers
+    }
+
+    /// Automatic startup is safe only when the preferred display is present or
+    /// exactly one Receiver exists and no preference was saved. With multiple unpaired displays, returning
+    /// nil is intentional: silently choosing the first one would send the user's
+    /// desktop to the wrong Mac.
+    static func automaticReceiver(
+        in receivers: [TBDiscoveredReceiver],
+        preferredIdentity: String
+    ) -> TBDiscoveredReceiver? {
+        if !preferredIdentity.isEmpty {
+            let preferred = receivers.filter {
+               $0.matchesPersistedIdentity(preferredIdentity)
+            }
+            return preferred.count == 1 ? preferred[0] : nil
+        }
+        return receivers.count == 1 ? receivers[0] : nil
+    }
+
+    static func isPersistedReceiverReference(_ value: String) -> Bool {
+        let value = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return value.hasPrefix("receiver:") || value.hasPrefix("service:") ||
+            value.contains("|") || UUID(uuidString: value) != nil
     }
 
     private static func selectConnectionPath(
@@ -425,7 +498,7 @@ enum TBSenderAutomation {
     // unit-test bundle can exercise them directly.
     static func matches(_ value: String, _ receiver: TBDiscoveredReceiver) -> Bool {
         let needle = value.lowercased()
-        if receiver.id.lowercased() == needle { return true }
+        if receiver.matchesPersistedIdentity(needle) { return true }
         if receiver.receiverName.lowercased() == needle { return true }
         if let host = receiver.shortHostName?.lowercased(), host == needle { return true }
         return receiver.preferredIP.lowercased() == needle
