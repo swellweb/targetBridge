@@ -958,6 +958,19 @@ static void handle_raw_frame(struct app *a, const uint8_t *p, size_t len) {
     a->frames++;
 }
 
+/* A TBD2 blob and nothing else: its own header carries the dimensions and the
+ * sample depth, so unlike TB_PKT_RAW_FRAME there is nothing to parse here. The
+ * decode runs on the GPU -- see tb_metal_plane.m -- because at 5K it is ~44
+ * million bit extractions, which costs 166 ms on this receiver's CPU and 6.5 ms
+ * on its GPU. A failed decode drops the frame rather than presenting garbage;
+ * the codec is lossless, so a partial result is not a degraded picture. */
+static void handle_raw_dpcm(struct app *a, const uint8_t *payload, size_t len) {
+    if (tb_disp_render_dpcm(a->disp, payload, len) != 0) return;
+    a->have_video_frame = 1;
+    tb_copy_i18n(a->status_text, sizeof(a->status_text), "receiver.status.stream_active");
+    a->frames++;
+}
+
 static void ring_read(struct app *a, Uint8 *dst, int len) {
     int first = AUDIO_BUF_CAP - a->audio_buf_tail;
     if (first >= len) {
@@ -1160,6 +1173,10 @@ static void on_packet(uint8_t type, const uint8_t *payload, size_t len, void *ud
     case TB_PKT_RAW_FRAME:
         a->session_active = 1;
         handle_raw_frame(a, payload, len);
+        break;
+    case TB_PKT_RAW_DPCM:
+        a->session_active = 1;
+        handle_raw_dpcm(a, payload, len);
         break;
     case TB_PKT_CURSOR:
         {
@@ -1828,7 +1845,7 @@ static void send_receiver_info(struct app *a) {
         "{\"receiverName\":\"%s\",\"panelWidth\":%u,\"panelHeight\":%u,"
         "\"modeWidth\":%u,\"modeHeight\":%u,\"refreshRate\":60,"
         "\"hiDPI\":%s,\"captureWidth\":%u,\"captureHeight\":%u,"
-        "\"supportsHEVCDecode\":%s,\"supportsRawNV12\":true,\"inputMonitoringTrusted\":%s,\"accessibilityTrusted\":%s,"
+        "\"supportsHEVCDecode\":%s,\"supportsRawNV12\":true,\"supportsDPCM\":%s,\"inputMonitoringTrusted\":%s,\"accessibilityTrusted\":%s,"
         "\"supportsNightShift\":%s,\"supportsTrueTone\":%s}",
         escaped_name,
         profile.panel_w,
@@ -1839,6 +1856,10 @@ static void send_receiver_info(struct app *a) {
         profile.capture_w,
         profile.capture_h,
         tb_dec_supports_hevc_hwdecode() ? "true" : "false",
+        /* Conditional on a working Metal decoder, not merely on this build
+         * having the code: the CPU fallback is 166 ms/frame at 5K, so a
+         * receiver without a usable GPU path must keep receiving NV12. */
+        tb_disp_dpcm_available(a->disp) ? "true" : "false",
         tb_receiver_input_monitoring_trusted() ? "true" : "false",
         tb_receiver_accessibility_trusted() ? "true" : "false",
         tb_night_shift_supported() ? "true" : "false",

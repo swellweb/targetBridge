@@ -48,6 +48,18 @@ void tb_disp_render_nv12(struct tb_display *d,
                          const uint8_t *uv, int uv_stride,
                          int w, int h);
 
+/* Lossless tile-DPCM (TBD2). The blob is self-describing -- dimensions and
+ * sample depth live in its own header -- so there is nothing to pass alongside
+ * it. Returns 0 on success, -1 if there is no usable Metal decode path, in which
+ * case the caller should drop the frame rather than present garbage. */
+int tb_disp_render_dpcm(struct tb_display *d, const uint8_t *blob, size_t len);
+
+/* Whether a DPCM frame could actually be decoded right now. Gates the
+ * "supportsDPCM" capability the receiver advertises: decoding is ~44 million bit
+ * extractions per 5K frame, 166 ms on this receiver's CPU against 6.5 ms on its
+ * GPU, so a receiver without a working Metal path must keep receiving NV12. */
+int tb_disp_dpcm_available(struct tb_display *d);
+
 /* Update low-latency local cursor overlay in source-frame coordinates. */
 void tb_disp_set_cursor(struct tb_display *d,
                         int x, int y,

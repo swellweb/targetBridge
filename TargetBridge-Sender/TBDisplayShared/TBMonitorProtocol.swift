@@ -8,6 +8,10 @@ enum TBMonitorPacketType: UInt8 {
     case paramSets = 0x20
     case frame = 0x21
     case rawFrame = 0x22   // Uncompressed NV12 planes (raw passthrough mode)
+    /// Lossless tile-DPCM (TBD2). Payload is one self-describing blob -- its own
+    /// header carries the dimensions and sample depth. Sent only to a receiver
+    /// that advertised supportsDPCM; see proto.h for why that gate exists.
+    case rawDPCM = 0x25
     case audioFrame = 0x23
     case heartbeat = 0x30
     case teardown = 0x31
@@ -44,6 +48,10 @@ struct TBMonitorDisplayProfile: Codable {
     var captureHeight: Int
     var supportsHEVCDecode: Bool?
     var supportsRawNV12: Bool?
+    /// Receiver has a working Metal decode path for TBD2. Absent on older
+    /// receivers, which therefore keep receiving NV12 -- the gate is deliberately
+    /// opt-in, because CPU decode is 166 ms/frame at 5K against 6.5 ms on the GPU.
+    var supportsDPCM: Bool?
     var inputMonitoringTrusted: Bool?
     var accessibilityTrusted: Bool?
     /// Optional so older receivers still decode; absent means "cannot".

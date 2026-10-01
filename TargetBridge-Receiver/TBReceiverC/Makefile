@@ -24,6 +24,7 @@ export MACOSX_DEPLOYMENT_TARGET
 
 CFLAGS   += -O2 -g -Wall -Wextra -Wno-unused-parameter -std=c11
 CFLAGS   += $(shell $(PKG) --cflags libavcodec libavutil libswscale sdl2)
+CFLAGS   += -I../../TargetBridge-Shared/codec
 CFLAGS   += -DTB_RECEIVER_VERSION=\"$(APP_VERSION)\" -DTB_RECEIVER_BUILD=\"$(APP_BUILD)\"
 CFLAGS   += -DTB_LANGUAGE_SOURCE_DIR=\"$(abspath ../../TargetBridge-Shared/Languages)\"
 
@@ -31,11 +32,11 @@ LDFLAGS  += $(shell $(PKG) --libs libavcodec libavutil libswscale sdl2)
 
 UNAME_S  := $(shell uname -s)
 ifeq ($(UNAME_S),Darwin)
-LDFLAGS  += -framework ApplicationServices -framework AppKit -framework CoreFoundation -framework CoreGraphics -framework CoreText -framework VideoToolbox -framework CoreMedia -framework CoreVideo -framework IOSurface -framework CoreServices -framework CoreAudio -framework SystemConfiguration
+LDFLAGS  += -framework ApplicationServices -framework AppKit -framework CoreFoundation -framework CoreGraphics -framework CoreText -framework VideoToolbox -framework CoreMedia -framework CoreVideo -framework IOSurface -framework CoreServices -framework CoreAudio -framework SystemConfiguration -framework Metal -framework QuartzCore -framework IOKit
 endif
 
-C_SRC = src/main.c src/net.c src/decoder.c src/display.c src/input_queue.c src/idle_watchdog.c src/receiver_profile.c src/tb_i18n.c
-OBJC_SRC = src/tb_gesture_bridge.m src/tb_display_tweaks.m
+C_SRC = src/main.c src/net.c src/decoder.c src/display.c src/input_queue.c src/idle_watchdog.c src/receiver_profile.c src/tb_i18n.c ../../TargetBridge-Shared/codec/tb_dpcm.c
+OBJC_SRC = src/tb_gesture_bridge.m src/tb_display_tweaks.m src/tb_metal_plane.m src/tb_health.m
 OBJ = $(C_SRC:.c=.o) $(OBJC_SRC:.m=.o)
 BIN = tbreceiver
 

@@ -7,6 +7,7 @@
  */
 
 #include "display.h"
+#include "tb_metal_plane.h"
 #include "tb_i18n.h"
 #include "tb_gesture_bridge.h"
 
@@ -1137,6 +1138,25 @@ void tb_disp_render_nv12(struct tb_display *d,
     }
     d->last_video_frame_time = SDL_GetTicks();
     tb_disp_render_current(d);
+}
+
+int tb_disp_render_dpcm(struct tb_display *d, const uint8_t *blob, size_t len) {
+    if (!d) return -1;
+    /* Same lazy creation as the other Metal paths: the plane sits over SDL's
+     * window, so it cannot exist while the status UI is showing. */
+    if (!tb_metal_plane_available()) tb_metal_plane_init(d->win);
+    if (!tb_metal_plane_available()) return -1;
+
+    if (tb_metal_plane_render_dpcm(blob, len) != 0) return -1;
+    tb_disp_set_connection_state(d, 1);
+    d->last_video_frame_time = SDL_GetTicks();
+    return 0;
+}
+
+int tb_disp_dpcm_available(struct tb_display *d) {
+    if (!d) return 0;
+    if (!tb_metal_plane_available()) tb_metal_plane_init(d->win);
+    return tb_metal_plane_available() ? 1 : 0;
 }
 
 void tb_disp_set_cursor(struct tb_display *d,

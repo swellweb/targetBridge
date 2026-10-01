@@ -47,6 +47,20 @@
 #define TB_PKT_FRAME            0x21
 #define TB_PKT_RAW_FRAME        0x22  /* uncompressed NV12 planes (raw passthrough) */
 #define TB_PKT_AUDIO_FRAME      0x23
+/* Full frame, losslessly compressed with tile-DPCM (TBD2; see tb_dpcm.h). The
+ * payload is one TBD2 blob and nothing else -- its own header carries the
+ * dimensions, so none are repeated here.
+ *
+ * Measured 2.96x on near-worst-case photographic content and 4.5-14x on desktop
+ * content, which turns a 23.4 ms receive into ~8 ms on the target hardware.
+ *
+ * Only sent to a receiver that advertised "supportsDPCM" in its display profile,
+ * which is conditional on a working Metal decoder: decoding costs ~44 million bit
+ * extractions per 5K frame, which that receiver's CPU cannot afford (166 ms
+ * single-threaded on its i5, against 6.5 ms on its GPU). A silent peer is an old
+ * peer and keeps getting TB_PKT_RAW_FRAME, so this is additive -- an unpatched
+ * receiver is unaffected. */
+#define TB_PKT_RAW_DPCM         0x25
 #define TB_PKT_HEARTBEAT        0x30
 #define TB_PKT_TEARDOWN         0x31
 #define TB_PKT_CURSOR           0x32

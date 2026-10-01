@@ -138,6 +138,7 @@
   "sender.profile.crisp": "Net",
   "sender.profile.retina_4k": "Retina 4K",
   "sender.profile.native_5k": "5K",
+  "sender.profile.native_5k_dpcm": "5K DPCM",
   "sender.profile.native_5k_60_experimental": "5K 60 (Expérimental)",
   "sender.capture_display.na": "n/d",
   "sender.capture_display.scdisplay": "SCDisplay %{id}",
