@@ -11,6 +11,10 @@ TargetBridge supports two main display modes:
 
 Extended layouts can be arranged in macOS **System Settings -> Displays -> Arrange**. TargetBridge remembers the saved arrangement per receiver when possible and restores it on reconnect.
 
+When a receiver is chosen from discovery, TargetBridge stores its stable receiver
+identity rather than only its current IP. A Thunderbolt Bridge reconnect or a
+new DHCP address therefore does not make the sender forget the selected Mac.
+
 If the receiver panel does not look correct, set the matching resolution on the TargetBridge display in macOS Display Settings. For 27-inch 5K iMac workflows, the `Crisp` or `5K` stream profiles usually pair best with the matching HiDPI arrangement.
 
 The `Full HD` profiles are for non-Retina 1080p receivers, such as every 21.5-inch
@@ -25,6 +29,35 @@ Related reading:
 - [docs/QuickStart-EN.md](docs/QuickStart-EN.md)
 - [docs/QuickStart-IT.md](docs/QuickStart-IT.md)
 - [docs/QuickStart-ZH.md](docs/QuickStart-ZH.md)
+
+## Stream Profiles and Codecs
+
+Each session can select **Automatic**, **H.264**, or **HEVC** before it starts.
+The choice is saved per discovered receiver. Automatic remains the recommended
+option: it checks the receiver capability and the sender hardware encoder at
+the selected resolution. If a requested codec is unavailable, TargetBridge
+uses a compatible hardware fallback and records that choice in the log.
+
+For non-Retina 1080p receivers, use **Full HD** or **Full HD 60**. These
+profiles create a 1920 × 1080 1x virtual display and avoid the double scaling
+that a HiDPI mode would introduce on a 1080p panel.
+
+In a genuinely headless mirror session, where the virtual display is the only
+online display, TargetBridge captures that display directly. A companion
+audio-only ScreenCaptureKit stream keeps Audio Relay available on this path.
+
+## Permission Assistant
+
+The Sender toolbar includes **Permissions**. It shows the current state of
+Screen Recording, Accessibility, and Input Monitoring, can request the native
+macOS permission prompts, and opens Privacy & Security when needed. The state
+refreshes after returning to TargetBridge from System Settings.
+
+macOS deliberately requires a user to approve each permission for each
+installed application. The assistant streamlines that process but cannot grant
+or retain permission on the user's behalf. For Input Dockstation, check the
+required permissions on both the Sender and Receiver according to the active
+role.
 
 ## Display Profiles
 
