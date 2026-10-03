@@ -2,9 +2,9 @@ name: CI Build Verification
 
 on:
   push:
-    branches: [ main, 3.1-maint, maint-3.5, 3.2-dev, dev-3.3.0, dev-3.4.0 ]
+    branches: [ main, 3.1-maint, maint-3.5, 3.2-dev, dev-3.3.0, dev-3.4.0, dev-3.6.0 ]
   pull_request:
-    branches: [ main, 3.1-maint, maint-3.5, 3.2-dev, dev-3.3.0, dev-3.4.0 ]
+    branches: [ main, 3.1-maint, maint-3.5, 3.2-dev, dev-3.3.0, dev-3.4.0, dev-3.6.0 ]
 
 jobs:
   build-sender:
