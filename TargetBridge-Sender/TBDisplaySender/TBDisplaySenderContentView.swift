@@ -27,12 +27,22 @@ struct TBDisplaySenderContentView: View {
         .background(Color.black.opacity(0.02))
         .task {
             service.refreshLocalInterfaces()
+            service.presentPermissionAssistantIfNeeded()
         }
         .sheet(isPresented: $showingAbout) {
             TBDisplaySenderAboutView(service: service)
         }
+        .sheet(isPresented: $service.showingPermissionAssistant) {
+            TBDisplaySenderPermissionAssistant(service: service)
+        }
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
+                Button {
+                    service.showingPermissionAssistant = true
+                } label: {
+                    Label(permissionToolbarTitle, systemImage: "checkmark.shield")
+                }
+
                 Button {
                     showingAbout = true
                 } label: {
@@ -177,6 +187,16 @@ struct TBDisplaySenderContentView: View {
         case .german: return "Info"
         case .french: return "À propos"
         case .chinese: return "关于"
+        }
+    }
+
+    private var permissionToolbarTitle: String {
+        switch service.language {
+        case .italian: return "Permessi"
+        case .english: return "Permissions"
+        case .german: return "Berechtigungen"
+        case .french: return "Autorisations"
+        case .chinese: return "权限"
         }
     }
 }
@@ -615,7 +635,37 @@ private struct TBDisplaySenderSessionSettingsSheet: View {
                         .disabled(session.isConnected || session.isStreaming)
                     }
 
-                    if session.captureSource == .extendedDesktop {
+                    settingRow(
+                        TBDisplaySenderL10n.videoCompression(service.language),
+                        details: TBDisplaySenderL10n.codecPreferenceHint(
+                            session.codecPreference,
+                            language: service.language
+                        )
+                    ) {
+                        Picker(
+                            TBDisplaySenderL10n.videoCompression(service.language),
+                            selection: Binding(
+                                get: { session.codecPreference },
+                                set: { service.setCodecPreference($0, for: session) }
+                            )
+                        ) {
+                            ForEach(TBDisplayCodecPreference.allCases) { preference in
+                                Text(TBDisplaySenderL10n.codecPreferenceTitle(
+                                    preference,
+                                    language: service.language
+                                ))
+                                .tag(preference)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .disabled(session.isConnected || session.isStreaming)
+                    }
+
+                    // A native-scale profile already renders the desktop 1:1 with the
+                    // stream, so render matching has nothing left to do and its HiDPI
+                    // wording would be wrong. Hide the row rather than show a toggle
+                    // that silently does nothing.
+                    if session.captureSource == .extendedDesktop, !session.capturePreset.rendersAtNativeScale {
                         settingRow(renderMatchingTitle, details: renderMatchingDetails) {
                             Toggle("", isOn: $session.matchRenderToStream)
                                 .labelsHidden()

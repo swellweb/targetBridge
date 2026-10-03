@@ -8,6 +8,64 @@ import XCTest
 /// silently reroute automation traffic.
 @MainActor
 final class TBSenderAutomationParsingTests: XCTestCase {
+    func testHeadlessMirrorUsesOnlyOnlineVirtualDisplayDirectly() {
+        XCTAssertTrue(
+            TBDisplaySenderSession.shouldUseHeadlessVirtualDisplay(
+                virtualDisplayID: 120,
+                mainDisplayID: 120,
+                onlineDisplayIDs: [120]
+            )
+        )
+    }
+
+    func testHeadlessMirrorDoesNotBypassMirroringWithPhysicalDisplayOnline() {
+        XCTAssertFalse(
+            TBDisplaySenderSession.shouldUseHeadlessVirtualDisplay(
+                virtualDisplayID: 120,
+                mainDisplayID: 120,
+                onlineDisplayIDs: [120, 1]
+            )
+        )
+        XCTAssertFalse(
+            TBDisplaySenderSession.shouldUseHeadlessVirtualDisplay(
+                virtualDisplayID: 120,
+                mainDisplayID: 1,
+                onlineDisplayIDs: [1, 120]
+            )
+        )
+    }
+
+    func testHeadlessMirrorRequiresVirtualDisplayToBeOnline() {
+        XCTAssertFalse(
+            TBDisplaySenderSession.shouldUseHeadlessVirtualDisplay(
+                virtualDisplayID: 120,
+                mainDisplayID: 120,
+                onlineDisplayIDs: []
+            )
+        )
+    }
+
+    func testDirectHeadlessVideoStartsAuxiliaryAudioOnlyWhenEnabled() {
+        XCTAssertTrue(
+            TBDisplaySenderSession.needsAuxiliaryAudioCapture(
+                usingDirectDisplayStream: true,
+                shouldRelayAudio: true
+            )
+        )
+        XCTAssertFalse(
+            TBDisplaySenderSession.needsAuxiliaryAudioCapture(
+                usingDirectDisplayStream: true,
+                shouldRelayAudio: false
+            )
+        )
+        XCTAssertFalse(
+            TBDisplaySenderSession.needsAuxiliaryAudioCapture(
+                usingDirectDisplayStream: false,
+                shouldRelayAudio: true
+            )
+        )
+    }
+
     func testReceiverControlKeepsNativeCursorWithoutLargeCursor() {
         XCTAssertFalse(
             TBInputControlRole.receiverMaster.usesLowLatencyCursorOverlay(
@@ -56,6 +114,39 @@ final class TBSenderAutomationParsingTests: XCTestCase {
         )
     }
 
+    func testNativeScaleAppliesOnlyToPanelMatchedProfiles() {
+        XCTAssertTrue(TBDisplayCapturePreset.standard1080p.rendersAtNativeScale)
+        XCTAssertTrue(TBDisplayCapturePreset.smooth1080p60.rendersAtNativeScale)
+        for preset in TBDisplayCapturePreset.allCases where preset.width > 1920 {
+            XCTAssertFalse(
+                preset.rendersAtNativeScale,
+                "\(preset.rawValue) targets a Retina panel and must keep its HiDPI mode"
+            )
+        }
+    }
+
+    /// A 1x mode must hand CGVirtualDisplay the full stream size with a framebuffer
+    /// to match, not the halved HiDPI point size. Getting this backwards renders the
+    /// desktop at 960x540 and draws every control at 2x on a 1080p panel.
+    func testNativeScaleModeRendersFullSizeWithoutHiDPIBacking() {
+        let mode = TBDisplayCapturePreset.standard1080p.nativeScaleDisplayMode
+        XCTAssertEqual(mode.width, 1920)
+        XCTAssertEqual(mode.height, 1080)
+        XCTAssertFalse(mode.isHiDPI)
+        XCTAssertEqual(mode.backingWidth, 1920)
+        XCTAssertEqual(mode.backingHeight, 1080)
+    }
+
+    /// Render matching keeps its 2x contract for every non-native-scale profile.
+    func testRenderMatchedModeKeepsHiDPIBacking() {
+        let mode = TBDisplayCapturePreset.standard1440p.renderMatchedDisplayMode
+        XCTAssertEqual(mode.width, 1280)
+        XCTAssertEqual(mode.height, 720)
+        XCTAssertTrue(mode.isHiDPI)
+        XCTAssertEqual(mode.backingWidth, 2560)
+        XCTAssertEqual(mode.backingHeight, 1440)
+    }
+
     func testHighFrameRatePresetsUseFiveCaptureSurfaces() {
         XCTAssertEqual(TBDisplayCapturePreset.standard1440p.queueDepth, 3)
         XCTAssertEqual(TBDisplayCapturePreset.smooth1440p60.queueDepth, 5)
@@ -68,6 +159,98 @@ final class TBSenderAutomationParsingTests: XCTestCase {
         XCTAssertEqual(TBDisplayCapturePreset.smooth1440p60.captureRequestFrameRate, 120)
         XCTAssertEqual(TBDisplayCapturePreset.retina4k60.captureRequestFrameRate, 120)
         XCTAssertEqual(TBDisplayCapturePreset.native5k.captureRequestFrameRate, 96)
+    }
+
+    func testAutomaticCodecUsesH264WhenHEVCIsUnavailable() {
+        let decision = TBDisplaySenderSession.chooseCodec(
+            preference: .automatic,
+            preset: .standard1440p,
+            receiverSupportsHEVC: false,
+            senderSupportsH264: true,
+            senderSupportsHEVC: true
+        )
+        XCTAssertEqual(decision?.codecType, kCMVideoCodecType_H264)
+        XCTAssertEqual(decision?.usedFallback, false)
+    }
+
+    func testAutomaticCodecUsesHEVCWhenBothMacsSupportIt() {
+        for preset in [TBDisplayCapturePreset.standard1440p, .retina4k60] {
+            let decision = TBDisplaySenderSession.chooseCodec(
+                preference: .automatic,
+                preset: preset,
+                receiverSupportsHEVC: true,
+                senderSupportsH264: true,
+                senderSupportsHEVC: true
+            )
+            XCTAssertEqual(decision?.codecType, kCMVideoCodecType_HEVC)
+            XCTAssertEqual(decision?.usedFallback, false)
+        }
+    }
+
+    func testAutomaticHighResolutionFallsBackToH264WithoutHEVC() {
+        let decision = TBDisplaySenderSession.chooseCodec(
+            preference: .automatic,
+            preset: .retina4k60,
+            receiverSupportsHEVC: false,
+            senderSupportsH264: true,
+            senderSupportsHEVC: true
+        )
+        XCTAssertEqual(decision?.codecType, kCMVideoCodecType_H264)
+        XCTAssertEqual(decision?.usedFallback, true)
+    }
+
+    func testManualCodecChoicesAreHonouredWhenAvailable() {
+        let h264 = TBDisplaySenderSession.chooseCodec(
+            preference: .h264,
+            preset: .retina4k60,
+            receiverSupportsHEVC: true,
+            senderSupportsH264: true,
+            senderSupportsHEVC: true
+        )
+        XCTAssertEqual(h264?.codecType, kCMVideoCodecType_H264)
+        XCTAssertEqual(h264?.usedFallback, false)
+
+        let hevc = TBDisplaySenderSession.chooseCodec(
+            preference: .hevc,
+            preset: .standard1440p,
+            receiverSupportsHEVC: true,
+            senderSupportsH264: true,
+            senderSupportsHEVC: true
+        )
+        XCTAssertEqual(hevc?.codecType, kCMVideoCodecType_HEVC)
+        XCTAssertEqual(hevc?.usedFallback, false)
+    }
+
+    func testManualCodecFallsBackOnlyToACompatibleAlternative() {
+        let hevcToH264 = TBDisplaySenderSession.chooseCodec(
+            preference: .hevc,
+            preset: .standard1440p,
+            receiverSupportsHEVC: false,
+            senderSupportsH264: true,
+            senderSupportsHEVC: true
+        )
+        XCTAssertEqual(hevcToH264?.codecType, kCMVideoCodecType_H264)
+        XCTAssertEqual(hevcToH264?.usedFallback, true)
+
+        let h264ToHEVC = TBDisplaySenderSession.chooseCodec(
+            preference: .h264,
+            preset: .native5k,
+            receiverSupportsHEVC: true,
+            senderSupportsH264: false,
+            senderSupportsHEVC: true
+        )
+        XCTAssertEqual(h264ToHEVC?.codecType, kCMVideoCodecType_HEVC)
+        XCTAssertEqual(h264ToHEVC?.usedFallback, true)
+    }
+
+    func testCodecSelectionFailsCleanlyWhenNoHardwarePathExists() {
+        XCTAssertNil(TBDisplaySenderSession.chooseCodec(
+            preference: .automatic,
+            preset: .native5k,
+            receiverSupportsHEVC: false,
+            senderSupportsH264: false,
+            senderSupportsHEVC: false
+        ))
     }
 
     func testFrameRatePacerSamples75HzInputAt60Hz() {
@@ -267,6 +450,7 @@ final class TBSenderAutomationParsingTests: XCTestCase {
         TBDiscoveredReceiver(
             serviceName: "TargetBridge Jonathans-iMac",
             receiverName: "Jonathans-iMac",
+            receiverID: "A4E28721-22A7-42A9-89D7-70F3DBB0E906",
             preferredIP: "192.168.1.64",
             thunderboltIP: "169.254.89.80",
             usbIP: "169.254.189.3",
@@ -299,6 +483,8 @@ final class TBSenderAutomationParsingTests: XCTestCase {
     }
 
     func testMatchesByID() {
+        XCTAssertTrue(TBSenderAutomation.matches("receiver:A4E28721-22A7-42A9-89D7-70F3DBB0E906", makeReceiver()))
+        XCTAssertTrue(TBSenderAutomation.matches("A4E28721-22A7-42A9-89D7-70F3DBB0E906", makeReceiver()))
         XCTAssertTrue(TBSenderAutomation.matches("targetbridge jonathans-imac|192.168.1.64", makeReceiver()))
     }
 
@@ -307,7 +493,80 @@ final class TBSenderAutomationParsingTests: XCTestCase {
         XCTAssertFalse(TBSenderAutomation.matches("10.0.0.1", makeReceiver()))
     }
 
+    func testAutomaticReceiverUsesPreferredStableIdentityAmongSeveral() {
+        let preferred = makeReceiver()
+        let other = TBDiscoveredReceiver(
+            serviceName: "TargetBridge Other-iMac",
+            receiverName: "Other-iMac",
+            receiverID: "other-receiver",
+            preferredIP: "192.168.1.70",
+            thunderboltIP: "",
+            networkIP: "192.168.1.70",
+            panelSummary: "iMac 4K",
+            version: "3.5.2",
+            supportsHEVCDecode: true,
+            hostName: "Other-iMac.local."
+        )
+
+        XCTAssertEqual(
+            TBSenderAutomation.automaticReceiver(
+                in: [other, preferred],
+                preferredIdentity: preferred.stableIdentity
+            ),
+            preferred
+        )
+    }
+
+    func testAutomaticReceiverUsesOnlyReceiverWithoutPreference() {
+        let receiver = makeReceiver()
+        XCTAssertEqual(
+            TBSenderAutomation.automaticReceiver(in: [receiver], preferredIdentity: ""),
+            receiver
+        )
+    }
+
+    func testAutomaticReceiverRefusesAmbiguousFirstChoice() {
+        let first = makeReceiver()
+        let second = TBDiscoveredReceiver(
+            serviceName: "TargetBridge Other-iMac",
+            receiverName: "Other-iMac",
+            receiverID: "other-receiver",
+            preferredIP: "192.168.1.70",
+            thunderboltIP: "",
+            networkIP: "192.168.1.70",
+            panelSummary: "iMac 4K",
+            version: "3.5.2",
+            supportsHEVCDecode: true,
+            hostName: "Other-iMac.local."
+        )
+
+        XCTAssertNil(
+            TBSenderAutomation.automaticReceiver(in: [first, second], preferredIdentity: "")
+        )
+    }
+
     // MARK: - resolveSessionIndex tri-state
+
+    func testAutomaticReceiverDoesNotReplaceMissingPreferredMonitor() {
+        XCTAssertNil(TBSenderAutomation.automaticReceiver(
+            in: [makeReceiver()], preferredIdentity: "receiver:B4E28721-22A7-42A9-89D7-70F3DBB0E906"))
+    }
+
+    func testAutomaticReceiverRejectsAmbiguousLegacyPreference() {
+        let first = makeReceiver()
+        XCTAssertNil(TBSenderAutomation.automaticReceiver(
+            in: [first, first], preferredIdentity: "service:\(first.serviceName)"))
+    }
+
+    func testMissingIdentityDoesNotBecomeRawHostname() {
+        for value in ["receiver:unknown", "service:TargetBridge iMac", "iMac|169.254.1.2",
+                      "A4E28721-22A7-42A9-89D7-70F3DBB0E906"] {
+            XCTAssertTrue(TBSenderAutomation.isPersistedReceiverReference(value))
+        }
+        for value in ["iMac.local", "192.168.1.64", "fe80::1234"] {
+            XCTAssertFalse(TBSenderAutomation.isPersistedReceiverReference(value))
+        }
+    }
     //
     // Returns `nil` = invalid input, `.some(nil)` = target all sessions,
     // `.some(index)` = zero-based session index.

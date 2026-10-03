@@ -488,6 +488,28 @@ enum TBDisplaySenderL10n {
         ])
     }
 
+    static func videoCompression(_ language: TBDisplaySenderLanguage) -> String {
+        text("sender.codec.label", language)
+    }
+
+    static func codecPreferenceTitle(
+        _ preference: TBDisplayCodecPreference,
+        language: TBDisplaySenderLanguage
+    ) -> String {
+        text("sender.codec.\(preference.rawValue)", language)
+    }
+
+    static func codecPreferenceHint(
+        _ preference: TBDisplayCodecPreference,
+        language: TBDisplaySenderLanguage
+    ) -> String {
+        text("sender.codec.hint.\(preference.rawValue)", language)
+    }
+
+    static func codecUnavailable(_ language: TBDisplaySenderLanguage) -> String {
+        text("sender.codec.unavailable", language)
+    }
+
     static func missingScreenRecordingPermission(language: TBDisplaySenderLanguage) -> String {
         text("sender.error.screen_recording_permission", language)
     }
@@ -559,6 +581,10 @@ enum TBDisplaySenderL10n {
 extension TBDisplayCapturePreset {
     func title(_ language: TBDisplaySenderLanguage) -> String {
         switch self {
+        case .standard1080p:
+            return TBDisplaySenderL10n.text("sender.profile.full_hd", language)
+        case .smooth1080p60:
+            return TBDisplaySenderL10n.text("sender.profile.full_hd_60", language)
         case .standard1440p:
             return TBDisplaySenderL10n.text("sender.profile.standard", language)
         case .smooth1440p60:

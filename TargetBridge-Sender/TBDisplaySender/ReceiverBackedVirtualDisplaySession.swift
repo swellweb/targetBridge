@@ -8,12 +8,24 @@ extension CGVirtualDisplaySettings: @unchecked @retroactive Sendable {}
 /// Pixel size of the mode handed to CGVirtualDisplay. With `settings.hiDPI = true`
 /// macOS synthesises a strictly 2x backing store, so a mode of (w, h) renders the
 /// desktop into a (2w, 2h) framebuffer and reports "looks like w x h" in Displays.
+///
+/// `isHiDPI == false` asks for a 1x mode instead: the framebuffer equals the mode,
+/// and the desktop reports its true size. That is the right choice when the stream
+/// already matches a non-Retina receiver panel pixel for pixel, where a HiDPI mode
+/// would render every control at 2x on a panel that has no extra pixels to show it.
 struct TBVirtualDisplayModeSize: Equatable {
     let width: Int
     let height: Int
+    let isHiDPI: Bool
 
-    var backingWidth: Int { width * 2 }
-    var backingHeight: Int { height * 2 }
+    init(width: Int, height: Int, isHiDPI: Bool = true) {
+        self.width = width
+        self.height = height
+        self.isHiDPI = isHiDPI
+    }
+
+    var backingWidth: Int { isHiDPI ? width * 2 : width }
+    var backingHeight: Int { isHiDPI ? height * 2 : height }
 }
 
 struct TBVirtualDisplayIdentity {
@@ -84,7 +96,8 @@ final class ReceiverBackedVirtualDisplaySession {
         // stream exactly, so capture is 1:1 and only the panel-side scale remains.
         var resolvedMode = modeOverride ?? TBVirtualDisplayModeSize(
             width: profile.modeWidth,
-            height: profile.modeHeight
+            height: profile.modeHeight,
+            isHiDPI: profile.hiDPI
         )
 
         // macOS refuses a HiDPI mode whose backing store exceeds the advertised panel.
@@ -95,7 +108,11 @@ final class ReceiverBackedVirtualDisplaySession {
                 resolvedMode.backingWidth, resolvedMode.backingHeight,
                 profile.panelWidth, profile.panelHeight
             )
-            resolvedMode = TBVirtualDisplayModeSize(width: profile.modeWidth, height: profile.modeHeight)
+            resolvedMode = TBVirtualDisplayModeSize(
+                width: profile.modeWidth,
+                height: profile.modeHeight,
+                isHiDPI: profile.hiDPI
+            )
         }
 
         let descriptor = CGVirtualDisplayDescriptor()
@@ -128,7 +145,7 @@ final class ReceiverBackedVirtualDisplaySession {
         }
 
         let settings = CGVirtualDisplaySettings()
-        settings.hiDPI = profile.hiDPI
+        settings.hiDPI = resolvedMode.isHiDPI
         guard let mode = CGVirtualDisplayMode(
             width: UInt(resolvedMode.width),
             height: UInt(resolvedMode.height),
