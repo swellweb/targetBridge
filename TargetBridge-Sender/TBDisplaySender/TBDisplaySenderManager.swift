@@ -49,6 +49,7 @@ final class TBDisplaySenderService: ObservableObject {
     /// Changes whenever the app returns from System Settings so permission cards
     /// re-evaluate their live TCC state instead of showing a stale warning.
     @Published private(set) var privacyPermissionsRevision = 0
+    @Published var showingPermissionAssistant = false
     @Published var language: TBDisplaySenderLanguage = .load() {
         didSet {
             language.persist()
@@ -144,6 +145,43 @@ final class TBDisplaySenderService: ObservableObject {
 
     func refreshPrivacyPermissions() {
         privacyPermissionsRevision &+= 1
+    }
+
+    func presentPermissionAssistantIfNeeded() {
+        showingPermissionAssistant = !CGPreflightScreenCaptureAccess()
+    }
+
+    func requestScreenRecordingPermission() {
+        _ = CGRequestScreenCaptureAccess()
+        refreshPrivacyPermissions()
+    }
+
+    func requestAccessibilityPermission() {
+        let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
+        _ = AXIsProcessTrustedWithOptions(options)
+        refreshPrivacyPermissions()
+    }
+
+    func requestInputMonitoringPermission() {
+        _ = CGRequestListenEventAccess()
+        refreshPrivacyPermissions()
+    }
+
+    func openScreenRecordingSettings() {
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") else {
+            return
+        }
+        NSWorkspace.shared.open(url)
+    }
+
+    func restartAfterPermissionChange() {
+        let appURL = URL(fileURLWithPath: Bundle.main.bundlePath)
+        NSWorkspace.shared.openApplication(at: appURL, configuration: .init()) { _, error in
+            guard error == nil else { return }
+            DispatchQueue.main.async {
+                NSApp.terminate(nil)
+            }
+        }
     }
 
     var anyConnected: Bool {

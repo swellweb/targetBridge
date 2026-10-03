@@ -27,12 +27,22 @@ struct TBDisplaySenderContentView: View {
         .background(Color.black.opacity(0.02))
         .task {
             service.refreshLocalInterfaces()
+            service.presentPermissionAssistantIfNeeded()
         }
         .sheet(isPresented: $showingAbout) {
             TBDisplaySenderAboutView(service: service)
         }
+        .sheet(isPresented: $service.showingPermissionAssistant) {
+            TBDisplaySenderPermissionAssistant(service: service)
+        }
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
+                Button {
+                    service.showingPermissionAssistant = true
+                } label: {
+                    Label(permissionToolbarTitle, systemImage: "checkmark.shield")
+                }
+
                 Button {
                     showingAbout = true
                 } label: {
@@ -177,6 +187,16 @@ struct TBDisplaySenderContentView: View {
         case .german: return "Info"
         case .french: return "À propos"
         case .chinese: return "关于"
+        }
+    }
+
+    private var permissionToolbarTitle: String {
+        switch service.language {
+        case .italian: return "Permessi"
+        case .english: return "Permissions"
+        case .german: return "Berechtigungen"
+        case .french: return "Autorisations"
+        case .chinese: return "权限"
         }
     }
 }
