@@ -32,7 +32,9 @@ jobs:
       - name: Build Sender App
         run: |
           cd TargetBridge-Sender
-          ./scripts/build_targetbridge_sender_app.sh
+          TB_BUILD="$(grep -m1 'CURRENT_PROJECT_VERSION:' project.yml | sed -E 's/.*\"([^\"]+)\".*/\1/')"
+          test -n "$TB_BUILD"
+          TB_SENDER_BUILD="$TB_BUILD" ./scripts/build_targetbridge_sender_app.sh
           file ../build/TargetBridge.app/Contents/MacOS/TargetBridge | grep -q "${{ matrix.arch }}"
 
       - name: Zip App Bundle
@@ -73,7 +75,9 @@ jobs:
       - name: Build Receiver App
         run: |
           cd TargetBridge-Receiver
-          ./scripts/build_tbreceiver_c_app.sh
+          TB_BUILD="$(grep -m1 'CURRENT_PROJECT_VERSION:' ../TargetBridge-Sender/project.yml | sed -E 's/.*\"([^\"]+)\".*/\1/')"
+          test -n "$TB_BUILD"
+          APP_BUILD="$TB_BUILD" ./scripts/build_tbreceiver_c_app.sh
 
       - name: Zip App Bundle
         run: |
