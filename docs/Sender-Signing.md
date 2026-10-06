@@ -1,9 +1,14 @@
-# Stable Sender identity and privacy permissions
+# Stable application identity and privacy permissions
 
 macOS recognises updates by the app's code-signing designated requirement, not
 just its name or version. An ad-hoc signature binds that requirement to the
 binary's hashes. Rebuilding changes those hashes and can invalidate Screen
-Recording and Accessibility consent.
+Recording, Accessibility, and Input Monitoring consent.
+
+TargetBridge has two applications: Sender (`com.targetbridge.sender`) and
+Receiver (`com.targetbridge.receiver`). Both must retain their respective
+bundle ID, installation path, and signing identity. This matters whenever the
+app has been granted a macOS privacy permission.
 
 ## Build and sign
 
@@ -39,9 +44,15 @@ happens elsewhere. Do not recreate the certificate for each build. A lost key
 requires an intentional identity migration and new consent. A local certificate
 is not a substitute for Developer ID and notarization for public distribution.
 
-For distribution, use Developer ID plus the required notarization workflow;
-these scripts alone do not implement notarization. Do not mix local and upstream signers if preserving existing consent
-is required. No Apple Developer membership is provisioned by these scripts.
+For public distribution, use Developer ID plus the required notarization
+workflow; these scripts alone do not implement notarization. Configure the
+same certificate in the `TARGETBRIDGE_CODESIGN_P12_BASE64` and
+`TARGETBRIDGE_CODESIGN_P12_PASSWORD` repository secrets before tagging a final
+release. The release workflow refuses an exact `vX.Y.Z` release if that
+persistent identity is unavailable; prerelease tags remain usable for
+disposable CI builds. Do not mix local and upstream signers if preserving
+existing consent is required. No Apple Developer membership is provisioned by
+these scripts.
 
 When using the signing helper directly, a disposable development build must opt in to both
 `TARGETBRIDGE_CODESIGN_IDENTITY=-` and `TARGETBRIDGE_ALLOW_ADHOC=1`. Never install
@@ -64,8 +75,11 @@ destination. Keep a recoverable backup outside Applications.
 An initial migration from an ad-hoc app intentionally fails this gate: it is an
 identity change, not a seamless update. Back up the installed app, replace it
 once with the persistently signed app at `/Applications/TargetBridge.app`, and
-approve Screen Recording and Accessibility there if macOS asks. Do not edit
-TCC databases, run blanket permission resets, or disable system protections.
+approve any requested privacy permissions there. The Receiver follows the same
+rule at `/Applications/TargetBridge Receiver.app`. Do not edit TCC databases,
+run blanket permission resets, or disable system protections. Once the stable
+identity is in place, subsequent signed updates preserve the identity macOS
+uses to associate existing consent.
 
 ## Validation
 

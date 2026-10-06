@@ -158,7 +158,7 @@ If you build from source, app outputs go into `build/` folder.
 - `Input Dockstation` may also require `Accessibility` and `Input Monitoring`, depending on the active role.
 - Receiver may require `Accessibility` or `Input Monitoring` when it participates in input relay.
 - In practice, `Input Dockstation` is a two-sided feature: one Mac captures input, the other injects it, so permissions may be needed on both Sender and Receiver.
-- On the Sender, use the `Permissions` toolbar button to review live status and request the native macOS prompts. macOS still requires confirmation from the person using the Mac; TargetBridge cannot grant these permissions automatically.
+- On the Sender, use the `Permissions` toolbar button to review live status and request the native macOS prompts. macOS still requires confirmation from the person using the Mac; TargetBridge cannot grant or overwrite these permissions automatically. Official updates keep a stable app identity so future releases can retain consent already granted to the app installed in `Applications`. See [Signing and permission continuity](docs/Sender-Signing.md).
 - See [docs/Addons.md#input-dockstation](docs/Addons.md#input-dockstation) for the permission matrix.
 
 ## Quick start

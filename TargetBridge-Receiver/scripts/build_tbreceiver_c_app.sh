@@ -14,6 +14,19 @@ ARCH="$(uname -m)"
 ICONSET_DIR="$(mktemp -d)"
 ICON_FILE="${ROOT}/TargetBridgeAssets/Assets.xcassets/AppIcon.appiconset/icon_1024.png"
 ICNS_PATH="${APP_DIR}/Contents/Resources/TargetBridgeReceiver.icns"
+SIGNING_CONFIG="${TARGETBRIDGE_SIGNING_CONFIG:-$HOME/Library/Application Support/TargetBridge/Build/receiver-signing-identity.txt}"
+
+# Development builds remain possible without a certificate. A configured or
+# required release build must never silently fall back to a new ad-hoc identity.
+if [[ -n "${TARGETBRIDGE_CODESIGN_IDENTITY:-}" ||
+      -n "${TARGETBRIDGE_SIGNING_CONFIG:-}" || -e "$SIGNING_CONFIG" ||
+      "${TARGETBRIDGE_REQUIRE_PERSISTENT_SIGNING:-0}" == 1 ]]; then
+  "$SCRIPT_DIR/sign_targetbridge_receiver_app.sh" --check-identity
+else
+  echo "WARNING: unconfigured disposable build; this ad-hoc app is not an identity-preserving update." >&2
+  export TARGETBRIDGE_CODESIGN_IDENTITY=-
+  export TARGETBRIDGE_ALLOW_ADHOC=1
+fi
 
 cd "$ROOT/TBReceiverC"
 make clean
@@ -108,11 +121,8 @@ cat > "$APP_DIR/Contents/Info.plist" <<EOF
 EOF
 
 printf 'APPL????' > "$APP_DIR/Contents/PkgInfo"
-# Sign each bundled dylib first, then the app
-find "$APP_DIR/Contents/Frameworks" -name "*.dylib" | while read dylib; do
-  codesign --force --sign - "$dylib" >/dev/null 2>&1 || true
-done
-codesign --force --deep --sign - "$APP_DIR" >/dev/null 2>&1 || true
+# Sign the complete bundle only after all runtime dependencies are present.
+"$SCRIPT_DIR/sign_targetbridge_receiver_app.sh" "$APP_DIR"
 
 # A released bundle must never depend on the Homebrew installation used to
 # compile it. Check the executable and every bundled dynamic library after
