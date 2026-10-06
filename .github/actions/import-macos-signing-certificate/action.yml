@@ -1,0 +1,30 @@
+name: Import macOS signing certificate
+description: Imports the release signing certificate and exports its persistent identity.
+inputs:
+  certificate-base64:
+    required: true
+  certificate-password:
+    required: true
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        CERTIFICATE_BASE64: ${{ inputs.certificate-base64 }}
+        CERTIFICATE_PASSWORD: ${{ inputs.certificate-password }}
+      run: |
+        set -euo pipefail
+        certificate_path="$RUNNER_TEMP/targetbridge-signing.p12"
+        keychain_path="$RUNNER_TEMP/targetbridge-signing.keychain-db"
+        keychain_password="$(uuidgen)"
+        printf '%s' "$CERTIFICATE_BASE64" | base64 -D > "$certificate_path"
+        security create-keychain -p "$keychain_password" "$keychain_path"
+        security set-keychain-settings -lut 21600 "$keychain_path"
+        security unlock-keychain -p "$keychain_password" "$keychain_path"
+        security import "$certificate_path" -k "$keychain_path" -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+        security list-keychain -d user -s "$keychain_path"
+        security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain_path"
+        identity="$(security find-identity -v -p codesigning "$keychain_path" | sed -nE 's/.* ([A-F0-9]{40}) .*/\1/p' | head -n1)"
+        test -n "$identity"
+        echo "TARGETBRIDGE_CODESIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
+        echo "Imported TargetBridge signing identity ${identity:0:8}..."

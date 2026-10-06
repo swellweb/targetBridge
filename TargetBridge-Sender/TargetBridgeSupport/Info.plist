@@ -12,6 +12,12 @@
     <string>TargetBridge requires screen recording permission to capture the virtual display or mirror the desktop to the iMac.</string>
     <key>NSAppleEventsUsageDescription</key>
     <string>TargetBridge uses System Events to run shortcuts selected for Receiver is Master.</string>
+    <key>NSBonjourServices</key>
+    <array>
+        <string>_targetbridge._tcp</string>
+    </array>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>TargetBridge connects to your receiver over Thunderbolt Bridge or your local network.</string>
     <key>CFBundleURLTypes</key>
     <array>
         <dict>

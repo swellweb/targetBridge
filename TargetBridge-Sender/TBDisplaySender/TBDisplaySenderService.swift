@@ -23,6 +23,8 @@ enum TBVideoQueueBudget {
 }
 
 enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
+    case standard1080p
+    case smooth1080p60
     case standard1440p
     case smooth1440p60
     case smooth1800p60
@@ -35,6 +37,10 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
+        case .standard1080p:
+            return "Full HD"
+        case .smooth1080p60:
+            return "Full HD 60"
         case .standard1440p:
             return "Standard"
         case .smooth1440p60:
@@ -54,6 +60,10 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
 
     var description: String {
         switch self {
+        case .standard1080p:
+            return "1920 × 1080"
+        case .smooth1080p60:
+            return "1920 × 1080 @ 60"
         case .standard1440p:
             return "2560 × 1440"
         case .smooth1440p60:
@@ -73,6 +83,8 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
 
     var width: Int {
         switch self {
+        case .standard1080p, .smooth1080p60:
+            return 1920
         case .standard1440p, .smooth1440p60:
             return 2560
         case .smooth1800p60:
@@ -88,6 +100,8 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
 
     var height: Int {
         switch self {
+        case .standard1080p, .smooth1080p60:
+            return 1080
         case .standard1440p, .smooth1440p60:
             return 1440
         case .smooth1800p60:
@@ -103,6 +117,10 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
 
     var averageBitRate: Int {
         switch self {
+        case .standard1080p:
+            return 20_000_000
+        case .smooth1080p60:
+            return 30_000_000
         case .standard1440p:
             return 36_000_000
         case .smooth1440p60:
@@ -122,7 +140,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
 
     var codecName: String {
         switch self {
-        case .standard1440p, .smooth1440p60, .smooth1800p60:
+        case .standard1080p, .smooth1080p60, .standard1440p, .smooth1440p60, .smooth1800p60:
             return "H.264"
         case .crisp2160p60, .retina4k60, .native5k, .native5k60Experimental:
             return "HEVC"
@@ -131,7 +149,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
 
     var codecType: CMVideoCodecType {
         switch self {
-        case .standard1440p, .smooth1440p60, .smooth1800p60:
+        case .standard1080p, .smooth1080p60, .standard1440p, .smooth1440p60, .smooth1800p60:
             return kCMVideoCodecType_H264
         case .crisp2160p60, .retina4k60, .native5k, .native5k60Experimental:
             return kCMVideoCodecType_HEVC
@@ -143,9 +161,9 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
             return parsed
         }
         switch self {
-        case .standard1440p:
+        case .standard1080p, .standard1440p:
             return 3
-        case .smooth1440p60, .smooth1800p60, .crisp2160p60, .retina4k60,
+        case .smooth1080p60, .smooth1440p60, .smooth1800p60, .crisp2160p60, .retina4k60,
              .native5k, .native5k60Experimental:
             // Five surfaces protect WindowServer from starvation during
             // high-frame-rate 4K capture while the serial pipeline prevents an
@@ -156,6 +174,10 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
 
     var expectedFrameRate: Int {
         switch self {
+        case .standard1080p:
+            return 30
+        case .smooth1080p60:
+            return 60
         case .standard1440p:
             return 30
         case .smooth1440p60:
@@ -180,6 +202,8 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
 
     var maxKeyFrameInterval: Int {
         switch self {
+        case .standard1080p, .smooth1080p60:
+            return 60
         case .standard1440p:
             return 60
         case .smooth1440p60:
@@ -197,6 +221,10 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
 
     var maxKeyFrameIntervalDuration: Int {
         switch self {
+        case .standard1080p:
+            return 2
+        case .smooth1080p60:
+            return 1
         case .standard1440p:
             return 2
         case .smooth1440p60:
@@ -210,9 +238,9 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
 
     var prioritizeSpeed: Bool {
         switch self {
-        case .standard1440p:
+        case .standard1080p, .standard1440p:
             return false
-        case .smooth1440p60, .smooth1800p60, .crisp2160p60, .retina4k60, .native5k, .native5k60Experimental:
+        case .smooth1080p60, .smooth1440p60, .smooth1800p60, .crisp2160p60, .retina4k60, .native5k, .native5k60Experimental:
             return true
         }
     }
@@ -226,18 +254,18 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
 
     var maxFrameDelayCount: Int {
         switch self {
-        case .standard1440p:
+        case .standard1080p, .standard1440p:
             return 1
-        case .smooth1440p60, .smooth1800p60, .crisp2160p60, .retina4k60, .native5k, .native5k60Experimental:
+        case .smooth1080p60, .smooth1440p60, .smooth1800p60, .crisp2160p60, .retina4k60, .native5k, .native5k60Experimental:
             return 0
         }
     }
 
     var dropsBeforeEncodeWhenBacklogged: Bool {
         switch self {
-        case .standard1440p:
+        case .standard1080p, .standard1440p:
             return false
-        case .smooth1440p60, .smooth1800p60, .crisp2160p60, .retina4k60, .native5k, .native5k60Experimental:
+        case .smooth1080p60, .smooth1440p60, .smooth1800p60, .crisp2160p60, .retina4k60, .native5k, .native5k60Experimental:
             return true
         }
     }
@@ -251,7 +279,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
 
     var captureResolution: SCCaptureResolutionType {
         switch self {
-        case .standard1440p, .smooth1440p60, .smooth1800p60:
+        case .standard1080p, .smooth1080p60, .standard1440p, .smooth1440p60, .smooth1800p60:
             return .nominal
         case .crisp2160p60, .retina4k60, .native5k, .native5k60Experimental:
             return .best
@@ -260,6 +288,8 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
 
     var virtualDisplayRefreshRate: Double {
         switch self {
+        case .standard1080p, .smooth1080p60:
+            return 60
         case .standard1440p:
             return 60
         case .smooth1440p60, .smooth1800p60:
@@ -286,6 +316,33 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
     /// Logical desktop size the user ends up with under render matching.
     var renderMatchedDesktopDescription: String {
         "\(width / 2) × \(height / 2)"
+    }
+
+    /// Virtual display mode for a receiver whose panel already matches the stream
+    /// pixel for pixel. Rendering 1x keeps the desktop at its true size and makes
+    /// capture 1:1; the HiDPI variant would halve the logical desktop and draw every
+    /// control at 2x on a panel with no extra pixels to resolve it.
+    var nativeScaleDisplayMode: TBVirtualDisplayModeSize {
+        TBVirtualDisplayModeSize(width: width, height: height, isHiDPI: false)
+    }
+
+    /// True for profiles that target a receiver panel of exactly this resolution,
+    /// with no extra pixels for a HiDPI backing store.
+    ///
+    /// The receiver advertises a fixed 5120x2880 panel and a 2560x1440 HiDPI mode
+    /// no matter what it is actually plugged into, so its profile cannot be used to
+    /// detect a non-Retina panel; the capture profile is the signal instead. A
+    /// 21.5-inch non-Retina iMac running the 1080p profiles wants a 1920x1080 1x
+    /// desktop: HiDPI would render the desktop at 960x540 and draw every control at
+    /// 2x, and the receiver's own 1440p default would rescale twice on the way out.
+    var rendersAtNativeScale: Bool {
+        switch self {
+        case .standard1080p, .smooth1080p60:
+            return true
+        case .standard1440p, .smooth1440p60, .smooth1800p60, .crisp2160p60, .retina4k60,
+             .native5k, .native5k60Experimental:
+            return false
+        }
     }
 }
 
@@ -328,6 +385,19 @@ struct TBFrameRatePacer {
         }
         return true
     }
+}
+
+enum TBDisplayCodecPreference: String, CaseIterable, Identifiable, Codable {
+    case automatic
+    case h264
+    case hevc
+
+    var id: String { rawValue }
+}
+
+struct TBDisplayCodecDecision: Equatable {
+    let codecType: CMVideoCodecType
+    let usedFallback: Bool
 }
 
 enum TBDisplayCaptureSource: String, CaseIterable, Identifiable {
@@ -1100,7 +1170,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     }
     var shortHostName: String? {
         if let receiver = TBDisplaySenderService.shared.discoveredReceivers.first(where: {
-            $0.id == selectedReceiverID ||
+            $0.matchesPersistedIdentity(selectedReceiverID) ||
             $0.preferredIP == receiverIP ||
             $0.thunderboltIP == receiverIP ||
             $0.networkIP == receiverIP
@@ -1196,6 +1266,17 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
             }
         }
     }
+    @Published var codecPreference: TBDisplayCodecPreference = .automatic {
+        didSet {
+            if !isStreaming {
+                streamResolutionText = TBDisplaySenderL10n.streamSummary(
+                    preset: capturePreset,
+                    source: captureSource,
+                    language: language
+                )
+            }
+        }
+    }
     @Published var captureSource: TBDisplayCaptureSource = .desktopMirror {
         didSet {
             if !isStreaming {
@@ -1271,9 +1352,11 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     private var lastCheckedCursor: NSCursor?
     private var lastCheckedCursorType: Int = 0
     private var baselineDisplayIDs = Set<CGDirectDisplayID>()
+    private var headlessMirrorUsesVirtualDisplay = false
     private var cursorDisplayID: CGDirectDisplayID = kCGNullDirectDisplay
     private var lastCursorPacket: TBMonitorCursor?
     private var injectedRemoteMouseLocation: CGPoint?
+    private var cachedLocalInputEventSource: CGEventSource?
     private var injectedLeftClickTracker = TBInjectedClickStateTracker()
     private let localPointerModifierBridge = TBLocalPointerModifierBridge()
     private var injectedCommandDown = false
@@ -1287,7 +1370,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     /// While a binding trigger key is held (matched), swallow its key-up so the
     /// raw trigger key never reaches the slave.
     private var suppressedTriggerKeyCode: UInt16?
-    private static var cachedSupportsHEVCHardwareEncode: Bool?
+    private static var cachedHardwareEncoderSupport: [String: Bool] = [:]
     private var receivedInputEventCount: UInt64 = 0
     var onRemoteSwitchRequest: ((Int) -> Void)?
     var onRemoteDeactivateInputRequest: (() -> Void)?
@@ -1339,9 +1422,14 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         statusText = state.text(language)
     }
 
-    private static func probeHEVCHardwareEncoderSupport() -> Bool {
-        if let cachedSupportsHEVCHardwareEncode {
-            return cachedSupportsHEVCHardwareEncode
+    private static func probeHardwareEncoderSupport(
+        codecType: CMVideoCodecType,
+        width: Int,
+        height: Int
+    ) -> Bool {
+        let cacheKey = "\(codecType)-\(width)x\(height)"
+        if let cached = cachedHardwareEncoderSupport[cacheKey] {
+            return cached
         }
 
         let encoderSpecification: CFDictionary = [
@@ -1352,9 +1440,9 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         var session: VTCompressionSession?
         let status = VTCompressionSessionCreate(
             allocator: kCFAllocatorDefault,
-            width: 1920,
-            height: 1080,
-            codecType: kCMVideoCodecType_HEVC,
+            width: Int32(width),
+            height: Int32(height),
+            codecType: codecType,
             encoderSpecification: encoderSpecification,
             imageBufferAttributes: nil,
             compressedDataAllocator: nil,
@@ -1367,21 +1455,74 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         }
 
         let supported = status == noErr
-        cachedSupportsHEVCHardwareEncode = supported
+        cachedHardwareEncoderSupport[cacheKey] = supported
         return supported
     }
 
-    private func resolvedCodecType(for preset: TBDisplayCapturePreset, profile: TBMonitorDisplayProfile?) -> CMVideoCodecType {
-        switch preset {
-        case .standard1440p, .smooth1440p60, .smooth1800p60:
-            let receiverSupportsHEVC = profile?.supportsHEVCDecode ?? receiverSupportsHEVCDecodeHint ?? false
-            if receiverSupportsHEVC, Self.probeHEVCHardwareEncoderSupport() {
-                return kCMVideoCodecType_HEVC
-            }
-            return kCMVideoCodecType_H264
-        case .crisp2160p60, .retina4k60, .native5k, .native5k60Experimental:
-            return preset.codecType
+    static func chooseCodec(
+        preference: TBDisplayCodecPreference,
+        preset: TBDisplayCapturePreset,
+        receiverSupportsHEVC: Bool,
+        senderSupportsH264: Bool,
+        senderSupportsHEVC: Bool
+    ) -> TBDisplayCodecDecision? {
+        let h264Available = senderSupportsH264
+        let hevcAvailable = receiverSupportsHEVC && senderSupportsHEVC
+        let preferredCodec: CMVideoCodecType
+
+        switch preference {
+        case .automatic:
+            preferredCodec = preset.codecType == kCMVideoCodecType_HEVC || hevcAvailable
+                ? kCMVideoCodecType_HEVC
+                : kCMVideoCodecType_H264
+        case .h264:
+            preferredCodec = kCMVideoCodecType_H264
+        case .hevc:
+            preferredCodec = kCMVideoCodecType_HEVC
         }
+
+        if preferredCodec == kCMVideoCodecType_HEVC, hevcAvailable {
+            return TBDisplayCodecDecision(codecType: kCMVideoCodecType_HEVC, usedFallback: false)
+        }
+        if preferredCodec == kCMVideoCodecType_H264, h264Available {
+            return TBDisplayCodecDecision(codecType: kCMVideoCodecType_H264, usedFallback: false)
+        }
+        if preferredCodec == kCMVideoCodecType_HEVC, h264Available {
+            return TBDisplayCodecDecision(codecType: kCMVideoCodecType_H264, usedFallback: true)
+        }
+        if preferredCodec == kCMVideoCodecType_H264, hevcAvailable {
+            return TBDisplayCodecDecision(codecType: kCMVideoCodecType_HEVC, usedFallback: true)
+        }
+
+        return nil
+    }
+
+    private func resolvedCodecDecision(
+        for preset: TBDisplayCapturePreset,
+        profile: TBMonitorDisplayProfile?
+    ) -> TBDisplayCodecDecision? {
+        let receiverSupportsHEVC = profile?.supportsHEVCDecode
+            ?? receiverSupportsHEVCDecodeHint
+            ?? false
+        return Self.chooseCodec(
+            preference: codecPreference,
+            preset: preset,
+            receiverSupportsHEVC: receiverSupportsHEVC,
+            senderSupportsH264: Self.probeHardwareEncoderSupport(
+                codecType: kCMVideoCodecType_H264,
+                width: preset.width,
+                height: preset.height
+            ),
+            senderSupportsHEVC: Self.probeHardwareEncoderSupport(
+                codecType: kCMVideoCodecType_HEVC,
+                width: preset.width,
+                height: preset.height
+            )
+        )
+    }
+
+    private func resolvedCodecType(for preset: TBDisplayCapturePreset, profile: TBMonitorDisplayProfile?) -> CMVideoCodecType {
+        resolvedCodecDecision(for: preset, profile: profile)?.codecType ?? preset.codecType
     }
 
     private func codecName(for codecType: CMVideoCodecType) -> String {
@@ -1760,6 +1901,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         sentSnapshot = 0
         sessionAckSent = false
         baselineDisplayIDs = []
+        headlessMirrorUsesVirtualDisplay = false
         cursorDisplayID = kCGNullDirectDisplay
         lastCursorPacket = nil
         captureDisplayText = TBDisplaySenderL10n.captureDisplayNotAvailable(language)
@@ -1774,7 +1916,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         // changes. Using the address here made macOS forget a receiver's virtual
         // display identity and saved placement after a wake or reconnect.
         if let receiver = TBDisplaySenderService.shared.discoveredReceivers.first(where: {
-            $0.id == selectedReceiverID ||
+            $0.matchesPersistedIdentity(selectedReceiverID) ||
             $0.preferredIP == receiverIP ||
             $0.thunderboltIP == receiverIP ||
             $0.networkIP == receiverIP
@@ -1783,9 +1925,14 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         }
 
         let selectedID = selectedReceiverID.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let serviceName = selectedID.split(separator: "|", maxSplits: 1).first,
-           !serviceName.isEmpty {
-            return "service:\(serviceName)"
+        if !selectedID.isEmpty {
+            if selectedID.hasPrefix("receiver:") || selectedID.hasPrefix("service:") {
+                return selectedID
+            }
+            if let serviceName = selectedID.split(separator: "|", maxSplits: 1).first,
+               !serviceName.isEmpty {
+                return "service:\(serviceName)"
+            }
         }
 
         if let host = shortHostName?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -2117,14 +2264,21 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     }
 
     private func localInputEventSource() -> CGEventSource? {
+        if let cachedLocalInputEventSource {
+            return cachedLocalInputEventSource
+        }
         let source = CGEventSource(stateID: .hidSystemState)
         source?.localEventsSuppressionInterval = 0
+        cachedLocalInputEventSource = source
         return source
     }
 
     private func logLocalInputInjectionStateIfNeeded(context: String) {
-        let trusted = AXIsProcessTrusted()
-        TBInputDebugLog.log("sender input injection state trusted=\(trusted) context=\(context)")
+        if context == "mouseMove" {
+            TBInputDebugLog.logInputEvent("sender input injection state trusted=\(AXIsProcessTrusted()) context=\(context)")
+        } else {
+            TBInputDebugLog.log("sender input injection state trusted=\(AXIsProcessTrusted()) context=\(context)")
+        }
     }
 
     private func postLocalMouseMove(dx: Int, dy: Int, type: CGEventType = .mouseMoved, button: CGMouseButton = .left) {
@@ -2277,7 +2431,11 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     }
 
     private func applyIncomingInputEvent(_ event: TBMonitorInputEvent, payload: Data) {
-        TBInputDebugLog.log("sender applying incoming event kind=\(event.kind)")
+        if event.kind == "move" || event.kind.hasSuffix("Drag") || event.kind == "scroll" {
+            TBInputDebugLog.logInputEvent("sender applying incoming event kind=\(event.kind)")
+        } else {
+            TBInputDebugLog.log("sender applying incoming event kind=\(event.kind)")
+        }
         switch event.kind {
         case "move":
             postLocalMouseMove(dx: event.dx ?? 0, dy: event.dy ?? 0)
@@ -2458,19 +2616,32 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
             // Wake and hold the graphical session before virtual display setup.
             self.beginCaptureActivity()
             self.setStatus(.creatingVirtualDisplay)
+            self.headlessMirrorUsesVirtualDisplay = false
             self.baselineDisplayIDs = self.captureSource == .extendedDesktop
                 ? await self.fetchShareableDisplayIDs()
                 : []
             let receiverKey = self.extendedDisplayIdentityKey(for: profile)
-            let modeOverride: TBVirtualDisplayModeSize? = (self.matchRenderToStream && self.captureSource == .extendedDesktop)
-                ? self.capturePreset.renderMatchedDisplayMode
-                : nil
+            // A native-scale profile targets a panel with exactly this many pixels, so
+            // render the desktop 1x at the stream size: capture is 1:1 and the panel
+            // shows it at its true size. This takes priority over render matching,
+            // whose 2x mode would halve the logical desktop for no gain on a panel with
+            // no extra pixels to resolve it.
+            let modeOverride: TBVirtualDisplayModeSize?
+            if self.capturePreset.rendersAtNativeScale {
+                modeOverride = self.capturePreset.nativeScaleDisplayMode
+            } else if self.matchRenderToStream && self.captureSource == .extendedDesktop {
+                modeOverride = self.capturePreset.renderMatchedDisplayMode
+            } else {
+                modeOverride = nil
+            }
             if let modeOverride {
                 NSLog(
-                    "TargetBridge: render matching on, virtual display mode %dx%d (backing %dx%d) for %dx%d stream",
+                    "TargetBridge: virtual display mode %dx%d %@ (backing %dx%d) for %dx%d stream, panel %dx%d",
                     modeOverride.width, modeOverride.height,
+                    modeOverride.isHiDPI ? "HiDPI" : "1x",
                     modeOverride.backingWidth, modeOverride.backingHeight,
-                    self.capturePreset.width, self.capturePreset.height
+                    self.capturePreset.width, self.capturePreset.height,
+                    profile.panelWidth, profile.panelHeight
                 )
             }
             guard self.session.create(
@@ -2485,8 +2656,18 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
                 return
             }
             if self.captureSource == .desktopMirror {
-                if CGDisplayIsInMirrorSet(self.session.displayID) == 0 {
-                    let displayReady = await self.waitForOnlineDisplay(self.session.displayID)
+                let displayReady = await self.waitForOnlineDisplay(self.session.displayID)
+                self.headlessMirrorUsesVirtualDisplay = displayReady && Self.shouldUseHeadlessVirtualDisplay(
+                    virtualDisplayID: self.session.displayID,
+                    mainDisplayID: CGMainDisplayID(),
+                    onlineDisplayIDs: self.onlineDisplayIDs()
+                )
+                if self.headlessMirrorUsesVirtualDisplay {
+                    NSLog(
+                        "TargetBridge: headless mirror mode uses virtual display %u directly",
+                        self.session.displayID
+                    )
+                } else if CGDisplayIsInMirrorSet(self.session.displayID) == 0 {
                     let mirrorConfigured = displayReady && self.configureDesktopMirror(for: self.session.displayID)
                     if !mirrorConfigured {
                         NSLog(
@@ -2530,7 +2711,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
 
             if self.captureSource == .extendedDesktop {
                 self.scheduleExtendedDesktopRecovery(for: self.session.displayID)
-            } else if self.captureSource == .desktopMirror {
+            } else if self.captureSource == .desktopMirror && !self.headlessMirrorUsesVirtualDisplay {
                 self.scheduleDesktopMirrorRecovery(for: self.session.displayID)
             }
 
@@ -2553,10 +2734,28 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
 
             let preset = capturePreset
             let usesRawNV12 = rawNV12Enabled(for: profile)
-            let codecType = resolvedCodecType(for: preset, profile: profile)
+            let codecDecision: TBDisplayCodecDecision
+            if usesRawNV12 {
+                codecDecision = TBDisplayCodecDecision(codecType: preset.codecType, usedFallback: false)
+            } else {
+                guard let resolvedDecision = resolvedCodecDecision(for: preset, profile: profile) else {
+                    setStatus(.captureError(TBDisplaySenderL10n.codecUnavailable(language)))
+                    TBLog.connection.error(
+                        "capture: no compatible hardware codec preset=\(preset.rawValue, privacy: .public) preference=\(self.codecPreference.rawValue, privacy: .public)"
+                    )
+                    return false
+                }
+                codecDecision = resolvedDecision
+            }
+            let codecType = codecDecision.codecType
             let codecName = usesRawNV12 ? "NV12 RAW" : codecName(for: codecType)
             activeCodecType = usesRawNV12 ? nil : codecType
             activeCodecName = codecName
+            if codecDecision.usedFallback {
+                TBLog.connection.notice(
+                    "capture: codec fallback preference=\(self.codecPreference.rawValue, privacy: .public) selected=\(codecName, privacy: .public)"
+                )
+            }
             guard let connection else { return false }
 
             // The encode/send pipeline runs entirely on its own serial queue,
@@ -2581,11 +2780,14 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
 
             let display: SCDisplay
             if captureSource == .desktopMirror {
-                if let mirrorDisplay = try await resolveMirrorCaptureDisplay() {
+                if headlessMirrorUsesVirtualDisplay {
+                    TBLog.connection.info("capture: headless virtual display uses direct stream id=\(self.session.displayID, privacy: .public)")
+                    return await startDirectDisplayStream(displayID: session.displayID, preset: preset)
+                } else if let mirrorDisplay = try await resolveMirrorCaptureDisplay() {
                     display = mirrorDisplay
                 } else if let fallbackDisplayID = directMirrorFallbackDisplayID() {
                     TBLog.connection.warning("capture: no virtual ScreenCaptureKit display; using direct fallback id=\(fallbackDisplayID, privacy: .public)")
-                    return startDirectDisplayStream(displayID: fallbackDisplayID, preset: preset)
+                    return await startDirectDisplayStream(displayID: fallbackDisplayID, preset: preset)
                 } else {
                     return false
                 }
@@ -2712,7 +2914,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         return nil
     }
 
-    private func startDirectDisplayStream(displayID: CGDirectDisplayID, preset: TBDisplayCapturePreset) -> Bool {
+    private func startDirectDisplayStream(displayID: CGDirectDisplayID, preset: TBDisplayCapturePreset) async -> Bool {
         guard let pipeline else { return false }
         let usesCursorOverlay = inputControlRole.usesLowLatencyCursorOverlay(
             largeCursorEnabled: largeCursor
@@ -2733,6 +2935,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         }
 
         directDisplayStream = directCapture
+        await startAuxiliaryAudioCapture(preferredDisplayID: displayID)
         captureDisplayText = TBDisplaySenderL10n.captureDisplayCGDisplayStream(language, id: displayID)
         isStreaming = true
         if usesCursorOverlay { startCursorUpdates(displayID: displayID) }
@@ -2740,6 +2943,65 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         startFPSTimer()
         startCaptureWatchdog()
         return true
+    }
+
+    /// CGDisplayStream is the most reliable video source when the virtual
+    /// display is the headless Mac's only online display, but it has no audio
+    /// output. Keep that low-latency video path and run an audio-only
+    /// ScreenCaptureKit stream beside it when audio relay is enabled.
+    private func startAuxiliaryAudioCapture(preferredDisplayID: CGDirectDisplayID) async {
+        guard Self.needsAuxiliaryAudioCapture(
+            usingDirectDisplayStream: true,
+            shouldRelayAudio: shouldRelayAudio
+        ) else { return }
+
+        do {
+            let content = try await SCShareableContent.excludingDesktopWindows(
+                false,
+                onScreenWindowsOnly: false
+            )
+            guard let display = content.displays.first(where: { $0.displayID == preferredDisplayID })
+                    ?? content.displays.first else {
+                TBLog.connection.warning("capture: auxiliary audio unavailable because ScreenCaptureKit exposed no display")
+                return
+            }
+
+            let configuration = SCStreamConfiguration()
+            configuration.width = 2
+            configuration.height = 2
+            configuration.minimumFrameInterval = CMTime(value: 1, timescale: 1)
+            configuration.queueDepth = 1
+            configuration.showsCursor = false
+            configuration.capturesAudio = true
+            configuration.excludesCurrentProcessAudio = true
+            configuration.sampleRate = 48000
+            configuration.channelCount = 2
+
+            let delegate = CaptureDelegate()
+            delegate.onAudio = { [weak self] sampleBuffer in
+                self?.processAudio(sampleBuffer)
+            }
+            delegate.onError = { error in
+                NSLog("TargetBridge: auxiliary audio stream stopped: %@", error.localizedDescription)
+            }
+
+            let filter = SCContentFilter(display: display, excludingWindows: [])
+            let stream = SCStream(filter: filter, configuration: configuration, delegate: delegate)
+            try stream.addStreamOutput(
+                delegate,
+                type: .audio,
+                sampleHandlerQueue: DispatchQueue(
+                    label: "fd.tbmonitor.sender.direct-audio",
+                    qos: .userInteractive
+                )
+            )
+            try await stream.startCapture()
+            captureDelegate = delegate
+            scStream = stream
+            TBLog.connection.info("capture: auxiliary audio stream active beside direct video")
+        } catch {
+            TBLog.connection.warning("capture: auxiliary audio unavailable: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     private func activityOptions() -> ProcessInfo.ActivityOptions {
@@ -2894,6 +3156,28 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         }
 
         return false
+    }
+
+    static func shouldUseHeadlessVirtualDisplay(
+        virtualDisplayID: CGDirectDisplayID,
+        mainDisplayID: CGDirectDisplayID,
+        onlineDisplayIDs: [CGDirectDisplayID]
+    ) -> Bool {
+        guard virtualDisplayID != kCGNullDirectDisplay,
+              mainDisplayID == virtualDisplayID,
+              onlineDisplayIDs.contains(virtualDisplayID)
+        else { return false }
+
+        return onlineDisplayIDs.allSatisfy {
+            $0 == kCGNullDirectDisplay || $0 == virtualDisplayID
+        }
+    }
+
+    static func needsAuxiliaryAudioCapture(
+        usingDirectDisplayStream: Bool,
+        shouldRelayAudio: Bool
+    ) -> Bool {
+        usingDirectDisplayStream && shouldRelayAudio
     }
 
     private func scheduleExtendedDesktopRecovery(for virtualDisplayID: CGDirectDisplayID) {

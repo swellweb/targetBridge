@@ -29,10 +29,21 @@ jobs:
         run: |
           brew install xcodegen
 
+      - name: Import release signing certificate
+        if: ${{ secrets.TARGETBRIDGE_CODESIGN_P12_BASE64 != '' }}
+        uses: ./.github/actions/import-macos-signing-certificate
+        with:
+          certificate-base64: ${{ secrets.TARGETBRIDGE_CODESIGN_P12_BASE64 }}
+          certificate-password: ${{ secrets.TARGETBRIDGE_CODESIGN_P12_PASSWORD }}
+
       - name: Build Sender App
         run: |
           cd TargetBridge-Sender
-          ./scripts/build_targetbridge_sender_app.sh
+          TB_BUILD="$(grep -m1 'CURRENT_PROJECT_VERSION:' project.yml | sed -E 's/.*\"([^\"]+)\".*/\1/')"
+          test -n "$TB_BUILD"
+          REQUIRE_PERSISTENT_SIGNING=0
+          [[ "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] && REQUIRE_PERSISTENT_SIGNING=1
+          TB_SENDER_BUILD="$TB_BUILD" TARGETBRIDGE_REQUIRE_PERSISTENT_SIGNING="$REQUIRE_PERSISTENT_SIGNING" ./scripts/build_targetbridge_sender_app.sh
           file ../build/TargetBridge.app/Contents/MacOS/TargetBridge | grep -q "${{ matrix.arch }}"
 
       - name: Zip App Bundle
@@ -70,10 +81,21 @@ jobs:
         run: |
           brew install ffmpeg sdl2 sdl3 dylibbundler
 
+      - name: Import release signing certificate
+        if: ${{ secrets.TARGETBRIDGE_CODESIGN_P12_BASE64 != '' }}
+        uses: ./.github/actions/import-macos-signing-certificate
+        with:
+          certificate-base64: ${{ secrets.TARGETBRIDGE_CODESIGN_P12_BASE64 }}
+          certificate-password: ${{ secrets.TARGETBRIDGE_CODESIGN_P12_PASSWORD }}
+
       - name: Build Receiver App
         run: |
           cd TargetBridge-Receiver
-          ./scripts/build_tbreceiver_c_app.sh
+          TB_BUILD="$(grep -m1 'CURRENT_PROJECT_VERSION:' ../TargetBridge-Sender/project.yml | sed -E 's/.*\"([^\"]+)\".*/\1/')"
+          test -n "$TB_BUILD"
+          REQUIRE_PERSISTENT_SIGNING=0
+          [[ "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] && REQUIRE_PERSISTENT_SIGNING=1
+          APP_BUILD="$TB_BUILD" TARGETBRIDGE_REQUIRE_PERSISTENT_SIGNING="$REQUIRE_PERSISTENT_SIGNING" ./scripts/build_tbreceiver_c_app.sh
 
       - name: Zip App Bundle
         run: |
