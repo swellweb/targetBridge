@@ -5,6 +5,9 @@ import UniformTypeIdentifiers
 struct TBDisplaySenderSettingsView: View {
     @ObservedObject var service: TBDisplaySenderService
     @State private var importError: String?
+    /// Settings follows the system appearance like any macOS settings window
+    /// (the dashboard windows force dark); the backdrop picks a matching tone.
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         ScrollView {
@@ -25,7 +28,7 @@ struct TBDisplaySenderSettingsView: View {
                                 )
                             Image(systemName: "slider.horizontal.3")
                                 .font(.system(size: 24, weight: .semibold))
-                                .foregroundStyle(.white.opacity(0.95))
+                                .foregroundStyle(Color.primary.opacity(0.95))
                         }
                         .frame(width: 68, height: 68)
 
@@ -168,7 +171,7 @@ struct TBDisplaySenderSettingsView: View {
             .padding(.vertical, 6)
             .background(
                 Capsule(style: .continuous)
-                    .fill(Color.white.opacity(0.06))
+                    .fill(Color.primary.opacity(0.06))
             )
     }
 
@@ -260,10 +263,15 @@ struct TBDisplaySenderSettingsView: View {
 
     private var appBackground: some View {
         LinearGradient(
-            colors: [
-                Color(red: 0.12, green: 0.13, blue: 0.14),
-                Color(red: 0.08, green: 0.09, blue: 0.10)
-            ],
+            colors: colorScheme == .dark
+                ? [
+                    Color(red: 0.12, green: 0.13, blue: 0.14),
+                    Color(red: 0.08, green: 0.09, blue: 0.10)
+                ]
+                : [
+                    Color(red: 0.99, green: 0.99, blue: 1.00),
+                    Color(red: 0.95, green: 0.96, blue: 0.97)
+                ],
             startPoint: .topLeading,
             endPoint: .bottomTrailing
         )
