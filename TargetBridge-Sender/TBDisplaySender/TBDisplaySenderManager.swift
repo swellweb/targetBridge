@@ -103,11 +103,36 @@ final class TBDisplaySenderService: ObservableObject {
             objectWillChange.send()
         }
     }
+    /// Route the keyboard's volume keys to the receiver while audio is relayed.
+    /// Off by default: it filters key events, which needs Accessibility access.
+    @Published var volumeKeysControlReceiver: Bool = UserDefaults.standard.bool(forKey: "fd.tbdisplaysender.volumeKeysControlReceiver") {
+        didSet {
+            UserDefaults.standard.set(volumeKeysControlReceiver, forKey: "fd.tbdisplaysender.volumeKeysControlReceiver")
+            scheduleAudioRoutingUpdate()
+            objectWillChange.send()
+        }
+    }
+    /// Keep this Mac's output muted while audio is relayed, so the stream is
+    /// not heard twice. Off by default because it changes a system setting.
+    @Published var muteLocalOutputWhileRelaying: Bool = UserDefaults.standard.bool(forKey: "fd.tbdisplaysender.muteLocalOutputWhileRelaying") {
+        didSet {
+            UserDefaults.standard.set(muteLocalOutputWhileRelaying, forKey: "fd.tbdisplaysender.muteLocalOutputWhileRelaying")
+            scheduleAudioRoutingUpdate()
+            objectWillChange.send()
+        }
+    }
     private var userQuitPending = false
     private var sessionCancellables: [UUID: AnyCancellable] = [:]
     private let receiverDiscovery = TBReceiverDiscovery()
     private let addonStore = TBAddonStore.shared
     private let inputRelayController = TBInputRelayController()
+    private let volumeKeyBridge = TBVolumeKeyBridge()
+    private let localOutputMuter = TBLocalOutputMuter()
+    /// Receiver level remembered by a mute key press, per session, so the
+    /// next press can restore it.
+    private var receiverVolumeBeforeMute: [UUID: Double] = [:]
+    private var audioRoutingUpdateScheduled = false
+    private var terminationObserver: NSObjectProtocol?
     private var discoveryCancellable: AnyCancellable?
     private var addonCancellable: AnyCancellable?
     private var activationObserver: NSObjectProtocol?
@@ -141,10 +166,25 @@ final class TBDisplaySenderService: ObservableObject {
                 self?.refreshPrivacyPermissions()
             }
         }
+        // A user-requested quit stops every session first, but a termination
+        // by other means (Dock, logout) must still hand the speakers back.
+        terminationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.willTerminateNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.releaseAudioRouting()
+            }
+        }
+        scheduleAudioRoutingUpdate()
     }
 
     func refreshPrivacyPermissions() {
         privacyPermissionsRevision &+= 1
+        // A freshly granted Accessibility permission lets the volume-key tap
+        // install on the next pass.
+        scheduleAudioRoutingUpdate()
     }
 
     func presentPermissionAssistantIfNeeded() {
@@ -307,6 +347,7 @@ final class TBDisplaySenderService: ObservableObject {
         session.stop()
         sessions.removeAll { $0.id == session.id }
         sessionCancellables.removeValue(forKey: session.id)
+        receiverVolumeBeforeMute.removeValue(forKey: session.id)
         normalizeAddonState()
         normalizeSessionInterfaces()
         schedulePersist()
@@ -713,6 +754,7 @@ final class TBDisplaySenderService: ObservableObject {
         }
         sessionCancellables[session.id] = session.objectWillChange.sink { [weak self] _ in
             self?.updateInputRelayController()
+            self?.scheduleAudioRoutingUpdate()
             self?.schedulePersist()
             self?.objectWillChange.send()
         }
@@ -799,10 +841,74 @@ final class TBDisplaySenderService: ObservableObject {
         normalizeSessionInterfaces()
         updateInputRelayController()
         sessions.forEach { $0.updateInputControlMode() }
+        scheduleAudioRoutingUpdate()
     }
 
     nonisolated static func restoredAudioEnabled(from persistedValue: Bool, repairPending: Bool) -> Bool {
         repairPending && !persistedValue ? true : persistedValue
+    }
+
+    // MARK: - Audio routing (volume keys, local mute)
+
+    /// True while at least one connected session relays audio — the only time
+    /// the volume keys and the local mute have anything to act on.
+    var isRelayingAudio: Bool {
+        audioRelayAvailable && sessions.contains { ($0.isConnected || $0.isStreaming) && $0.audioEnabled }
+    }
+
+    /// Session observers fire on `objectWillChange`, before the new
+    /// `isConnected` value is visible, so evaluate on the next main-loop tick
+    /// — the same reason `schedulePersist` defers. Cheap and idempotent, since
+    /// streaming churns `objectWillChange` constantly.
+    private func scheduleAudioRoutingUpdate() {
+        guard !audioRoutingUpdateScheduled else { return }
+        audioRoutingUpdateScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.audioRoutingUpdateScheduled = false
+            self.updateAudioRouting()
+        }
+    }
+
+    private func updateAudioRouting() {
+        let relaying = isRelayingAudio
+        if muteLocalOutputWhileRelaying && relaying {
+            localOutputMuter.activate()
+        } else {
+            localOutputMuter.deactivate()
+        }
+        if volumeKeysControlReceiver && relaying {
+            volumeKeyBridge.start { [weak self] key, fine in
+                self?.handleVolumeKey(key, fine: fine)
+            }
+        } else {
+            volumeKeyBridge.stop()
+        }
+    }
+
+    private func releaseAudioRouting() {
+        volumeKeyBridge.stop()
+        localOutputMuter.deactivate()
+    }
+
+    private func handleVolumeKey(_ key: TBVolumeKeyEvent.Key, fine: Bool) {
+        for session in sessions where (session.isConnected || session.isStreaming) && session.audioEnabled {
+            switch key {
+            case .up:
+                session.volume = TBReceiverVolumeKeys.step(session.volume, .up, fine: fine)
+                receiverVolumeBeforeMute.removeValue(forKey: session.id)
+            case .down:
+                session.volume = TBReceiverVolumeKeys.step(session.volume, .down, fine: fine)
+                receiverVolumeBeforeMute.removeValue(forKey: session.id)
+            case .mute:
+                let result = TBReceiverVolumeKeys.toggleMute(
+                    level: session.volume,
+                    remembered: receiverVolumeBeforeMute[session.id]
+                )
+                receiverVolumeBeforeMute[session.id] = result.remembered
+                session.volume = result.level
+            }
+        }
     }
 
     private func updateInputRelayController() {

@@ -128,10 +128,19 @@ final class TBDisplaySenderStatusItemController: NSObject {
                                             value: session.brightness) { [weak session] value in
                     session?.brightness = value
                 })
-                // No volume slider: with the TargetBridge audio device selected,
-                // macOS's own Sound slider and the F11/F12 keys already drive the
-                // receiver's hardware volume, so a second control here would just
-                // be a duplicate that can disagree with the system one.
+                // Volume drives the receiver's own output level over the session
+                // protocol. Relayed audio is captured before this Mac's volume is
+                // applied, so the system Sound slider cannot stand in for it; this
+                // row and the main window's volume card are the only controls.
+                // Shown under the same condition as that card.
+                if session.audioEnabled {
+                    menu.addItem(makeSliderItem(symbol: "speaker.fill",
+                                                trailingSymbol: "speaker.wave.3.fill",
+                                                label: volumeMenuLabel(),
+                                                value: session.volume) { [weak session] value in
+                        session?.volume = value
+                    })
+                }
                 var toggles: [TBMenuToggleSpec] = []
                 if session.receiverSupportsNightShift {
                     toggles.append(TBMenuToggleSpec(

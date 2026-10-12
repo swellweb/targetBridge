@@ -5,6 +5,9 @@ import UniformTypeIdentifiers
 struct TBDisplaySenderSettingsView: View {
     @ObservedObject var service: TBDisplaySenderService
     @State private var importError: String?
+    /// Settings follows the system appearance like any macOS settings window
+    /// (the dashboard windows force dark); the backdrop picks a matching tone.
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         ScrollView {
@@ -25,7 +28,7 @@ struct TBDisplaySenderSettingsView: View {
                                 )
                             Image(systemName: "slider.horizontal.3")
                                 .font(.system(size: 24, weight: .semibold))
-                                .foregroundStyle(.white.opacity(0.95))
+                                .foregroundStyle(Color.primary.opacity(0.95))
                         }
                         .frame(width: 68, height: 68)
 
@@ -58,6 +61,28 @@ struct TBDisplaySenderSettingsView: View {
                     Toggle(TBDisplaySenderL10n.preventDisplaySleep(service.language), isOn: $service.preventDisplaySleep)
                     Toggle(TBDisplaySenderL10n.autoRestartOnWake(service.language), isOn: $service.autoRestartOnWake)
                     Toggle(TBDisplaySenderL10n.verboseDisplayLogging(service.language), isOn: $service.verboseDisplayLogging)
+                }
+
+                settingsSection(title: audioTitle) {
+                    Toggle(TBDisplaySenderL10n.volumeKeysControlReceiver(service.language), isOn: $service.volumeKeysControlReceiver)
+                    if service.volumeKeysControlReceiver && !service.localInputInjectionTrusted {
+                        HStack(alignment: .firstTextBaseline, spacing: 12) {
+                            Text(TBDisplaySenderL10n.volumeKeysAccessibilityHint(service.language))
+                                .font(.footnote)
+                                .foregroundStyle(.orange)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Spacer()
+                            Button(TBDisplaySenderL10n.openAccessibilitySettings(service.language)) {
+                                service.openAccessibilitySettings()
+                            }
+                            .buttonStyle(.bordered)
+                        }
+                    }
+                    Toggle(TBDisplaySenderL10n.muteLocalOutputWhileRelaying(service.language), isOn: $service.muteLocalOutputWhileRelaying)
+                    Text(TBDisplaySenderL10n.audioRoutingHint(service.language))
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
 
                 settingsSection(title: behaviorTitle) {
@@ -168,7 +193,7 @@ struct TBDisplaySenderSettingsView: View {
             .padding(.vertical, 6)
             .background(
                 Capsule(style: .continuous)
-                    .fill(Color.white.opacity(0.06))
+                    .fill(Color.primary.opacity(0.06))
             )
     }
 
@@ -260,10 +285,15 @@ struct TBDisplaySenderSettingsView: View {
 
     private var appBackground: some View {
         LinearGradient(
-            colors: [
-                Color(red: 0.12, green: 0.13, blue: 0.14),
-                Color(red: 0.08, green: 0.09, blue: 0.10)
-            ],
+            colors: colorScheme == .dark
+                ? [
+                    Color(red: 0.12, green: 0.13, blue: 0.14),
+                    Color(red: 0.08, green: 0.09, blue: 0.10)
+                ]
+                : [
+                    Color(red: 0.99, green: 0.99, blue: 1.00),
+                    Color(red: 0.95, green: 0.96, blue: 0.97)
+                ],
             startPoint: .topLeading,
             endPoint: .bottomTrailing
         )
@@ -307,6 +337,16 @@ struct TBDisplaySenderSettingsView: View {
         case .german: return "Oberfläche"
         case .french: return "Interface"
         case .chinese: return "界面"
+        }
+    }
+
+    private var audioTitle: String {
+        switch service.language {
+        case .italian: return "Audio"
+        case .english: return "Audio"
+        case .german: return "Audio"
+        case .french: return "Audio"
+        case .chinese: return "音频"
         }
     }
 

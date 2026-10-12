@@ -406,6 +406,26 @@ enum TBDisplaySenderL10n {
         text("sender.toggle.default_stream_audio", language)
     }
 
+    static func volumeKeysControlReceiver(_ language: TBDisplaySenderLanguage) -> String {
+        text("sender.toggle.volume_keys_control_receiver", language)
+    }
+
+    static func muteLocalOutputWhileRelaying(_ language: TBDisplaySenderLanguage) -> String {
+        text("sender.toggle.mute_local_output_while_relaying", language)
+    }
+
+    static func audioRoutingHint(_ language: TBDisplaySenderLanguage) -> String {
+        text("sender.hint.audio_routing", language)
+    }
+
+    static func volumeKeysAccessibilityHint(_ language: TBDisplaySenderLanguage) -> String {
+        text("sender.hint.volume_keys_accessibility", language)
+    }
+
+    static func openAccessibilitySettings(_ language: TBDisplaySenderLanguage) -> String {
+        text("sender.button.open_accessibility_settings", language)
+    }
+
     static func verboseDisplayLogging(_ language: TBDisplaySenderLanguage) -> String {
         switch language {
         case .italian: return "Diagnostica display in Console (verboso)"

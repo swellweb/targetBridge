@@ -1,5 +1,9 @@
 import SwiftUI
 
+/// Card surfaces tint with `Color.primary` rather than white so they read
+/// correctly in either appearance: on the dark dashboard windows `.primary`
+/// is white (unchanged look), in a light-mode window it is black, which
+/// gives soft grey cards on a light background.
 struct SurfaceCard<Content: View>: View {
     @ViewBuilder let content: Content
 
@@ -14,8 +18,8 @@ struct SurfaceCard<Content: View>: View {
                 .fill(
                     LinearGradient(
                         colors: [
-                            Color.white.opacity(0.065),
-                            Color.white.opacity(0.03)
+                            Color.primary.opacity(0.065),
+                            Color.primary.opacity(0.03)
                         ],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
@@ -24,7 +28,7 @@ struct SurfaceCard<Content: View>: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.09), lineWidth: 1)
+                .strokeBorder(Color.primary.opacity(0.09), lineWidth: 1)
         )
     }
 }
@@ -40,11 +44,11 @@ struct SurfaceSubcard<Content: View>: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color.white.opacity(0.03))
+                .fill(Color.primary.opacity(0.03))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.07), lineWidth: 1)
+                .strokeBorder(Color.primary.opacity(0.07), lineWidth: 1)
         )
     }
 }

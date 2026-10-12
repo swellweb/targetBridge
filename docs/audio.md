@@ -29,6 +29,8 @@ flowchart LR
 
 ### 1. Capture via ScreenCaptureKit
 System audio is captured before the master hardware volume or mute is applied. This allows the user to manually mute their MacBook speakers while high-fidelity audio streams to the receiver.
+
+The Sender can also do both of these automatically. Two settings under **Settings > Audio** mute this Mac's default output device for the duration of a streaming session (`TBLocalOutputMuter`) and redirect the keyboard's volume keys to the receiver's volume over `TB_PKT_VOLUME` (`TBVolumeKeyBridge`, an event tap that needs Accessibility permission). See [Features.md](Features.md#receiver-device-controls).
 * **`capturesAudio = true`**: Enables audio capture on the `SCStream`.
 * **`excludesCurrentProcessAudio = true`**: Prevents the sender from capturing its own system sounds, avoiding feedback loops.
 * **QoS Queue**: The capture stream delegates callbacks onto a high-priority `.userInteractive` dispatch queue (`fd.tbmonitor.sender.audio`).

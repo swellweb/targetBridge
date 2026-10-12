@@ -99,6 +99,7 @@ enum TBConnectionProbeError: LocalizedError {
 /// connection lifecycle without attaching a debugger.
 enum TBLog {
     static let connection = Logger(subsystem: "com.targetbridge.sender", category: "connection")
+    static let audio = Logger(subsystem: "com.targetbridge.sender", category: "audio")
 }
 
 /// Pure helpers for deciding how to dial a receiver and for composing

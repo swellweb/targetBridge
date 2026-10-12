@@ -182,6 +182,29 @@ controls are simply not shown.
 The Sender sends the selected setting over the session protocol and the
 Receiver applies it locally.
 
+The receiver's volume is also available from the menu bar panel, next to the
+brightness slider, for sessions that stream audio.
+
+Two optional Sender settings (**TargetBridge > Settings > Audio**) tie this
+Mac's keyboard and speakers to the relayed audio while a session streams it:
+
+- `Volume keys adjust the receiver while audio is streamed`: the volume up,
+  volume down and mute keys change the receiver's volume instead of this
+  Mac's, in the same sixteen steps as macOS (sixty-four with Shift+Option).
+  Mute drops the receiver level to zero and the next press restores it. The
+  keys are filtered rather than observed, so TargetBridge needs Accessibility
+  permission; the setting shows a hint and a shortcut to System Settings
+  until it is granted.
+- `Mute this Mac's speakers while audio is streamed`: this Mac's default
+  output device is muted when streaming starts and restored when it stops,
+  so the stream is not heard twice. Only the mute flag changes, never the
+  volume. Only channels successfully muted by TargetBridge are restored;
+  channels that were already muted stay muted afterwards. If the default
+  output device changes mid-session (headphones, AirPlay), the mute follows it.
+
+Both are off by default and only act while at least one connected session
+has `Stream audio` enabled.
+
 ## Shared Translations
 
 Sender and Receiver now use shared JSON language files stored in the repository.
