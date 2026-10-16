@@ -31,12 +31,25 @@ enum TBDisplaySenderLanguage: String, CaseIterable, Identifiable {
         }
     }
 
-    static func load() -> TBDisplaySenderLanguage {
-        guard let raw = UserDefaults.standard.string(forKey: defaultsKey),
+    static func load(defaults: UserDefaults = .standard) -> TBDisplaySenderLanguage {
+        guard let raw = defaults.string(forKey: defaultsKey),
               let language = TBDisplaySenderLanguage(rawValue: raw) else {
-            return .italian
+            return preferred(by: Locale.preferredLanguages)
         }
         return language
+    }
+
+    /// The first supported language in the user's macOS language order, so a
+    /// first launch speaks the user's language instead of a fixed one.
+    /// English when none of them is supported.
+    static func preferred(by languageCodes: [String]) -> TBDisplaySenderLanguage {
+        for code in languageCodes {
+            let base = code.split(separator: "-").first.map(String.init)?.lowercased() ?? ""
+            if let language = allCases.first(where: { $0.fileStem == base }) {
+                return language
+            }
+        }
+        return .english
     }
 
     func persist() {
@@ -183,7 +196,7 @@ enum TBDisplaySenderL10n {
         case .english: return "Local interface IP"
         case .german: return "Lokale Interface-IP"
         case .french: return "IP de l’interface locale"
-        case .chinese: return "本地接口 IP"
+        case .chinese: return "本机接口 IP"
         }
     }
 
@@ -193,7 +206,7 @@ enum TBDisplaySenderL10n {
         case .english: return "Available local interfaces"
         case .german: return "Verfügbare lokale Schnittstellen"
         case .french: return "Interfaces locales disponibles"
-        case .chinese: return "可用本地接口"
+        case .chinese: return "可用的本机接口"
         }
     }
 
@@ -378,7 +391,7 @@ enum TBDisplaySenderL10n {
         case .english: return "Keep daily controls visible and open this section only when you need to reconfigure the app."
         case .german: return "Lass die täglichen Steuerelemente sichtbar und öffne diesen Bereich nur, wenn du die App neu konfigurieren musst."
         case .french: return "Gardez les commandes quotidiennes visibles et ouvrez cette section seulement lorsque vous devez reconfigurer l’app."
-        case .chinese: return "让日常控制保持可见，只在需要重新配置应用时再打开这里。"
+        case .chinese: return "日常控制始终可见；需要重新配置时再打开这里。"
         }
     }
 
@@ -412,7 +425,7 @@ enum TBDisplaySenderL10n {
         case .english: return "Log virtual display events to Console (verbose)"
         case .german: return "Virtuelle Display-Ereignisse in Konsole protokollieren (ausführlich)"
         case .french: return "Enregistrer les événements d’écran virtuel dans Console (détaillé)"
-        case .chinese: return "将虚拟显示事件详细记录到 Console"
+        case .chinese: return "把虚拟显示器事件详细记录到“控制台”"
         }
     }
 

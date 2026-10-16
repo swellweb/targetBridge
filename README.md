@@ -39,6 +39,10 @@ and improves the project. A special thank-you for this release goes to:
 
 ## TargetBridge 3.6.0
 
+Maintenance work is being validated on `maint-3.6`; see the
+[unreleased 3.6.1 candidate notes](docs/releases/3.6.1.md).
+The current published release remains **3.6.0** until validation is complete.
+
 TargetBridge 3.6.0 improves everyday connection setup and makes the display
 pipeline more adaptable without changing the stable default workflows:
 

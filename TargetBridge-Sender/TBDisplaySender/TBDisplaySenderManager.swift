@@ -16,7 +16,7 @@ enum TBTransportKind: String, CaseIterable, Identifiable {
         case (.thunderboltBridge, .english): return "Thunderbolt Bridge"
         case (.thunderboltBridge, .german): return "Thunderbolt Bridge"
         case (.thunderboltBridge, .french): return "Thunderbolt Bridge"
-        case (.thunderboltBridge, .chinese): return "Thunderbolt Bridge"
+        case (.thunderboltBridge, .chinese): return "雷雳网桥"
         case (.networkLink, .italian): return "Network Link (sperimentale)"
         case (.networkLink, .english): return "Network Link (experimental)"
         case (.networkLink, .german): return "Network Link (experimentell)"

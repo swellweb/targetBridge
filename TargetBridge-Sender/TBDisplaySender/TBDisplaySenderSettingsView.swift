@@ -286,7 +286,7 @@ struct TBDisplaySenderSettingsView: View {
         case .english: return "Global app preferences separated from the operational dashboard."
         case .german: return "Globale App-Einstellungen getrennt vom operativen Dashboard."
         case .french: return "Préférences globales de l’app séparées du tableau de bord opérationnel."
-        case .chinese: return "全局应用偏好设置与主操作面板分离。"
+        case .chinese: return "App 的全局偏好设置，与主面板分开。"
         }
     }
 
@@ -336,7 +336,7 @@ struct TBDisplaySenderSettingsView: View {
         case .english: return "TargetBridge is an open-source utility for reusing Intel iMac panels as external displays for modern Macs. Global preferences live here; per-session operational settings stay in the main window."
         case .german: return "TargetBridge ist ein Open-Source-Werkzeug, um Intel-iMac-Panels als externe Displays für moderne Macs weiterzuverwenden. Globale Einstellungen sind hier; operative Sitzungsoptionen sind im Hauptfenster."
         case .french: return "TargetBridge est un utilitaire open source qui permet de réutiliser les dalles d’iMac Intel comme écrans externes pour les Mac modernes. Les préférences globales se trouvent ici ; les réglages de chaque session restent dans la fenêtre principale."
-        case .chinese: return "TargetBridge 是一个开源工具，可将 Intel iMac 面板重新用作现代 Mac 的外接显示器。全局偏好设置在这里管理；每个会话的操作设置保留在主窗口中。"
+        case .chinese: return "TargetBridge 是一个开源工具，让 Intel iMac 的屏幕成为新款 Mac 的外接显示器。全局偏好设置在这里；每个会话的设置在主窗口里。"
         }
     }
 
@@ -356,7 +356,7 @@ struct TBDisplaySenderSettingsView: View {
         case .english: return "Latest release"
         case .german: return "Letztes Release"
         case .french: return "Dernière version"
-        case .chinese: return "最新发布"
+        case .chinese: return "最新版本"
         }
     }
 
@@ -376,7 +376,7 @@ struct TBDisplaySenderSettingsView: View {
         case .english: return "Add-ons"
         case .german: return "Add-ons"
         case .french: return "Extensions"
-        case .chinese: return "附加组件"
+        case .chinese: return "扩展"
         }
     }
 
@@ -386,7 +386,7 @@ struct TBDisplaySenderSettingsView: View {
         case .english: return "Add-ons are loaded from safe JSON manifests. Official ones ship with the app, while custom ones can be imported into the user Addons folder."
         case .german: return "Add-ons werden aus sicheren JSON-Manifests geladen. Offizielle Add-ons sind in der App enthalten, benutzerdefinierte können in den Benutzer-Addons-Ordner importiert werden."
         case .french: return "Les extensions sont chargées depuis des manifestes JSON sûrs. Les extensions officielles sont incluses dans l’app ; les extensions personnalisées peuvent être importées dans le dossier utilisateur Addons."
-        case .chinese: return "附加组件通过安全的 JSON 清单加载。官方附加组件随应用提供，自定义附加组件可导入到用户 Addons 文件夹。"
+        case .chinese: return "扩展通过安全的 JSON 清单加载。官方扩展随 App 提供，自定义扩展可以导入到用户的 Addons 文件夹。"
         }
     }
 
@@ -396,7 +396,7 @@ struct TBDisplaySenderSettingsView: View {
         case .english: return "Import Add-on..."
         case .german: return "Add-on importieren..."
         case .french: return "Importer une extension..."
-        case .chinese: return "导入附加组件..."
+        case .chinese: return "导入扩展…"
         }
     }
 
@@ -426,7 +426,7 @@ struct TBDisplaySenderSettingsView: View {
         case .english: return "No add-ons found. Import a JSON manifest or use the bundled official ones."
         case .german: return "Keine Add-ons gefunden. Importiere ein JSON-Manifest oder nutze die eingebauten offiziellen Add-ons."
         case .french: return "Aucune extension trouvée. Importez un manifeste JSON ou utilisez les extensions officielles incluses."
-        case .chinese: return "未找到附加组件。请导入 JSON 清单或使用内置官方附加组件。"
+        case .chinese: return "没有找到扩展。请导入 JSON 清单，或使用内置的官方扩展。"
         }
     }
 
@@ -436,7 +436,7 @@ struct TBDisplaySenderSettingsView: View {
         case .english: return "Stop all sessions before enabling or disabling an add-on."
         case .german: return "Beende alle Sitzungen, bevor du ein Add-on aktivierst oder deaktivierst."
         case .french: return "Arrêtez toutes les sessions avant d’activer ou de désactiver une extension."
-        case .chinese: return "请先停止所有会话，再启用或禁用附加组件。"
+        case .chinese: return "请先停止所有会话，再启用或停用扩展。"
         }
     }
 
@@ -456,7 +456,7 @@ struct TBDisplaySenderSettingsView: View {
         case .english: return "Disabled"
         case .german: return "Deaktiviert"
         case .french: return "Désactivée"
-        case .chinese: return "已禁用"
+        case .chinese: return "已停用"
         }
     }
 
@@ -486,7 +486,7 @@ struct TBDisplaySenderSettingsView: View {
         case .english: return "Capabilities"
         case .german: return "Fähigkeiten"
         case .french: return "Fonctionnalités"
-        case .chinese: return "能力"
+        case .chinese: return "功能"
         }
     }
 
@@ -496,7 +496,7 @@ struct TBDisplaySenderSettingsView: View {
         case .english: return "Add-on import failed"
         case .german: return "Add-on-Import fehlgeschlagen"
         case .french: return "Échec de l’importation de l’extension"
-        case .chinese: return "导入附加组件失败"
+        case .chinese: return "导入扩展失败"
         }
     }
 
@@ -506,7 +506,7 @@ struct TBDisplaySenderSettingsView: View {
         case .english: return "Choose a JSON manifest file for the add-on."
         case .german: return "Wähle eine JSON-Manifestdatei für das Add-on."
         case .french: return "Choisissez un fichier manifeste JSON pour l’extension."
-        case .chinese: return "请选择附加组件的 JSON 清单文件。"
+        case .chinese: return "请选择扩展的 JSON 清单文件。"
         }
     }
 
@@ -541,7 +541,7 @@ struct TBDisplaySenderSettingsView: View {
         case (.inputDockstation, .english): return "Input Dockstation"
         case (.inputDockstation, .german): return "Input Dockstation"
         case (.inputDockstation, .french): return "Station d’accueil des entrées"
-        case (.inputDockstation, .chinese): return "输入扩展坞"
+        case (.inputDockstation, .chinese): return "键鼠共享（Input Dockstation）"
         }
     }
 }

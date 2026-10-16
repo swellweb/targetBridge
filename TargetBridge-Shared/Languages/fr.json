@@ -168,6 +168,7 @@
   "receiver.language.auto": "Auto",
   "receiver.status.waiting_for_sender": "en attente du sender",
   "receiver.splash.connecting": "Connexion à votre MacBook",
+  "receiver.splash.role": "RÉCEPTEUR",
   "receiver.splash.waiting_first_frame": "En attente de la première image…",
   "receiver.status.waiting": "en attente",
   "receiver.status.stream_active": "flux actif",
