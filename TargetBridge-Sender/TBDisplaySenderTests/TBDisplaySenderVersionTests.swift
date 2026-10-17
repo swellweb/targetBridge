@@ -8,5 +8,7 @@ final class TBDisplaySenderVersionTests: XCTestCase {
         XCTAssertFalse(TBDisplaySenderBuildInfo.versionDisplay.contains("\\("))
         XCTAssertEqual(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String,
                        TBDisplaySenderBuildInfo.marketingVersion)
+        XCTAssertEqual(Bundle.main.infoDictionary?["CFBundleVersion"] as? String,
+                       TBDisplaySenderBuildInfo.buildNumber)
     }
 }
