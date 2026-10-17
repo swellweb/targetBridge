@@ -357,6 +357,17 @@ enum TBDisplaySenderL10n {
         text("common.version_label", language)
     }
 
+    static func addonSummary(_ addon: TBAddonRecord, _ language: TBDisplaySenderLanguage) -> String {
+        // User manifests own their wording, even when they reuse a bundled identifier.
+        guard addon.origin == .bundled else { return addon.summary }
+        switch addon.id {
+        case "targetbridge.audio-relay": return text("sender.addon.audio_relay_summary", language)
+        case "targetbridge.network-link": return text("sender.addon.network_link_summary", language)
+        case "targetbridge.input-dockstation": return text("sender.addon.input_dockstation_summary", language)
+        default: return addon.summary
+        }
+    }
+
     static func settingsTitle(_ language: TBDisplaySenderLanguage) -> String {
         text("common.settings", language)
     }
@@ -421,7 +432,7 @@ enum TBDisplaySenderL10n {
 
     static func verboseDisplayLogging(_ language: TBDisplaySenderLanguage) -> String {
         switch language {
-        case .italian: return "Diagnostica display in Console (verboso)"
+        case .italian: return "Diagnostica dettagliata dello schermo in Console"
         case .english: return "Log virtual display events to Console (verbose)"
         case .german: return "Virtuelle Display-Ereignisse in Konsole protokollieren (ausführlich)"
         case .french: return "Enregistrer les événements d’écran virtuel dans Console (détaillé)"

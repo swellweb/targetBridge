@@ -21,6 +21,7 @@ targets:
           - "**/*.md"
           - "scripts/**"
       - path: TargetBridgeSupport/Assets.xcassets
+      - path: TargetBridgeSupport/Localizations
     settings:
       base:
         PRODUCT_NAME: "TargetBridge"

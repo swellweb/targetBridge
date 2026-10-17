@@ -25,6 +25,9 @@ jobs:
         run: |
           brew install jq xcodegen
 
+      - name: Test Localization Checker
+        run: ./TargetBridge-Shared/scripts/test_localizations.sh
+
       - name: Check Localizations
         run: |
           ./TargetBridge-Shared/scripts/check_localizations.sh

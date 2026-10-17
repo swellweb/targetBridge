@@ -690,7 +690,7 @@ final class TBDisplaySenderService: ObservableObject {
     }
 
     func importAddonManifest(from url: URL) throws {
-        _ = try addonStore.importManifest(from: url)
+        _ = try addonStore.importManifest(from: url, language: language)
         normalizeAddonState()
     }
 

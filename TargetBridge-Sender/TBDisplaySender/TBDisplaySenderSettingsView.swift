@@ -179,7 +179,7 @@ struct TBDisplaySenderSettingsView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(addon.name)
                             .font(.system(size: 18, weight: .semibold, design: .rounded))
-                        Text(addon.summary)
+                        Text(TBDisplaySenderL10n.addonSummary(addon, service.language))
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -282,7 +282,7 @@ struct TBDisplaySenderSettingsView: View {
 
     private var settingsSubtitle: String {
         switch service.language {
-        case .italian: return "Preferenze globali dell’app separate dalla dashboard operativa."
+        case .italian: return "Preferenze generali dell’app; le impostazioni delle sessioni sono nella finestra principale."
         case .english: return "Global app preferences separated from the operational dashboard."
         case .german: return "Globale App-Einstellungen getrennt vom operativen Dashboard."
         case .french: return "Préférences globales de l’app séparées du tableau de bord opérationnel."
@@ -322,7 +322,7 @@ struct TBDisplaySenderSettingsView: View {
 
     private var aboutTitle: String {
         switch service.language {
-        case .italian: return "About"
+        case .italian: return "Informazioni"
         case .english: return "About"
         case .german: return "Info"
         case .french: return "À propos"
@@ -332,7 +332,7 @@ struct TBDisplaySenderSettingsView: View {
 
     private var aboutBody: String {
         switch service.language {
-        case .italian: return "TargetBridge e una utility open source per riutilizzare pannelli iMac Intel come display esterni per Mac moderni. Le preferenze generali vivono qui; le impostazioni operative di ogni sessione restano nella finestra principale."
+        case .italian: return "TargetBridge è un’app open source per usare gli iMac Intel come schermi esterni per i Mac moderni. Qui trovi le preferenze generali; le impostazioni delle singole sessioni sono nella finestra principale."
         case .english: return "TargetBridge is an open-source utility for reusing Intel iMac panels as external displays for modern Macs. Global preferences live here; per-session operational settings stay in the main window."
         case .german: return "TargetBridge ist ein Open-Source-Werkzeug, um Intel-iMac-Panels als externe Displays für moderne Macs weiterzuverwenden. Globale Einstellungen sind hier; operative Sitzungsoptionen sind im Hauptfenster."
         case .french: return "TargetBridge est un utilitaire open source qui permet de réutiliser les dalles d’iMac Intel comme écrans externes pour les Mac modernes. Les préférences globales se trouvent ici ; les réglages de chaque session restent dans la fenêtre principale."
@@ -352,7 +352,7 @@ struct TBDisplaySenderSettingsView: View {
 
     private var releaseTitle: String {
         switch service.language {
-        case .italian: return "Ultima release"
+        case .italian: return "Ultima versione"
         case .english: return "Latest release"
         case .german: return "Letztes Release"
         case .french: return "Dernière version"
@@ -482,7 +482,7 @@ struct TBDisplaySenderSettingsView: View {
 
     private var capabilitiesTitle: String {
         switch service.language {
-        case .italian: return "Capability"
+        case .italian: return "Funzionalità"
         case .english: return "Capabilities"
         case .german: return "Fähigkeiten"
         case .french: return "Fonctionnalités"

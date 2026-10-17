@@ -1697,7 +1697,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
 
     private func performCableTest() async throws -> Double {
         guard let conn = connection else {
-            throw NSError(domain: "TBDisplaySenderService", code: -1, userInfo: [NSLocalizedDescriptionKey: "No connection"])
+            throw NSError(domain: "TBDisplaySenderService", code: -1, userInfo: [NSLocalizedDescriptionKey: TBDisplaySenderL10n.text("sender.error.no_connection", language)])
         }
 
         let totalBytes: Int64 = 20 * 1000 * 1000 * 1000

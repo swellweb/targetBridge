@@ -137,7 +137,7 @@ struct TBDisplaySenderAboutView: View {
 
     private var projectDescription: String {
         switch service.language {
-        case .italian: return "TargetBridge cattura il desktop o il monitor virtuale sul Mac sender, codifica lo stream e lo presenta su un iMac receiver via Thunderbolt Bridge o Network Link sperimentale."
+        case .italian: return "TargetBridge cattura il desktop o il monitor virtuale sul Mac Sender, codifica lo stream e lo presenta su un iMac Receiver via Thunderbolt Bridge o Network Link sperimentale."
         case .english: return "TargetBridge captures the sender desktop or virtual display, encodes the stream, and presents it on an iMac receiver over Thunderbolt Bridge or experimental Network Link."
         case .german: return "TargetBridge erfasst den Sender-Desktop oder das virtuelle Display, kodiert den Stream und zeigt ihn auf einem iMac-Empfänger über Thunderbolt Bridge oder experimentellen Network Link an."
         case .french: return "TargetBridge capture le bureau ou l’écran virtuel du sender, encode le flux et l’affiche sur un iMac receiver via Thunderbolt Bridge ou Network Link expérimental."
@@ -177,7 +177,7 @@ struct TBDisplaySenderAboutView: View {
 
     private var releaseTitle: String {
         switch service.language {
-        case .italian: return "Ultima release"
+        case .italian: return "Ultima versione"
         case .english: return "Latest release"
         case .german: return "Letztes Release"
         case .french: return "Dernière version"

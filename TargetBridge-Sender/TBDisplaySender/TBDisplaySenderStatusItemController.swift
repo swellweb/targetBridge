@@ -352,7 +352,7 @@ final class TBDisplaySenderStatusItemController: NSObject {
 
     private func connectionInfoMenuLabel() -> String {
         switch service.language {
-        case .italian: return "Info connessione"
+        case .italian: return "Informazioni sulla connessione"
         case .french: return "Infos de connexion"
         case .english: return "Connection info"
         case .german: return "Verbindungsinfo"
