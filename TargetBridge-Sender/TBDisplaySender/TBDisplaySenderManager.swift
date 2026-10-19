@@ -117,6 +117,7 @@ final class TBDisplaySenderService: ObservableObject {
     private var lastClipboardChangeCount: Int = NSPasteboard.general.changeCount
 
     private init() {
+        TBSystemSleepGate.install()
         discoveryCancellable = receiverDiscovery.$receivers.sink { [weak self] receivers in
             guard let self else { return }
             discoveredReceivers = receivers
