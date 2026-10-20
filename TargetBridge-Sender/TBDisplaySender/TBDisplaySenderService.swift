@@ -2728,7 +2728,13 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
                 self.scheduleDesktopMirrorRecovery(for: self.session.displayID)
             }
 
-            self.setStatus(.captureStartedWaitingFirstFrame)
+            // The first frame may already have arrived while startCapture() was
+            // suspended (see the sessionAckSent reset above), so the status is
+            // already captureActive. Writing "waiting for the first frame" over it
+            // would stick for the whole stream: handleFirstEncodedFrame runs once.
+            if !self.sessionAckSent {
+                self.setStatus(.captureStartedWaitingFirstFrame)
+            }
             self.startFirstFrameWatchdog()
         }
     }
