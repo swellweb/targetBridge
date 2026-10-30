@@ -17,13 +17,7 @@ final class TBVirtualDisplayModeMemory {
     /// A persisted mode choice. `pixelWidth`/`pixelHeight` capture the backing
     /// resolution, which is what distinguishes a HiDPI mode from its 1× ("Standard")
     /// counterpart at the same point size.
-    struct Choice: Codable {
-        var pointWidth: Int
-        var pointHeight: Int
-        var pixelWidth: Int
-        var pixelHeight: Int
-        var refreshRate: Double
-    }
+    typealias Choice = TBVirtualDisplayModeSelection.Candidate
 
     static let shared = TBVirtualDisplayModeMemory()
     private init() {}
@@ -66,13 +60,7 @@ final class TBVirtualDisplayModeMemory {
         guard flags.contains(.setModeFlag) else { return }
         guard let key = tracked[displayID] else { return }
         guard let mode = CGDisplayCopyDisplayMode(displayID) else { return }
-        let choice = Choice(
-            pointWidth: mode.width,
-            pointHeight: mode.height,
-            pixelWidth: mode.pixelWidth,
-            pixelHeight: mode.pixelHeight,
-            refreshRate: mode.refreshRate
-        )
+        let choice = Choice.snapshot(mode)
         if let data = try? JSONEncoder().encode(choice) {
             UserDefaults.standard.set(data, forKey: defaultsKey(key))
         }

@@ -1,4 +1,5 @@
 import Foundation
+import Dispatch
 
 enum TBMonitorPacketType: UInt8 {
     case helloReceiver = 0x10
@@ -7,7 +8,7 @@ enum TBMonitorPacketType: UInt8 {
     case uiLanguage = 0x13
     case paramSets = 0x20
     case frame = 0x21
-    case rawFrame = 0x22   // Uncompressed NV12 planes (raw passthrough mode)
+    case rawFrame = 0x22   // Format 1: NV12. Format 2: negotiated packed RGB 10-bit.
     case audioFrame = 0x23
     case heartbeat = 0x30
     case teardown = 0x31
@@ -44,6 +45,9 @@ struct TBMonitorDisplayProfile: Codable {
     var captureHeight: Int
     var supportsHEVCDecode: Bool?
     var supportsRawNV12: Bool?
+    /// RAW_FRAME format 2: tightly packed little-endian ARGB2101010 in Display P3.
+    /// Absent on older receivers; never send format 2 without this capability.
+    var supportsRawRGB10: Bool? = nil
     var inputMonitoringTrusted: Bool?
     var accessibilityTrusted: Bool?
     /// Optional so older receivers still decode; absent means "cannot".
@@ -142,6 +146,23 @@ enum TBMonitorProtocol {
         appendBE32(&packet, UInt32(1 + payload.count))
         packet.append(type.rawValue)
         packet.append(payload)
+        return packet
+    }
+
+    /// Copy a borrowed payload before its caller reuses the storage. Keeping
+    /// the header and copied payload as DispatchData regions lets Network's
+    /// public DataProtocol send overload avoid bridging Data through NSData.
+    static func makeDispatchPacket(type: TBMonitorPacketType,
+                                   payloadBytes: UnsafeBufferPointer<UInt8>) -> DispatchData {
+        var header = Data(capacity: 5)
+        appendBE32(&header, UInt32(1 + payloadBytes.count))
+        header.append(type.rawValue)
+        var packet = header.withUnsafeBytes { DispatchData(bytes: $0) }
+        if !payloadBytes.isEmpty {
+            // This initializer copies synchronously; bytesNoCopy is unsafe for
+            // the caller's reusable allocation.
+            packet.append(DispatchData(bytes: UnsafeRawBufferPointer(payloadBytes)))
+        }
         return packet
     }
 

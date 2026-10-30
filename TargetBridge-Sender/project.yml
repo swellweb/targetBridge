@@ -19,6 +19,7 @@ targets:
       - path: ../TargetBridge-Shared
         excludes:
           - "**/*.md"
+          - "**/*.o"
       - path: TargetBridgeSupport/Assets.xcassets
     settings:
       base:

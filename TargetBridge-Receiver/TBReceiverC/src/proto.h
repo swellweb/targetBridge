@@ -20,6 +20,10 @@
  *             [4 BE uint32 yStride][4 BE uint32 uvStride]
  *             [Y plane: yStride*height][CbCr plane: uvStride*(height/2)]
  *   (see handle_raw_frame in main.c; sender-side sendRawFrame)
+ *   format 2 (requires supportsRawRGB10) uses the same 17-byte header:
+ *   [format=2][BE32 width][BE32 height][BE32 stride=width*4][BE32 secondStride=0]
+ *   then exactly stride*height bytes of little-endian full-range ARGB2101010
+ *   (l10r), limited to 5120x2880. All RGB sample bits are transported unchanged.
  *
  * type 0x30 = heartbeat (JSON)
  * type 0x31 = teardown (JSON)
@@ -45,7 +49,7 @@
 #define TB_PKT_UI_LANGUAGE      0x13
 #define TB_PKT_PARAM_SETS       0x20
 #define TB_PKT_FRAME            0x21
-#define TB_PKT_RAW_FRAME        0x22  /* uncompressed NV12 planes (raw passthrough) */
+#define TB_PKT_RAW_FRAME        0x22  /* format 1: NV12; format 2: packed l10r RGB10 */
 #define TB_PKT_AUDIO_FRAME      0x23
 #define TB_PKT_HEARTBEAT        0x30
 #define TB_PKT_TEARDOWN         0x31

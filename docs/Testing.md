@@ -110,6 +110,28 @@ log stream --predicate 'subsystem == "com.targetbridge.sender"'
 The receiver logs to stderr; under the LaunchAgent that lands in
 `~/Library/Logs/TargetBridgeReceiver.launchd.err.log`.
 
+For a slow live stream, run the read-only collector **on the receiver Mac**
+while keeping the same video playing:
+
+```bash
+bash TargetBridge-Receiver/scripts/sample_receiver_performance.sh
+```
+
+It uses built-in macOS tools: ten seconds of per-process TCP counters and
+socket queues, followed by ten seconds of thread sampling. The resulting ZIP
+is saved on the Desktop; `--output-dir DIRECTORY` selects another parent
+directory, and `--pid PID` selects one receiver if several are running. No
+rebuild or restart is needed. It does not change settings, generate test
+traffic, capture screen/video payloads, or upload the report. It records
+process paths, model/OS information, TCP endpoint addresses and stack traces.
+
+Check `status.txt` for collection failures. Throughput is measured before the
+more intrusive thread sample, so sampling stalls must not be reported as
+normal playback performance. `Recv-Q` counts bytes waiting for the app to
+read; it is not the advertised TCP window. Sender `localContentProcessed`
+measures local Network completion, not receiver presentation. Neither a
+single queue snapshot nor a syscall stack alone establishes the bottleneck.
+
 ## Experimental 5K at 60 FPS
 
 `native5k60Experimental` is an opt-in HEVC profile for testing recent Apple
@@ -132,3 +154,43 @@ the session card, whether input remains responsive, and any capture or decoder
 errors. For a two-receiver experiment, start one session per receiver and
 record the FPS for each session separately. Include the sender model, macOS
 version, receiver model, cable type, and selected transport with the report.
+
+## RAW RGB10 transport
+
+Sender tests verify capability gating, actual `l10r`/Display P3 capture settings,
+three-slot ownership through final DispatchData destruction, CPU fallback and
+GPU blit readback. Hardware-free Receiver checks use production functions:
+
+```bash
+python3 TargetBridge-Receiver/TBReceiverC/tests/test_rgb10_display.py
+python3 TargetBridge-Receiver/TBReceiverC/tests/test_raw_rgb10.py
+python3 TargetBridge-Receiver/TBReceiverC/tests/test_socket_drain.py
+python3 TargetBridge-Receiver/TBReceiverC/tests/test_video_diagnostics.py
+```
+
+`make test` includes parser, address discovery and lifecycle state tests. The
+optional Metal test uses synthetic pixels in a small window, without capture or
+network traffic:
+
+```bash
+cd TargetBridge-Receiver/TBReceiverC
+make test-rgb10-metal
+./test_rgb10_metal --presentation-only
+```
+
+The full suite checks owned 4.5K uploads, cursor fallback, first-frame visibility,
+teardown and resource bounds. Presentation-only checks the production render
+target against complete 1024-level ramps, one-pixel checkerboards and isolated
+pixels. Render-target equality does not validate Core Animation color management,
+physical panel depth, screen capture or sustained remote frame rate. Validate the
+actual Apple Silicon and Intel receivers separately; see [RAW RGB10](Raw-RGB10.md).
+
+### Receiver stream-profile display
+
+Run `python3 TargetBridge-Receiver/TBReceiverC/tests/test_stream_mode.py` to
+exercise the production handshake, language changes, frame metadata and
+connection reset with real translations and synthetic frames. Before a sender
+provides dimensions, the status page shows a waiting message. Requested
+resolution remains visible across language changes until a valid frame arrives;
+then received pixel dimensions take priority. Disconnect clears the previous
+session's dimensions. A fixed HiDPI desktop size is never used as stream metadata.

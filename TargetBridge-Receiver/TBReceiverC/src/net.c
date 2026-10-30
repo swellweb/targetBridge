@@ -28,6 +28,8 @@ void tb_parser_init(struct tb_parser *p, tb_pkt_cb cb, void *ud) {
     p->buf = NULL;
     p->len = 0;
     p->cap = 0;
+    p->discard_remaining = 0;
+    p->write_capacity = 0;
     p->cb  = cb;
     p->ud  = ud;
 }
@@ -36,6 +38,8 @@ void tb_parser_free(struct tb_parser *p) {
     free(p->buf);
     p->buf = NULL;
     p->len = p->cap = 0;
+    p->discard_remaining = 0;
+    p->write_capacity = 0;
 }
 
 static int parser_reserve(struct tb_parser *p, size_t need) {
@@ -54,42 +58,86 @@ static uint32_t read_be32(const uint8_t *p) {
            ((uint32_t)p[2] << 8)  |  (uint32_t)p[3];
 }
 
-int tb_parser_feed(struct tb_parser *p, const uint8_t *data, size_t n) {
-    if (parser_reserve(p, p->len + n + 1) < 0) return -1;  /* +1 for NUL sentinel */
-    memcpy(p->buf + p->len, data, n);
-    p->len += n;
+int tb_parser_prepare_write(struct tb_parser *p, size_t limit,
+                            uint8_t **dst, size_t *capacity) {
+    if (!p) return -1;
+    p->write_capacity = 0;
+    if (dst) *dst = NULL;
+    if (capacity) *capacity = 0;
+    if (!dst || !capacity || !limit) return -1;
 
-    size_t off = 0;
-    while (p->len - off >= TB_HDR_BYTES) {
-        uint32_t pkt_len = read_be32(p->buf + off);
-        if (pkt_len < 1 || pkt_len > 64 * 1024 * 1024) {  /* sanity */
-            fprintf(stderr, "[net] bad pkt_len=%u\n", pkt_len);
-            return -1;
-        }
-        if (p->len - off < 4 + pkt_len) break;       /* incomplete */
-
-        uint8_t        type    = p->buf[off + 4];
-        const uint8_t *payload = p->buf + off + 5;
-        size_t         plen    = pkt_len - 1;
-        /* Write a NUL sentinel one byte past the payload so that string
-         * functions in the callback (strstr, strchr, strtol, …) cannot
-         * read beyond the packet boundary.  The +1 reservation above
-         * guarantees this byte is always within the allocated buffer.
-         * Save and restore the byte so a following packet's header is
-         * not corrupted when two packets are contiguous in the buffer. */
-        uint8_t       *sentinel = (uint8_t *)(payload + plen);
-        uint8_t        saved    = *sentinel;
-        *sentinel = '\0';
-        p->cb(type, payload, plen, p->ud);
-        *sentinel = saved;
-        off += 4 + pkt_len;
+    size_t remaining;
+    size_t offset = p->len;
+    if (p->discard_remaining) {
+        remaining = p->discard_remaining;
+        if (remaining > 1024 * 1024) remaining = 1024 * 1024;
+        offset = 0; /* Reuse bounded scratch; no discarded payload is retained. */
+    } else if (p->len < TB_HDR_BYTES) {
+        remaining = TB_HDR_BYTES - p->len;
+    } else {
+        const uint32_t pkt_len = read_be32(p->buf);
+        if (pkt_len < 1 || pkt_len > 64u * 1024 * 1024) return -1;
+        const size_t total = 4 + (size_t)pkt_len;
+        if (p->len >= total) return -1;
+        remaining = total - p->len;
     }
+    const size_t take = limit < remaining ? limit : remaining;
+    const size_t sentinel = p->discard_remaining ? 0 : 1;
+    if (parser_reserve(p, offset + take + sentinel) < 0) return -1;
+    *dst = p->buf + offset;
+    *capacity = p->write_capacity = take;
+    return 0;
+}
 
-    /* shift remainder to front */
-    if (off > 0) {
-        size_t rem = p->len - off;
-        if (rem > 0) memmove(p->buf, p->buf + off, rem);
-        p->len = rem;
+int tb_parser_commit_write(struct tb_parser *p, size_t n) {
+    if (!p) return -1;
+    const size_t offered = p->write_capacity;
+    p->write_capacity = 0;
+    if (!offered || n > offered) return -1;
+    if (!n) return 0;
+    if (p->discard_remaining) {
+        p->discard_remaining -= n;
+        return 0;
+    }
+    p->len += n;
+    if (p->len < TB_HDR_BYTES) return 0;
+    const uint32_t pkt_len = read_be32(p->buf);
+    if (pkt_len < 1 || pkt_len > 64u * 1024 * 1024) {
+        fprintf(stderr, "[net] bad pkt_len=%u\n", pkt_len);
+        return -1;
+    }
+    if (p->buf[4] == TB_PKT_TEST_DATA) {
+        p->discard_remaining = (size_t)pkt_len - 1;
+        p->len = 0;
+        return 0;
+    }
+    const size_t total = 4 + (size_t)pkt_len;
+    if (p->len == total) {
+        /* No following header is buffered. The sentinel stays inside the
+         * reservation, and callback payload ownership remains synchronous. */
+        p->buf[total] = '\0';
+        p->cb(p->buf[4], p->buf + TB_HDR_BYTES, (size_t)pkt_len - 1, p->ud);
+        p->len = 0;
+    }
+    return 0;
+}
+
+int tb_parser_feed(struct tb_parser *p, const uint8_t *data, size_t n) {
+    p->write_capacity = 0;
+    if (n && !data) return -1;
+    while (n) {
+        if (p->discard_remaining) {
+            const size_t take = n < p->discard_remaining ? n : p->discard_remaining;
+            p->discard_remaining -= take;
+            data += take; n -= take;
+            continue;
+        }
+        uint8_t *dst;
+        size_t take;
+        if (tb_parser_prepare_write(p, n, &dst, &take) < 0) return -1;
+        memcpy(dst, data, take);
+        if (tb_parser_commit_write(p, take) < 0) return -1;
+        data += take; n -= take;
     }
     return 0;
 }
@@ -171,11 +219,10 @@ enum tb_lan_interface_kind {
     TB_LAN_INTERFACE_WIFI = 2
 };
 
-static int interface_matches_kind(const char *name, enum tb_lan_interface_kind kind) {
-    if (!name || !*name) return 0;
 #if defined(__APPLE__)
-    CFArrayRef interfaces = SCNetworkInterfaceCopyAll();
-    if (!interfaces) return 0;
+static int interface_matches_kind_in(CFArrayRef interfaces, const char *name,
+                                     enum tb_lan_interface_kind kind) {
+    if (!interfaces || !name || !*name) return 0;
     int matched = 0;
     CFIndex count = CFArrayGetCount(interfaces);
     for (CFIndex index = 0; index < count; index++) {
@@ -194,6 +241,16 @@ static int interface_matches_kind(const char *name, enum tb_lan_interface_kind k
         matched = CFEqual(interface_type, expected_type);
         break;
     }
+    return matched;
+}
+#endif
+
+static int interface_matches_kind(const char *name, enum tb_lan_interface_kind kind) {
+    if (!name || !*name) return 0;
+#if defined(__APPLE__)
+    CFArrayRef interfaces = SCNetworkInterfaceCopyAll();
+    if (!interfaces) return 0;
+    const int matched = interface_matches_kind_in(interfaces, name, kind);
     CFRelease(interfaces);
     return matched;
 #else
@@ -296,4 +353,55 @@ int tb_net_get_ethernet_ip(char *buf, size_t bufsz) {
 
 int tb_net_get_wifi_ip(char *buf, size_t bufsz) {
     return get_lan_ip_for_kind(buf, bufsz, TB_LAN_INTERFACE_WIFI);
+}
+
+int tb_net_get_addresses(struct tb_net_addresses *addresses) {
+    if (!addresses) return -1;
+    memset(addresses, 0, sizeof(*addresses));
+    struct ifaddrs *ifap = NULL;
+    if (getifaddrs(&ifap) != 0) return -1;
+#if defined(__APPLE__)
+    CFArrayRef interfaces = NULL;
+    int queried_interfaces = 0;
+#endif
+    for (const struct ifaddrs *p = ifap; p; p = p->ifa_next) {
+        if (!p->ifa_addr || p->ifa_addr->sa_family != AF_INET || !p->ifa_name) continue;
+        char host[NI_MAXHOST];
+        if (getnameinfo(p->ifa_addr, sizeof(struct sockaddr_in),
+                        host, sizeof(host), NULL, 0, NI_NUMERICHOST) != 0) continue;
+        if (tb_net_is_link_local_ipv4(host)) {
+            if (!addresses->tb_ip[0] && strncmp(p->ifa_name, "bridge", 6) == 0)
+                snprintf(addresses->tb_ip, sizeof(addresses->tb_ip), "%s", host);
+            if (!addresses->link_local_ip[0] && is_likely_lan_interface_name(p->ifa_name))
+                snprintf(addresses->link_local_ip, sizeof(addresses->link_local_ip), "%s", host);
+        }
+        if (!is_rfc1918_ipv4(host) ||
+            (addresses->ethernet_ip[0] && addresses->wifi_ip[0])) continue;
+#if defined(__APPLE__)
+        /* Type discovery can be expensive. Share one result across all LAN
+         * candidates, and do not retry a failed query for every interface. */
+        if (!queried_interfaces) {
+            queried_interfaces = 1;
+            interfaces = SCNetworkInterfaceCopyAll();
+        }
+        const int ethernet = !addresses->ethernet_ip[0] &&
+            interface_matches_kind_in(interfaces, p->ifa_name, TB_LAN_INTERFACE_ETHERNET);
+        const int wifi = !addresses->wifi_ip[0] &&
+            interface_matches_kind_in(interfaces, p->ifa_name, TB_LAN_INTERFACE_WIFI);
+#else
+        const int ethernet = !addresses->ethernet_ip[0] &&
+            interface_matches_kind(p->ifa_name, TB_LAN_INTERFACE_ETHERNET);
+        const int wifi = !addresses->wifi_ip[0] &&
+            interface_matches_kind(p->ifa_name, TB_LAN_INTERFACE_WIFI);
+#endif
+        if (ethernet) snprintf(addresses->ethernet_ip, sizeof(addresses->ethernet_ip), "%s", host);
+        if (wifi) snprintf(addresses->wifi_ip, sizeof(addresses->wifi_ip), "%s", host);
+    }
+#if defined(__APPLE__)
+    if (interfaces) CFRelease(interfaces);
+#endif
+    freeifaddrs(ifap);
+    snprintf(addresses->lan_ip, sizeof(addresses->lan_ip), "%s",
+             addresses->ethernet_ip[0] ? addresses->ethernet_ip : addresses->wifi_ip);
+    return 0;
 }

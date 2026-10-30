@@ -12,6 +12,7 @@ APP_VERSION="${APP_VERSION:-3.6.0}"
 STAMP="${APP_BUILD:-$(date +%Y%m%d%H%M%S)}"
 ARCH="$(uname -m)"
 ICONSET_DIR="$(mktemp -d)"
+trap 'rm -rf "$ICONSET_DIR"' EXIT
 ICON_FILE="${ROOT}/TargetBridgeAssets/Assets.xcassets/AppIcon.appiconset/icon_1024.png"
 ICNS_PATH="${APP_DIR}/Contents/Resources/TargetBridgeReceiver.icns"
 SIGNING_CONFIG="${TARGETBRIDGE_SIGNING_CONFIG:-$HOME/Library/Application Support/TargetBridge/Build/receiver-signing-identity.txt}"
@@ -83,8 +84,12 @@ if [[ -f "$ICON_FILE" ]]; then
   sips -z 256 256   "$ICON_FILE" --out "${ICONSET_DIR}/TargetBridgeReceiver.iconset/icon_256x256.png" >/dev/null
   sips -z 512 512   "$ICON_FILE" --out "${ICONSET_DIR}/TargetBridgeReceiver.iconset/icon_256x256@2x.png" >/dev/null
   sips -z 512 512   "$ICON_FILE" --out "${ICONSET_DIR}/TargetBridgeReceiver.iconset/icon_512x512.png" >/dev/null
-  cp "$ICON_FILE" "${ICONSET_DIR}/TargetBridgeReceiver.iconset/icon_512x512@2x.png"
-  iconutil -c icns "${ICONSET_DIR}/TargetBridgeReceiver.iconset" -o "$ICNS_PATH" >/dev/null 2>&1 || true
+  # Source filenames do not guarantee pixel dimensions (icon_1024.png is 2048px).
+  sips -z 1024 1024 "$ICON_FILE" --out "${ICONSET_DIR}/TargetBridgeReceiver.iconset/icon_512x512@2x.png" >/dev/null
+  iconutil -c icns "${ICONSET_DIR}/TargetBridgeReceiver.iconset" -o "$ICNS_PATH"
+else
+  echo "Receiver app icon source is missing: $ICON_FILE" >&2
+  exit 1
 fi
 
 cat > "$APP_DIR/Contents/Info.plist" <<EOF
@@ -144,7 +149,6 @@ if [[ -n "$EXTERNAL_HOMEBREW_REFS" ]]; then
 fi
 
 xattr -cr "$APP_DIR" >/dev/null 2>&1 || true
-rm -rf "$ICONSET_DIR"
 
 echo "${APP_NAME} built: $APP_DIR"
 echo "Version: ${APP_VERSION} ($STAMP)"

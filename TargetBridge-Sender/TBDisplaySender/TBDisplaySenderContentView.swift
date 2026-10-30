@@ -201,6 +201,47 @@ struct TBDisplaySenderContentView: View {
     }
 }
 
+/// This view observes the once-per-window snapshot; no frame callback touches UI.
+private struct TBRGBDiagnosticsView: View {
+    @ObservedObject var metrics: TBSessionLiveMetrics
+    let language: TBDisplaySenderLanguage
+
+    var body: some View {
+        if let rgb = metrics.rgb {
+            VStack(alignment: .leading, spacing: 8) {
+                row("capture", "\(rgb.captureWidth) × \(rgb.captureHeight) · l10r 10-bit",
+                    namespace: "raw")
+                row("frame_mb", format(rgb.meanPacketMB))
+
+                row("submitted_gbps", format(rgb.submittedGbps))
+                row("copy_ms", format(rgb.meanEncodePacketMS))
+                row("transport", TBDisplaySenderL10n.text("sender.raw.uncompressed", language))
+                Text(TBDisplaySenderL10n.text("sender.raw.measurement_note", language))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private func format(_ value: Double?) -> String {
+        value.map { String(format: "%.2f", $0) } ?? "—"
+    }
+
+    private func row(_ field: String, _ value: String, namespace: String = "raw") -> some View {
+        HStack(alignment: .top, spacing: 14) {
+            Text(TBDisplaySenderL10n.text("sender.\(namespace).\(field)", language))
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 138, alignment: .leading)
+            Text(value)
+                .monospacedDigit()
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
 private struct TBDisplaySenderSessionCard: View {
     @ObservedObject var service: TBDisplaySenderService
     @ObservedObject var session: TBDisplaySenderSession
@@ -311,6 +352,7 @@ private struct TBDisplaySenderSessionCard: View {
                     infoRow(TBDisplaySenderL10n.virtualDisplayLabel(service.language), session.virtualDisplayText)
                     infoRow(TBDisplaySenderL10n.streamLabel(service.language), session.streamResolutionText)
                     infoRow(TBDisplaySenderL10n.fpsLabel(service.language), "\(session.senderFPS)")
+                    TBRGBDiagnosticsView(metrics: session.liveMetrics, language: service.language)
                 }
             }
         }
@@ -580,17 +622,22 @@ private struct TBDisplaySenderSessionSettingsSheet: View {
                     }
 
                     settingRow(TBDisplaySenderL10n.discoveredReceiver(service.language), details: discoveryDetails) {
-                        Picker(TBDisplaySenderL10n.discoveredReceiver(service.language), selection: $session.selectedReceiverID) {
+                        Picker(TBDisplaySenderL10n.discoveredReceiver(service.language), selection: Binding(
+                            get: { session.selectedReceiverID },
+                            set: { identity in
+                                if let receiver = service.discoveredReceivers.first(where: { $0.id == identity }) {
+                                    service.applyDiscoveredReceiver(receiver, to: session)
+                                } else {
+                                    session.selectedReceiverID = identity
+                                }
+                            }
+                        )) {
                             Text(TBDisplaySenderL10n.manualReceiverEntry(service.language)).tag("")
                             ForEach(service.discoveredReceivers) { receiver in
                                 Text(receiver.displayText).tag(receiver.id)
                             }
                         }
                         .pickerStyle(.menu)
-                        .onChange(of: session.selectedReceiverID) { _, newValue in
-                            guard let receiver = service.discoveredReceivers.first(where: { $0.id == newValue }) else { return }
-                            service.applyDiscoveredReceiver(receiver, to: session)
-                        }
                         .disabled(session.isConnected || session.isStreaming)
                     }
 
@@ -627,8 +674,8 @@ private struct TBDisplaySenderSessionSettingsSheet: View {
 
                     settingRow(TBDisplaySenderL10n.streamProfile(service.language), details: streamProfileDetails) {
                         Picker(TBDisplaySenderL10n.streamProfile(service.language), selection: $session.capturePreset) {
-                            ForEach(TBDisplayCapturePreset.allCases, id: \.self) { preset in
-                                Text("\(preset.title(service.language)) · \(preset.description)").tag(preset)
+                            ForEach(TBDisplayCapturePreset.resolutionPresets, id: \.self) { preset in
+                                Text(preset.resolutionTitle).tag(preset)
                             }
                         }
                         .pickerStyle(.menu)
@@ -639,7 +686,8 @@ private struct TBDisplaySenderSessionSettingsSheet: View {
                         TBDisplaySenderL10n.videoCompression(service.language),
                         details: TBDisplaySenderL10n.codecPreferenceHint(
                             session.codecPreference,
-                            language: service.language
+                            language: service.language,
+                            preset: session.capturePreset
                         )
                     ) {
                         Picker(
@@ -1073,13 +1121,7 @@ private struct TBDisplaySenderSessionSettingsSheet: View {
     }
 
     private var streamProfileDetails: String {
-        switch service.language {
-        case .italian: return "Parti da preset conservativi su Wi-Fi o reti lente, poi sali se la stabilita rimane buona."
-        case .english: return "Start with conservative presets on Wi-Fi or slower links, then move up if stability stays good."
-        case .german: return "Beginne bei WLAN oder langsameren Verbindungen mit konservativen Profilen und wähle höhere Einstellungen, wenn die Verbindung stabil bleibt."
-        case .french: return "Commencez avec des préréglages prudents sur Wi-Fi ou les liaisons lentes, puis augmentez-les si la stabilité reste bonne."
-        case .chinese: return "在 Wi‑Fi 或较慢链路上先使用保守预设，稳定后再逐步提高。"
-        }
+        TBDisplaySenderL10n.streamProfileHint(service.language)
     }
 
     private var audioDetails: String {

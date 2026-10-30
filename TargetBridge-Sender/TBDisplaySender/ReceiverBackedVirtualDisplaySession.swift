@@ -28,6 +28,54 @@ struct TBVirtualDisplayModeSize: Equatable {
     var backingHeight: Int { isHiDPI ? height * 2 : height }
 }
 
+/// The value part of mode selection can be checked without creating a display.
+/// Keep point and backing dimensions together: equal point sizes do not imply
+/// equal render resolutions.
+enum TBVirtualDisplayModeSelection {
+    struct Candidate: Codable, Equatable, Sendable {
+        var pointWidth: Int
+        var pointHeight: Int
+        var pixelWidth: Int
+        var pixelHeight: Int
+        var refreshRate: Double
+
+        static func snapshot(_ mode: CGDisplayMode) -> Self {
+            Self(pointWidth: mode.width, pointHeight: mode.height,
+                 pixelWidth: mode.pixelWidth, pixelHeight: mode.pixelHeight,
+                 refreshRate: mode.refreshRate)
+        }
+
+        func hasSameDimensions(as other: Self) -> Bool {
+            pointWidth == other.pointWidth && pointHeight == other.pointHeight &&
+                pixelWidth == other.pixelWidth && pixelHeight == other.pixelHeight
+        }
+    }
+
+    static func preferredIndex(in candidates: [Candidate], mode: TBVirtualDisplayModeSize,
+                               refreshRate: Double) -> Int? {
+        let matching = candidates.indices.filter {
+            candidates[$0].pointWidth == mode.width && candidates[$0].pointHeight == mode.height
+        }.sorted { candidates[$0].refreshRate > candidates[$1].refreshRate }
+        let backingMatches = matching.filter {
+            candidates[$0].pixelWidth == mode.backingWidth && candidates[$0].pixelHeight == mode.backingHeight
+        }
+        return backingMatches.first(where: { abs(candidates[$0].refreshRate - refreshRate) < 0.5 })
+            ?? backingMatches.first
+    }
+
+    static func savedIndex(in candidates: [Candidate], choice: Candidate) -> Int? {
+        let matching = candidates.indices.filter { candidates[$0].hasSameDimensions(as: choice) }
+        return matching.first(where: { abs(candidates[$0].refreshRate - choice.refreshRate) < 0.5 })
+            ?? matching.first
+    }
+
+    static func applyAndVerify(_ choice: Candidate, apply: () -> Bool,
+                               readBack: () -> Candidate?) -> Bool {
+        guard apply(), let current = readBack() else { return false }
+        return current.hasSameDimensions(as: choice)
+    }
+}
+
 struct TBVirtualDisplayIdentity {
     let productID: UInt32
     let serialNumber: UInt32
@@ -88,12 +136,9 @@ final class ReceiverBackedVirtualDisplaySession {
         destroy()
         let preferredRefreshRate = refreshRate ?? profile.refreshRate
 
-        // The receiver hard-codes mode 2560x1440 + hiDPI, i.e. a 5120x2880 backing
-        // store, regardless of which capture preset the sender is running. Any preset
-        // below 5K therefore makes ScreenCaptureKit resample 5120x2880 down to the
-        // stream size, and the receiver resample back up to the panel: two non-integer
-        // passes. `modeOverride` lets the sender size the backing store to match the
-        // stream exactly, so capture is 1:1 and only the panel-side scale remains.
+        // The receiver reports its panel's logical and backing dimensions.
+        // A render-matching override instead sizes the backing store to the
+        // stream, avoiding capture-side resampling on both Retina and 1x panels.
         var resolvedMode = modeOverride ?? TBVirtualDisplayModeSize(
             width: profile.modeWidth,
             height: profile.modeHeight,
@@ -170,11 +215,14 @@ final class ReceiverBackedVirtualDisplaySession {
         let savedChoice = modeOverride == nil
             ? TBVirtualDisplayModeMemory.shared.load(forKey: preferenceKey)
             : nil
-        activatePreferredMode(for: display.displayID,
-                              mode: resolvedMode,
-                              refreshRate: preferredRefreshRate,
-                              hiDPI: profile.hiDPI,
-                              savedChoice: savedChoice)
+        guard activatePreferredMode(for: display.displayID,
+                                    mode: resolvedMode,
+                                    refreshRate: preferredRefreshRate,
+                                    savedChoice: savedChoice) else {
+            // `apply(settings)` only publishes the modes. It does not promise
+            // that WindowServer selected the requested 1x/HiDPI variant.
+            return false
+        }
 
         virtualDisplay = display
         displayID = display.displayID
@@ -201,23 +249,33 @@ final class ReceiverBackedVirtualDisplaySession {
     private func activatePreferredMode(for displayID: CGDirectDisplayID,
                                        mode: TBVirtualDisplayModeSize,
                                        refreshRate: Double,
-                                       hiDPI: Bool,
                                        savedChoice: TBVirtualDisplayModeMemory.Choice?) -> Bool {
         let timeout = Date().addingTimeInterval(2.0)
         while Date() < timeout {
             var success = false
             autoreleasepool {
                 let chosenMode = savedChoice.flatMap { savedMode(for: displayID, choice: $0) }
-                    ?? preferredMode(for: displayID, mode: mode, refreshRate: refreshRate, hiDPI: hiDPI)
+                    ?? preferredMode(for: displayID, mode: mode, refreshRate: refreshRate)
                 if let chosenMode {
-                    success = CGDisplaySetDisplayMode(displayID, chosenMode, nil) == .success
+                    success = TBVirtualDisplayModeSelection.applyAndVerify(.snapshot(chosenMode),
+                        apply: { CGDisplaySetDisplayMode(displayID, chosenMode, nil) == .success },
+                        readBack: { CGDisplayCopyDisplayMode(displayID).map(TBVirtualDisplayModeSelection.Candidate.snapshot) })
                 }
             }
             if success {
+                if let current = CGDisplayCopyDisplayMode(displayID) {
+                    NSLog("TargetBridge: virtual display %u selected %dx%d points, %dx%d pixels at %.2f Hz",
+                          displayID, current.width, current.height,
+                          current.pixelWidth, current.pixelHeight, current.refreshRate)
+                }
                 return true
             }
             RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
         }
+        let current = CGDisplayCopyDisplayMode(displayID)
+        NSLog("TargetBridge: virtual display %u could not activate %dx%d points, %dx%d pixels; current=%dx%d points, %dx%d pixels",
+              displayID, mode.width, mode.height, mode.backingWidth, mode.backingHeight,
+              current?.width ?? 0, current?.height ?? 0, current?.pixelWidth ?? 0, current?.pixelHeight ?? 0)
         return false
     }
 
@@ -232,14 +290,9 @@ final class ReceiverBackedVirtualDisplaySession {
         }
         let modes = modesCF as? [CGDisplayMode] ?? []
 
-        let candidates = modes.filter { mode in
-            mode.width == choice.pointWidth && mode.height == choice.pointHeight &&
-            mode.pixelWidth == choice.pixelWidth && mode.pixelHeight == choice.pixelHeight
-        }
-        if let exact = candidates.first(where: { abs($0.refreshRate - choice.refreshRate) < 0.5 }) {
-            return exact
-        }
-        return candidates.first
+        let index = TBVirtualDisplayModeSelection.savedIndex(
+            in: modes.map(TBVirtualDisplayModeSelection.Candidate.snapshot), choice: choice)
+        return index.map { modes[$0] }
     }
 
     /// Select the mode by its backing pixels as well as its logical size. A
@@ -248,28 +301,16 @@ final class ReceiverBackedVirtualDisplaySession {
     /// by points made Render Matching restore the blurry 1x variant.
     private func preferredMode(for displayID: CGDirectDisplayID,
                                mode: TBVirtualDisplayModeSize,
-                               refreshRate: Double,
-                               hiDPI: Bool) -> CGDisplayMode? {
+                               refreshRate: Double) -> CGDisplayMode? {
         let options = [kCGDisplayShowDuplicateLowResolutionModes: kCFBooleanTrue] as CFDictionary
         guard let modesCF = CGDisplayCopyAllDisplayModes(displayID, options) else {
             return nil
         }
         let modes = modesCF as? [CGDisplayMode] ?? []
 
-        let matchingModes = modes.filter { candidate in
-            candidate.width == mode.width && candidate.height == mode.height
-        }.sorted { $0.refreshRate > $1.refreshRate }
-
-        let expectedPixelWidth = hiDPI ? mode.backingWidth : mode.width
-        let expectedPixelHeight = hiDPI ? mode.backingHeight : mode.height
-        let backingMatches = matchingModes.filter { candidate in
-            candidate.pixelWidth == expectedPixelWidth && candidate.pixelHeight == expectedPixelHeight
-        }
-
-        if let exactMatch = backingMatches.first(where: { abs($0.refreshRate - refreshRate) < 0.5 }) {
-            return exactMatch
-        }
-
-        return backingMatches.first ?? matchingModes.first
+        let index = TBVirtualDisplayModeSelection.preferredIndex(
+            in: modes.map(TBVirtualDisplayModeSelection.Candidate.snapshot),
+            mode: mode, refreshRate: refreshRate)
+        return index.map { modes[$0] }
     }
 }

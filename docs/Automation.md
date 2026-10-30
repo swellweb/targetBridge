@@ -26,12 +26,25 @@ Options: `--receiver auto|<id|name|ip>`, `--mode mirror|extended`, `--preset <na
 `--path auto|wired|thunderbolt|usb|ethernet|wifi`, `--transport tb|net`, `--session N`,
 `--local-ip <ip>`, `--retry`.
 Presets: `standard1080p`, `smooth1080p60`, `standard1440p`, `smooth1440p60`, `smooth1800p60`, `crisp2160p60`, `retina4k60`,
-`native5k`, `native5k60Experimental` (aliases: `1440p`, `1440p60`, `1800p`, `4k`,
+`retina4_5k60`, `native5k`, `native5k60Experimental`, `native4_5kRGB10Raw60`
+(aliases: `1440p`, `1440p60`, `1800p`, `4k`,
 `5k`, `5k60`, `1080p`, `1080p60`). The `retina4k60` aliases `retina4k`, `4096x2304` and `imac4k` match
 the 4096 × 2304 panel in the 21.5-inch Retina 4K iMac without changing the existing
 `4k` alias for the 3840 × 2160 preset.
-`native5k60Experimental` is an opt-in HEVC test profile for 5K at 60 FPS; it does not
-replace the stable 5K 48 FPS profile. A receiver of `auto` waits briefly for
+`retina4_5k60` (**4.5K**) selects 4480 × 2520 at 60 FPS, matching the
+24-inch M1 iMac panel. Automatic compression prefers HEVC; an explicit
+compression choice remains independent of this resolution. Its aliases are `4.5k`, `4.5k60`, `retina4.5k`, `4480x2520`,
+`imac4.5k` and `imacm1`. The legacy identifier `native4_5kRGB10Raw60`
+remains valid for scripts and saved settings. Automatic with this identifier
+migrates to explicit RGB10 uncompressed at the same dimensions
+(aliases: `4.5k-rgb10-raw`, `imacm1-rgb10-raw`). These profiles also work with other
+compatible receivers. Render matching uses a 2240 × 1260 HiDPI desktop backed
+by 4480 × 2520 pixels. In the app, choose **4480 × 2520 · 60 FPS** in
+**Resolution and frame rate**, plus **RGB10 uncompressed** in Video Compression.
+The resolution menu no longer contains a duplicate RAW entry.
+See [RAW RGB10 setup and verification limits](Raw-RGB10.md).
+`native5k60Experimental` is an opt-in 5K 60 FPS profile; it does not replace
+the stable 5K 48 FPS profile. Compression is selected separately. A receiver of `auto` waits briefly for
 Bonjour discovery and uses the first receiver found; a raw IP/hostname bypasses discovery.
 
 With `--path auto`, the Sender discovers the receiver addresses advertised for

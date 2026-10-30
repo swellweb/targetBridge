@@ -55,6 +55,22 @@
  * (5 missed heartbeats) means it died without a FIN. */
 #define TB_SENDER_IDLE_TIMEOUT_MS 10000
 
+struct tb_video_diagnostics {
+    uint64_t param_sets;
+    uint64_t encoded_packets;
+    uint64_t decoded_frames;
+    uint64_t param_errors;
+    uint64_t decode_errors;
+    int param_sets_ready;
+};
+
+/* Retain values, not just translated text, across UI language updates. */
+struct tb_stream_mode {
+    int requested_w, requested_h;
+    int received_w, received_h;
+    char source[64], preset[64], codec[64];
+};
+
 struct app {
     struct tb_display *disp;
     struct tb_decoder *dec;
@@ -77,10 +93,13 @@ struct app {
     uint64_t last_recv_ms;      /* idle watchdog: last time the sender sent anything */
     int      close_requested;
     int      have_video_frame;
+    struct tb_video_diagnostics video_diagnostics;
     /* A real streaming session has begun (the sender sent a session packet, not
      * just a transient probe like a UI-language push). Gates the fullscreen
      * "connecting" splash so a bare/short-lived connection doesn't flash it. */
     int      session_active;
+    uint64_t last_nonvideo_render_ms;
+    int      last_nonvideo_state;
 
     char     ip_text[64];
     char     tb_ip_text[64];
@@ -94,6 +113,7 @@ struct app {
     char     sender_text[128];
     char     panel_text[128];
     char     mode_text[128];
+    struct tb_stream_mode stream_mode;
     char     language_pref[8];
     char     language_text[96];
     char     permissions_text[160];
@@ -188,6 +208,7 @@ static void tb_set_receiver_mode_requested(char *dest,
                                            const char *source,
                                            const char *preset,
                                            const char *codec);
+static void tb_refresh_stream_mode(struct app *a);
 static void tb_refresh_idle_localized_strings(struct app *a);
 static void tb_receiver_load_language_preference(char *dest, size_t size);
 static void tb_receiver_save_language_preference(const char *language_pref);
@@ -432,9 +453,11 @@ static void tb_receiver_cycle_language_preference(struct app *a) {
 
 static void tb_refresh_idle_localized_strings(struct app *a) {
     if (!a) return;
-    tb_copy_i18n(a->status_text, sizeof(a->status_text), "receiver.status.waiting_for_sender");
-    tb_copy_i18n(a->sender_text, sizeof(a->sender_text), "receiver.status.waiting");
-    tb_copy_i18n(a->mode_text, sizeof(a->mode_text), "receiver.mode.default");
+    if (!a->session_active && !a->have_video_frame) {
+        tb_copy_i18n(a->status_text, sizeof(a->status_text), "receiver.status.waiting_for_sender");
+        tb_copy_i18n(a->sender_text, sizeof(a->sender_text), "receiver.status.waiting");
+    }
+    tb_refresh_stream_mode(a);
     tb_receiver_refresh_permissions_text(a);
     if (a->ip_text[0] == '\0') {
         tb_copy_i18n(a->ip_text, sizeof(a->ip_text), "receiver.network.not_detected");
@@ -568,6 +591,40 @@ static void tb_set_receiver_mode_requested(char *dest,
     }
 }
 
+static void tb_refresh_stream_mode(struct app *a) {
+    if (!a) return;
+    const struct tb_stream_mode *mode = &a->stream_mode;
+    if (mode->received_w > 0 && mode->received_h > 0) {
+        char width_text[16], height_text[16];
+        snprintf(width_text, sizeof(width_text), "%d", mode->received_w);
+        snprintf(height_text, sizeof(height_text), "%d", mode->received_h);
+        const struct tb_i18n_pair pairs[] = {
+            { "width", width_text }, { "height", height_text }
+        };
+        tb_format_i18n(a->mode_text, sizeof(a->mode_text), "receiver.mode.receiving", pairs, 2);
+    } else {
+        /* A legacy HELLO may omit dimensions. Never display a panel-specific
+         * guess or metadata retained from a previous connection. */
+        tb_copy_i18n(a->mode_text, sizeof(a->mode_text), "receiver.mode.default");
+        tb_set_receiver_mode_requested(a->mode_text, sizeof(a->mode_text),
+                                       mode->requested_w, mode->requested_h,
+                                       mode->source, mode->preset, mode->codec);
+    }
+}
+
+static void tb_record_stream_dimensions(struct app *a, int width, int height) {
+    if (width <= 0 || height <= 0 ||
+        (a->stream_mode.received_w == width && a->stream_mode.received_h == height)) return;
+    a->stream_mode.received_w = width;
+    a->stream_mode.received_h = height;
+    tb_refresh_stream_mode(a);
+}
+
+static void tb_reset_stream_mode(struct app *a) {
+    memset(&a->stream_mode, 0, sizeof(a->stream_mode));
+    tb_refresh_stream_mode(a);
+}
+
 static void bonjour_deinit(struct app *a) {
     if (a->bonjour_ref) {
         DNSServiceRefDeallocate(a->bonjour_ref);
@@ -658,6 +715,7 @@ static void bonjour_update(struct app *a, uint16_t port) {
     TXTRecordSetValue(&txt, "version", (uint8_t)strlen(TB_RECEIVER_VERSION), TB_RECEIVER_VERSION);
     TXTRecordSetValue(&txt, "supportsHEVCDecode", 1, tb_dec_supports_hevc_hwdecode() ? "1" : "0");
     TXTRecordSetValue(&txt, "supportsRawNV12", 1, "1");
+    TXTRecordSetValue(&txt, "supportsRawRGB10", 1, tb_disp_raw_rgb10_available(a->disp) ? "1" : "0");
 
     struct tb_display_info info;
     if (tb_disp_get_info(a->disp, &info) == 0) {
@@ -934,68 +992,121 @@ static void tb_receiver_apply_input_control_mode(struct app *a, const uint8_t *p
     tb_receiver_refresh_input_capture(a);
 }
 
+/* ---- Encoded video diagnostics --------------------------------------- */
+
+static void tb_video_diagnostics_reset(struct app *a) {
+    memset(&a->video_diagnostics, 0, sizeof(a->video_diagnostics));
+}
+
+static void tb_video_diagnostics_error(const char *stage, uint64_t *count, int status) {
+    ++*count;
+    if (*count <= 3) {
+        fprintf(stderr, "[video] stage=%s error=%d count=%llu%s\n", stage, status,
+                (unsigned long long)*count,
+                *count == 3 ? " (further errors suppressed until reconnect)" : "");
+    }
+}
+
+static void handle_encoded_param_sets(struct app *a, const uint8_t *payload, size_t len) {
+    struct tb_video_diagnostics *d = &a->video_diagnostics;
+    ++d->param_sets;
+    if (d->param_sets == 1) {
+        fprintf(stderr, "[video] stage=param_sets_received bytes=%zu codec=%u sets=%u\n",
+                len, len > 0 ? payload[0] : 0, len > 1 ? payload[1] : 0);
+    }
+    int status = tb_dec_set_param_sets(a->dec, payload, len);
+    if (status < 0) {
+        tb_video_diagnostics_error("param_sets", &d->param_errors, status);
+    } else if (!d->param_sets_ready) {
+        d->param_sets_ready = 1;
+        fprintf(stderr, "[video] stage=param_sets_ready\n");
+    }
+}
+
+static void handle_encoded_frame(struct app *a, const uint8_t *payload, size_t len) {
+    struct tb_video_diagnostics *d = &a->video_diagnostics;
+    ++d->encoded_packets;
+    if (d->encoded_packets == 1) {
+        fprintf(stderr, "[video] stage=encoded_packet bytes=%zu param_sets=%llu\n",
+                len, (unsigned long long)d->param_sets);
+    }
+    int status = tb_dec_feed_frame(a->dec, payload, len);
+    if (status < 0) tb_video_diagnostics_error("decode_packet", &d->decode_errors, status);
+}
+
+static void tb_video_diagnostics_decoded(struct app *a, int w, int h, int ys, int uvs) {
+    if (++a->video_diagnostics.decoded_frames == 1) {
+        fprintf(stderr, "[video] stage=decoded_first_frame size=%dx%d strides=%d/%d\n",
+                w, h, ys, uvs);
+    }
+}
+
+static void tb_video_diagnostics_finish(struct app *a) {
+    const struct tb_video_diagnostics *d = &a->video_diagnostics;
+    fprintf(stderr, "[video] stage=session_end param_sets=%llu encoded_packets=%llu "
+                    "decoded_frames=%llu param_errors=%llu decode_errors=%llu\n",
+            (unsigned long long)d->param_sets, (unsigned long long)d->encoded_packets,
+            (unsigned long long)d->decoded_frames, (unsigned long long)d->param_errors,
+            (unsigned long long)d->decode_errors);
+    tb_video_diagnostics_reset(a);
+}
+
 /* ---- Callbacks: decoder → display ------------------------------------ */
 
 static void on_frame(const uint8_t *y, int y_stride,
                      const uint8_t *uv, int uv_stride,
                      int w, int h, void *ud) {
     struct app *a = (struct app *)ud;
+    tb_video_diagnostics_decoded(a, w, h, y_stride, uv_stride);
     a->have_video_frame = 1;
     tb_copy_i18n(a->status_text, sizeof(a->status_text), "receiver.status.stream_active");
-    {
-        char width_text[16];
-        char height_text[16];
-        struct tb_i18n_pair pairs[] = {
-            { "width", width_text },
-            { "height", height_text }
-        };
-        snprintf(width_text, sizeof(width_text), "%d", w);
-        snprintf(height_text, sizeof(height_text), "%d", h);
-        tb_format_i18n(a->mode_text, sizeof(a->mode_text), "receiver.mode.receiving", pairs, 2);
-    }
+    tb_record_stream_dimensions(a, (int)w, (int)h);
     tb_disp_render_nv12(a->disp, y, y_stride, uv, uv_stride, w, h);
     a->frames++;
 }
 
-/* Raw passthrough: render received NV12 planes directly, bypassing the decoder.
- * Payload: [1: format=1(NV12)][BE32 w][BE32 h][BE32 yStride][BE32 uvStride]
- *          [Y plane: yStride*h][CbCr plane: uvStride*(h/2)] */
+/* Raw passthrough uses the existing 17-byte header. Format 1 carries NV12;
+ * format 2 carries tightly packed little-endian l10r RGB10, with secondStride=0.
+ * The packed format is sent only after supportsRawRGB10 capability negotiation. */
 static void handle_raw_frame(struct app *a, const uint8_t *p, size_t len) {
-    if (len < 17) return;
-    if (p[0] != 1) return; /* only NV12 is supported */
+    if (!p || len < 17) return;
+    if (p[0] != 1 && p[0] != 2) return;
     uint32_t w  = ((uint32_t)p[1]  << 24) | ((uint32_t)p[2]  << 16) | ((uint32_t)p[3]  << 8) | (uint32_t)p[4];
     uint32_t h  = ((uint32_t)p[5]  << 24) | ((uint32_t)p[6]  << 16) | ((uint32_t)p[7]  << 8) | (uint32_t)p[8];
     uint32_t ys = ((uint32_t)p[9]  << 24) | ((uint32_t)p[10] << 16) | ((uint32_t)p[11] << 8) | (uint32_t)p[12];
     uint32_t us = ((uint32_t)p[13] << 24) | ((uint32_t)p[14] << 16) | ((uint32_t)p[15] << 8) | (uint32_t)p[16];
-    /* Keep malformed peer data from turning into oversized stride arithmetic or
-     * an out-of-bounds render. TargetBridge RAW is intentionally limited to
-     * practical 4:2:0 display sizes and the protocol packet cap. */
-    if (w == 0 || h == 0 || (w & 1) || (h & 1) ||
-        w > 8192 || h > 8192 || ys < w || us < w ||
-        ys > 16384 || us > 16384) return;
-    size_t y_size  = (size_t)ys * h;
-    size_t uv_size = (size_t)us * (h / 2);
-    size_t payload_size = len - 17;
-    if (y_size > payload_size || uv_size > payload_size - y_size) return;
-    const uint8_t *y  = p + 17;
-    const uint8_t *uv = y + y_size;
+    const int packed_rgb10 = p[0] == 2;
+    const uint8_t *y = p + 17;
+    const uint8_t *uv = NULL;
+    if (packed_rgb10) {
+        /* Validate dimensions before multiplying. The wire length includes a
+         * type byte, and format 2 accepts no padding, second plane or trailer. */
+        if (w == 0 || h == 0 || w > 5120 || h > 2880 ||
+            ys != w * 4 || us != 0 || len >= 64u * 1024 * 1024) return;
+        if ((size_t)h > (SIZE_MAX - 17) / (size_t)ys) return;
+        if (len != 17 + (size_t)ys * h) return;
+        if (tb_disp_render_raw_rgb10(a->disp, y, (int)ys, (int)w, (int)h) != 0) return;
+    } else {
+        /* Preserve the legacy NV12 bounds/layout, including padded strides. */
+        if (w == 0 || h == 0 || (w & 1) || (h & 1) ||
+            w > 8192 || h > 8192 || ys < w || us < w ||
+            ys > 16384 || us > 16384) return;
+        size_t y_size = (size_t)ys * h;
+        size_t uv_size = (size_t)us * (h / 2);
+        size_t payload_size = len - 17;
+        if (y_size > payload_size || uv_size > payload_size - y_size) return;
+        uv = y + y_size;
+    }
 
     a->have_video_frame = 1;
     tb_copy_i18n(a->status_text, sizeof(a->status_text), "receiver.status.stream_active");
-    {
-        char width_text[16];
-        char height_text[16];
-        struct tb_i18n_pair pairs[] = {
-            { "width", width_text },
-            { "height", height_text }
-        };
-        snprintf(width_text, sizeof(width_text), "%u", w);
-        snprintf(height_text, sizeof(height_text), "%u", h);
-        tb_format_i18n(a->mode_text, sizeof(a->mode_text), "receiver.mode.receiving", pairs, 2);
-    }
-    tb_disp_render_nv12(a->disp, y, (int)ys, uv, (int)us, (int)w, (int)h);
+    tb_record_stream_dimensions(a, (int)w, (int)h);
+    if (!packed_rgb10)
+        tb_disp_render_nv12(a->disp, y, (int)ys, uv, (int)us, (int)w, (int)h);
     a->frames++;
 }
+
+
 
 static void ring_read(struct app *a, Uint8 *dst, int len) {
     int first = AUDIO_BUF_CAP - a->audio_buf_tail;
@@ -1127,6 +1238,7 @@ static void tb_set_system_volume(double level) {
 
 static void on_packet(uint8_t type, const uint8_t *payload, size_t len, void *ud) {
     struct app *a = (struct app *)ud;
+    if (a->close_requested) return;
     switch (type) {
     case TB_PKT_UI_LANGUAGE:
         {
@@ -1138,6 +1250,7 @@ static void on_packet(uint8_t type, const uint8_t *payload, size_t len, void *ud
                 if (strcmp(a->language_pref, "auto") == 0) {
                     tb_i18n_set_runtime_language(ui_language);
                 }
+                tb_refresh_stream_mode(a);
                 if (a->client_fd < 0 || !a->have_video_frame) {
                     tb_refresh_idle_localized_strings(a);
                 }
@@ -1161,21 +1274,14 @@ static void on_packet(uint8_t type, const uint8_t *payload, size_t len, void *ud
             tb_copy_i18n(a->sender_text, sizeof(a->sender_text), "receiver.status.sender_connected");
         }
         {
-            char preset[64];
-            char source[64];
-            char codec[64];
-            int capture_w = 0;
-            int capture_h = 0;
-            preset[0] = '\0';
-            source[0] = '\0';
-            codec[0] = '\0';
-            extract_json_string_field(payload, len, "\"capturePreset\"", preset, sizeof(preset));
-            extract_json_string_field(payload, len, "\"captureSource\"", source, sizeof(source));
-            extract_json_string_field(payload, len, "\"codec\"", codec, sizeof(codec));
-            (void)extract_json_int_field(payload, len, "\"captureWidth\"", &capture_w);
-            (void)extract_json_int_field(payload, len, "\"captureHeight\"", &capture_h);
-
-            tb_set_receiver_mode_requested(a->mode_text, sizeof(a->mode_text), capture_w, capture_h, source, preset, codec);
+            struct tb_stream_mode *mode = &a->stream_mode;
+            mode->requested_w = mode->requested_h = 0;
+            extract_json_string_field(payload, len, "\"capturePreset\"", mode->preset, sizeof(mode->preset));
+            extract_json_string_field(payload, len, "\"captureSource\"", mode->source, sizeof(mode->source));
+            extract_json_string_field(payload, len, "\"codec\"", mode->codec, sizeof(mode->codec));
+            (void)extract_json_int_field(payload, len, "\"captureWidth\"", &mode->requested_w);
+            (void)extract_json_int_field(payload, len, "\"captureHeight\"", &mode->requested_h);
+            tb_refresh_stream_mode(a);
         }
         a->session_active = 1;
         fprintf(stderr, "[main] hello from sender\n");
@@ -1190,11 +1296,11 @@ static void on_packet(uint8_t type, const uint8_t *payload, size_t len, void *ud
         a->session_active = 1;
         /* tb_dec_set_param_sets is now a no-op if the sets are unchanged,
          * so we don't spam a log line per keyframe. */
-        tb_dec_set_param_sets(a->dec, payload, len);
+        handle_encoded_param_sets(a, payload, len);
         break;
     case TB_PKT_FRAME:
         a->session_active = 1;
-        tb_dec_feed_frame(a->dec, payload, len);
+        handle_encoded_frame(a, payload, len);
         break;
     case TB_PKT_RAW_FRAME:
         a->session_active = 1;
@@ -1313,17 +1419,53 @@ static void on_packet(uint8_t type, const uint8_t *payload, size_t len, void *ud
 
 /* ---- Networking helpers ---------------------------------------------- */
 
+static int tb_nonvideo_render_due(struct app *a, uint64_t t) {
+    const int state = a->client_fd < 0 || !a->session_active ? 1
+                    : !a->have_video_frame ? 2 : 0;
+    if (state == 0) {
+        a->last_nonvideo_state = 0;
+        return 0;
+    }
+    /* Keep status/expose updates and the connecting spinner responsive without
+     * redrawing for every socket-drain budget during a cable throughput test. */
+    if (state == a->last_nonvideo_state && t >= a->last_nonvideo_render_ms &&
+        t - a->last_nonvideo_render_ms < 100) return 0;
+    a->last_nonvideo_state = state;
+    a->last_nonvideo_render_ms = t;
+    return 1;
+}
+
 static int drain_socket(struct app *a) {
-    uint8_t buf[1024 * 1024];
     int saw_data = 0;
+    size_t received = 0;
+    const uint64_t started_ms = now_ms();
+    /* Video presentation runs in the parser callback. A continuously
+     * readable high-rate stream must still yield to SDL, input and teardown.
+     * The parser retains any partial packet for the next main-loop pass. */
+    const size_t byte_budget = 4 * 1024 * 1024;
+    const uint64_t time_budget_ms = 8;
     for (;;) {
-        ssize_t n = read(a->client_fd, buf, sizeof(buf));
+        if (a->close_requested || received >= byte_budget ||
+            now_ms() - started_ms >= time_budget_ms) return saw_data;
+        /* Read straight into the parser's current header/payload tail. The
+         * synchronous callback stages its own Metal bytes before this buffer
+         * is reused, so GPU ownership and frame lifetime do not change. */
+        size_t limit = byte_budget - received;
+        if (limit > 1024 * 1024) limit = 1024 * 1024;
+        uint8_t *dst;
+        size_t capacity;
+        if (tb_parser_prepare_write(&a->parser, limit, &dst, &capacity) < 0) return -1;
+        ssize_t n = read(a->client_fd, dst, capacity);
         if (n > 0) {
             saw_data = 1;
-            if (tb_parser_feed(&a->parser, buf, (size_t)n) < 0) return -1;
+            received += (size_t)n;
+            if (tb_parser_commit_write(&a->parser, (size_t)n) < 0) return -1;
         } else if (n == 0) {
+            (void)tb_parser_commit_write(&a->parser, 0);
             return -1;  /* peer closed */
         } else {
+            (void)tb_parser_commit_write(&a->parser, 0);
+            if (errno == EINTR) continue;
             if (errno == EAGAIN || errno == EWOULDBLOCK) return saw_data;
             perror("[main] read");
             return -1;
@@ -1860,6 +2002,9 @@ static void send_receiver_info(struct app *a) {
     }
     escaped_name[out] = '\0';
 
+    /* Both wire formats require the same working Metal decoder. The adaptive
+     * format is opt-in so an older receiver never sees its per-tile marker. */
+    const char *supports_raw_rgb10 = tb_disp_raw_rgb10_available(a->disp) ? "true" : "false";
     char json[1024];
     int json_len = snprintf(
         json,
@@ -1867,7 +2012,7 @@ static void send_receiver_info(struct app *a) {
         "{\"receiverName\":\"%s\",\"panelWidth\":%u,\"panelHeight\":%u,"
         "\"modeWidth\":%u,\"modeHeight\":%u,\"refreshRate\":60,"
         "\"hiDPI\":%s,\"captureWidth\":%u,\"captureHeight\":%u,"
-        "\"supportsHEVCDecode\":%s,\"supportsRawNV12\":true,\"inputMonitoringTrusted\":%s,\"accessibilityTrusted\":%s,"
+        "\"supportsHEVCDecode\":%s,\"supportsRawNV12\":true,\"supportsRawRGB10\":%s,\"inputMonitoringTrusted\":%s,\"accessibilityTrusted\":%s,"
         "\"supportsNightShift\":%s,\"supportsTrueTone\":%s}",
         escaped_name,
         profile.panel_w,
@@ -1878,6 +2023,7 @@ static void send_receiver_info(struct app *a) {
         profile.capture_w,
         profile.capture_h,
         tb_dec_supports_hevc_hwdecode() ? "true" : "false",
+        supports_raw_rgb10,
         tb_receiver_input_monitoring_trusted() ? "true" : "false",
         tb_receiver_accessibility_trusted() ? "true" : "false",
         tb_night_shift_supported() ? "true" : "false",
@@ -1902,11 +2048,13 @@ static void send_receiver_info(struct app *a) {
 }
 
 static void close_client(struct app *a) {
+    tb_video_diagnostics_finish(a);
     if (a->client_fd >= 0) close(a->client_fd);
     a->client_fd = -1;
     a->session_active = 0;
     a->close_requested = 0;
     a->have_video_frame = 0;
+    tb_reset_stream_mode(a);
     snprintf(a->input_control_mode, sizeof(a->input_control_mode), "off");
     SDL_EnableScreenSaver();
     tb_receiver_refresh_input_capture(a);
@@ -1975,30 +2123,32 @@ int main(int argc, char **argv) {
     signal(SIGTERM, on_sigint);
     signal(SIGPIPE, SIG_IGN);
 
-    char tb_ip[64] = {0};
-    char usb_ip[64] = {0};
-    char net_ip[64] = {0};
-    char ethernet_ip[64] = {0};
-    char wifi_ip[64] = {0};
-    if (tb_net_get_tb_ip(tb_ip, sizeof(tb_ip)) == 0) {
+    struct tb_net_addresses boot_addresses;
+    (void)tb_net_get_addresses(&boot_addresses);
+    const char *tb_ip = boot_addresses.tb_ip;
+    const char *usb_ip = boot_addresses.link_local_ip;
+    const char *net_ip = boot_addresses.lan_ip;
+    const char *ethernet_ip = boot_addresses.ethernet_ip;
+    const char *wifi_ip = boot_addresses.wifi_ip;
+    if (tb_ip[0]) {
         printf("TBReceiver: Thunderbolt Bridge IP = %s\n", tb_ip);
     } else {
         printf("TBReceiver: warning, no bridge IP detected (169.254.x.x)\n");
     }
-    if (tb_net_get_link_local_ip(usb_ip, sizeof(usb_ip)) == 0) {
+    if (usb_ip[0]) {
         printf("TBReceiver: Direct USB-NCM IP = %s\n", usb_ip);
     } else {
         printf("TBReceiver: warning, no direct USB-NCM/link-local IP detected\n");
     }
-    if (tb_net_get_lan_ip(net_ip, sizeof(net_ip)) == 0) {
+    if (net_ip[0]) {
         printf("TBReceiver: Local network IP = %s\n", net_ip);
     } else {
         printf("TBReceiver: warning, no LAN IP detected (RFC1918 IPv4)\n");
     }
-    if (tb_net_get_ethernet_ip(ethernet_ip, sizeof(ethernet_ip)) == 0) {
+    if (ethernet_ip[0]) {
         printf("TBReceiver: Ethernet IP = %s\n", ethernet_ip);
     }
-    if (tb_net_get_wifi_ip(wifi_ip, sizeof(wifi_ip)) == 0) {
+    if (wifi_ip[0]) {
         printf("TBReceiver: Wi-Fi IP = %s\n", wifi_ip);
     }
     printf("TBReceiver: listening on TCP port %d\n", TB_PORT);
@@ -2081,17 +2231,14 @@ int main(int argc, char **argv) {
         uint64_t t = now_ms();
 
         if (t - a.last_ip_check_ms >= 1000) {
-            char refreshed_tb_ip[64] = {0};
-            char refreshed_usb_ip[64] = {0};
-            char refreshed_net_ip[64] = {0};
-            char refreshed_ethernet_ip[64] = {0};
-            char refreshed_wifi_ip[64] = {0};
             a.last_ip_check_ms = t;
-            (void)tb_net_get_tb_ip(refreshed_tb_ip, sizeof(refreshed_tb_ip));
-            (void)tb_net_get_link_local_ip(refreshed_usb_ip, sizeof(refreshed_usb_ip));
-            (void)tb_net_get_lan_ip(refreshed_net_ip, sizeof(refreshed_net_ip));
-            (void)tb_net_get_ethernet_ip(refreshed_ethernet_ip, sizeof(refreshed_ethernet_ip));
-            (void)tb_net_get_wifi_ip(refreshed_wifi_ip, sizeof(refreshed_wifi_ip));
+            struct tb_net_addresses refreshed_addresses;
+            (void)tb_net_get_addresses(&refreshed_addresses);
+            const char *refreshed_tb_ip = refreshed_addresses.tb_ip;
+            const char *refreshed_usb_ip = refreshed_addresses.link_local_ip;
+            const char *refreshed_net_ip = refreshed_addresses.lan_ip;
+            const char *refreshed_ethernet_ip = refreshed_addresses.ethernet_ip;
+            const char *refreshed_wifi_ip = refreshed_addresses.wifi_ip;
 
             const int have_refreshed_ip =
                 refreshed_tb_ip[0] || refreshed_usb_ip[0] || refreshed_net_ip[0];
@@ -2136,8 +2283,10 @@ int main(int argc, char **argv) {
             int c = tb_net_accept(a.server_fd);
             if (c >= 0) {
                 a.client_fd = c;
+                tb_video_diagnostics_reset(&a);
                 a.have_video_frame = 0;
                 a.session_active = 0;
+                tb_reset_stream_mode(&a);
                 a.reported_night_shift = -1;   /* force one report per session */
                 a.reported_true_tone = -1;
                 a.last_recv_ms = t;
@@ -2196,13 +2345,15 @@ int main(int argc, char **argv) {
             tb_receiver_send_display_tweaks_if_changed(&a);
         }
 
-        if (a.client_fd < 0 || !a.session_active) {
-            /* No client, or a connection that hasn't started a real streaming
-             * session (e.g. a transient UI-language push during discovery):
-             * stay on the windowed waiting screen, don't flash fullscreen. */
-            tb_disp_render_status(a.disp, a.display_host, a.status_text, a.sender_text, a.panel_text, a.mode_text, a.language_text, a.permissions_text);
-        } else if (!a.have_video_frame) {
-            tb_disp_render_connecting(a.disp);
+        if (tb_nonvideo_render_due(&a, t)) {
+            if (a.client_fd < 0 || !a.session_active) {
+                /* No client, or a connection that hasn't started a real streaming
+                 * session (e.g. a transient UI-language push during discovery):
+                 * stay on the windowed waiting screen, don't flash fullscreen. */
+                tb_disp_render_status(a.disp, a.display_host, a.status_text, a.sender_text, a.panel_text, a.mode_text, a.language_text, a.permissions_text);
+            } else if (!a.have_video_frame) {
+                tb_disp_render_connecting(a.disp);
+            }
         }
 
         if (strcmp(a.input_control_mode, "receiverMaster") == 0 && a.client_fd >= 0) {
@@ -2282,9 +2433,9 @@ int main(int argc, char **argv) {
             if (df > 0) fprintf(stderr, "[main] %llu fps\n", (unsigned long long)df);
         }
 
-        /* Yield when idle or when a nonblocking active socket had no data,
-         * otherwise the receiver can busy-spin between incoming frame packets. */
-        if (a.client_fd < 0 || !a.have_video_frame || socket_activity == 0) {
+        /* Yield when idle or when a nonblocking active socket had no data.
+         * A cable test has no video but must keep draining while data arrives. */
+        if (a.client_fd < 0 || socket_activity == 0) {
             SDL_Delay(1);
         }
     }
