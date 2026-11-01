@@ -215,7 +215,8 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
         case .native5k:
             return 48
         case .native5k60Experimental:
-            return 60
+            // See maxKeyFrameIntervalDuration.
+            return 240
         }
     }
 
@@ -231,8 +232,32 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
             return 1
         case .smooth1800p60, .crisp2160p60, .retina4k60:
             return 1
-        case .native5k, .native5k60Experimental:
+        case .native5k:
             return 1
+        case .native5k60Experimental:
+            // A 5K IDR is several times the size of a P-frame and costs the
+            // receiver several frame budgets to transfer, decode and upload.
+            // One per second produced a regular once-a-second hitch at 60 fps.
+            // The link is reliable TCP and the sender never drops a frame
+            // after encoding, so periodic IDRs only bound recovery time;
+            // every new session still starts on an IDR.
+            return 4
+        }
+    }
+
+    /// Optional hard ceiling on the encoder's output rate, applied through
+    /// `kVTCompressionPropertyKey_DataRateLimits` over a one-second window.
+    /// `AverageBitRate` alone lets the hardware encoder overshoot for long
+    /// stretches on detailed motion (scrolling text, window drags), which at
+    /// 5K60 pushes receiver decode past its frame budget exactly when the
+    /// picture is busiest.
+    var peakBitRate: Int? {
+        switch self {
+        case .native5k60Experimental:
+            return averageBitRate * 3 / 2
+        case .standard1080p, .smooth1080p60, .standard1440p, .smooth1440p60, .smooth1800p60,
+             .crisp2160p60, .retina4k60, .native5k:
+            return nil
         }
     }
 
@@ -705,6 +730,15 @@ private final class TBVideoPipeline: @unchecked Sendable {
         VTSessionSetProperty(session, key: kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration, value: NSNumber(value: preset.maxKeyFrameIntervalDuration))
         VTSessionSetProperty(session, key: kVTCompressionPropertyKey_MaxFrameDelayCount, value: NSNumber(value: preset.maxFrameDelayCount))
         VTSessionSetProperty(session, key: kVTCompressionPropertyKey_AverageBitRate, value: NSNumber(value: preset.averageBitRate))
+        if let peakBitRate = preset.peakBitRate {
+            let limits = [NSNumber(value: peakBitRate / 8), NSNumber(value: 1.0)] as CFArray
+            let status = VTSessionSetProperty(session, key: kVTCompressionPropertyKey_DataRateLimits, value: limits)
+            if status != noErr {
+                // Not every encoder accepts a rate ceiling; average-only is the
+                // previous behaviour, so carry on without it.
+                NSLog("[TBVideoPipeline] DataRateLimits not supported (status %d); using average bitrate only", status)
+            }
+        }
         if preset.prioritizeSpeed {
             VTSessionSetProperty(session, key: kVTCompressionPropertyKey_PrioritizeEncodingSpeedOverQuality, value: kCFBooleanTrue)
         }
