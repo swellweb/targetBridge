@@ -45,6 +45,7 @@ struct tb_decoder {
     size_t            scratch_cap;
 
     tb_frame_cb       cb;
+    tb_pixbuf_cb      pixbuf_cb;
     void             *ud;
 
     int               opened;
@@ -99,6 +100,10 @@ struct tb_decoder *tb_dec_create(tb_frame_cb cb, void *ud) {
         tb_dec_destroy(d); return NULL;
     }
     return d;
+}
+
+void tb_dec_set_pixbuf_cb(struct tb_decoder *d, tb_pixbuf_cb cb) {
+    if (d) d->pixbuf_cb = cb;
 }
 
 int tb_dec_supports_hevc_hwdecode(void) {
@@ -368,6 +373,13 @@ int tb_dec_feed_frame(struct tb_decoder *d, const uint8_t *avcc, size_t len) {
          * Major win on Intel iMac + Radeon (~6× faster in practice). */
         if (d->hw_frame->format == d->hw_pix_fmt && d->hw_frame->data[3]) {
             CVPixelBufferRef pb = (CVPixelBufferRef)d->hw_frame->data[3];
+            if (d->pixbuf_cb) {
+                /* Hand the decoded surface to the caller, which decides when
+                 * (and whether) to upload it. */
+                d->pixbuf_cb((void *)pb, d->ud);
+                av_frame_unref(d->hw_frame);
+                continue;
+            }
             if (CVPixelBufferLockBaseAddress(pb, kCVPixelBufferLock_ReadOnly) == 0) {
                 uint8_t *y   = (uint8_t *)CVPixelBufferGetBaseAddressOfPlane(pb, 0);
                 size_t   ys  =            CVPixelBufferGetBytesPerRowOfPlane(pb, 0);

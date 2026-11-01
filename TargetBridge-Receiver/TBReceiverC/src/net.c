@@ -126,8 +126,14 @@ int tb_net_accept(int server_fd) {
     if (c < 0) return -1;
     int fl = fcntl(c, F_GETFL, 0);
     fcntl(c, F_SETFL, fl | O_NONBLOCK);
-    int rcvbuf = 4 * 1024 * 1024;
-    setsockopt(c, SOL_SOCKET, SO_RCVBUF, &rcvbuf, sizeof(rcvbuf));
+    /* A 5K HEVC keyframe can approach several MB. Ask for the largest buffer
+     * the kernel accepts (macOS caps it below kern.ipc.maxsockbuf, 8 MB by
+     * default) so a keyframe burst does not stall the sender's send window. */
+    static const int rcvbuf_sizes[] = { 8 << 20, 6 << 20, 4 << 20 };
+    for (size_t i = 0; i < sizeof(rcvbuf_sizes) / sizeof(rcvbuf_sizes[0]); i++) {
+        int rcvbuf = rcvbuf_sizes[i];
+        if (setsockopt(c, SOL_SOCKET, SO_RCVBUF, &rcvbuf, sizeof(rcvbuf)) == 0) break;
+    }
     /* disable Nagle for low latency */
     int yes = 1;
     setsockopt(c, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(yes));

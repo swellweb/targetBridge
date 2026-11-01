@@ -29,6 +29,7 @@
 #include <CoreFoundation/CoreFoundation.h>
 #include <CoreGraphics/CoreGraphics.h>
 #include <CoreAudio/CoreAudio.h>
+#include <CoreVideo/CoreVideo.h>
 
 /* kAudioObjectPropertyElementMain is the macOS 12+ SDK spelling; older SDKs
  * only define kAudioObjectPropertyElementMaster (both are numerically 0). */
@@ -59,6 +60,17 @@ struct app {
     struct tb_display *disp;
     struct tb_decoder *dec;
     struct tb_parser   parser;
+
+    /* Newest decoded VideoToolbox frame not yet presented (retained).
+     * Every frame is decoded so the reference chain stays intact, but only
+     * the newest is uploaded and presented. When the receiver falls behind
+     * (a keyframe burst, a slow present) it skips stale frames and catches
+     * up instead of rendering a backlog one 5K upload at a time. */
+    CVPixelBufferRef pending_pixbuf;
+    uint64_t decoded_frames;
+    uint64_t skipped_frames;
+    uint64_t last_fps_decoded;
+    uint64_t last_fps_skipped;
 
     int      server_fd;
     int      client_fd;
@@ -957,6 +969,47 @@ static void on_frame(const uint8_t *y, int y_stride,
     a->frames++;
 }
 
+static void on_pixbuf(void *cv_pixel_buffer, void *ud) {
+    struct app *a = (struct app *)ud;
+    CVPixelBufferRef pb = (CVPixelBufferRef)cv_pixel_buffer;
+    if (!pb) return;
+    a->decoded_frames++;
+    CVPixelBufferRetain(pb);
+    if (a->pending_pixbuf) {
+        CVPixelBufferRelease(a->pending_pixbuf);
+        a->skipped_frames++;
+    }
+    a->pending_pixbuf = pb;
+}
+
+static void drop_pending_frame(struct app *a) {
+    if (a->pending_pixbuf) {
+        CVPixelBufferRelease(a->pending_pixbuf);
+        a->pending_pixbuf = NULL;
+    }
+}
+
+/* Upload + present the newest decoded frame, if any. Called once per main
+ * loop iteration, after the socket has been drained. */
+static void present_pending_frame(struct app *a) {
+    CVPixelBufferRef pb = a->pending_pixbuf;
+    if (!pb) return;
+    a->pending_pixbuf = NULL;
+    if (CVPixelBufferLockBaseAddress(pb, kCVPixelBufferLock_ReadOnly) == 0) {
+        const uint8_t *y  = (const uint8_t *)CVPixelBufferGetBaseAddressOfPlane(pb, 0);
+        size_t         ys =                  CVPixelBufferGetBytesPerRowOfPlane(pb, 0);
+        const uint8_t *uv = (const uint8_t *)CVPixelBufferGetBaseAddressOfPlane(pb, 1);
+        size_t         us =                  CVPixelBufferGetBytesPerRowOfPlane(pb, 1);
+        int w = (int)CVPixelBufferGetWidth(pb);
+        int h = (int)CVPixelBufferGetHeight(pb);
+        if (y && uv && w > 0 && h > 0) {
+            on_frame(y, (int)ys, uv, (int)us, w, h, a);
+        }
+        CVPixelBufferUnlockBaseAddress(pb, kCVPixelBufferLock_ReadOnly);
+    }
+    CVPixelBufferRelease(pb);
+}
+
 /* Raw passthrough: render received NV12 planes directly, bypassing the decoder.
  * Payload: [1: format=1(NV12)][BE32 w][BE32 h][BE32 yStride][BE32 uvStride]
  *          [Y plane: yStride*h][CbCr plane: uvStride*(h/2)] */
@@ -1313,10 +1366,18 @@ static void on_packet(uint8_t type, const uint8_t *payload, size_t len, void *ud
 
 /* ---- Networking helpers ---------------------------------------------- */
 
+/* Max time one drain pass may spend reading + decoding before returning to
+ * the main loop to present. Kept under one 60 Hz frame so the newest frame
+ * reaches the screen even while the socket is still full. The loop re-enters
+ * immediately (no SDL_Delay) when data was seen. */
+#define TB_DRAIN_BUDGET_MS 8
+
 static int drain_socket(struct app *a) {
     uint8_t buf[1024 * 1024];
     int saw_data = 0;
+    const uint64_t drain_deadline_ms = now_ms() + TB_DRAIN_BUDGET_MS;
     for (;;) {
+        if (saw_data && now_ms() >= drain_deadline_ms) return saw_data;
         ssize_t n = read(a->client_fd, buf, sizeof(buf));
         if (n > 0) {
             saw_data = 1;
@@ -1916,6 +1977,7 @@ static void close_client(struct app *a) {
     a->last_clipboard_text[0] = '\0';
     tb_parser_free(&a->parser);
     tb_parser_init(&a->parser, on_packet, a);
+    drop_pending_frame(a);
     tb_dec_reset(a->dec);   /* fresh decoder for next session */
     tb_audio_close_for_idle(a);
     fprintf(stderr, "[main] client disconnected\n");
@@ -2059,6 +2121,7 @@ int main(int argc, char **argv) {
     bonjour_update(&a, TB_PORT);
 
     a.dec = tb_dec_create(on_frame, &a);
+    if (a.dec) tb_dec_set_pixbuf_cb(a.dec, on_pixbuf);
     if (!a.dec) { fprintf(stderr, "tb_dec_create failed\n"); tb_disp_destroy(a.disp); return 1; }
 
     tb_parser_init(&a.parser, on_packet, &a);
@@ -2185,6 +2248,12 @@ int main(int argc, char **argv) {
             }
         }
 
+        if (a.client_fd >= 0) {
+            present_pending_frame(&a);
+        } else {
+            drop_pending_frame(&a);
+        }
+
         if (t - a.last_permissions_poll_ms >= 250) {
             a.last_permissions_poll_ms = t;
             tb_receiver_poll_permissions(&a);
@@ -2279,7 +2348,17 @@ int main(int argc, char **argv) {
             uint64_t df = a.frames - a.last_fps_count;
             a.last_fps_count   = a.frames;
             a.last_fps_tick_ms = t;
-            if (df > 0) fprintf(stderr, "[main] %llu fps\n", (unsigned long long)df);
+            uint64_t dd = a.decoded_frames - a.last_fps_decoded;
+            uint64_t ds = a.skipped_frames - a.last_fps_skipped;
+            a.last_fps_decoded = a.decoded_frames;
+            a.last_fps_skipped = a.skipped_frames;
+            if (ds > 0) {
+                fprintf(stderr, "[main] %llu fps (decoded %llu, skipped %llu stale)\n",
+                        (unsigned long long)df, (unsigned long long)dd,
+                        (unsigned long long)ds);
+            } else if (df > 0) {
+                fprintf(stderr, "[main] %llu fps\n", (unsigned long long)df);
+            }
         }
 
         /* Yield when idle or when a nonblocking active socket had no data,
@@ -2294,6 +2373,7 @@ int main(int argc, char **argv) {
     if (a.server_fd >= 0) close(a.server_fd);
     bonjour_deinit(&a);
     tb_parser_free(&a.parser);
+    drop_pending_frame(&a);
     tb_dec_destroy(a.dec);
     tb_audio_close_for_idle(&a);
     tb_disp_destroy(a.disp);
