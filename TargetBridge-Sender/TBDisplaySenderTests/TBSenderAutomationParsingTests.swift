@@ -432,6 +432,21 @@ final class TBSenderAutomationParsingTests: XCTestCase {
         XCTAssertEqual(preset.averageBitRate, 150_000_000)
     }
 
+    func test5K60SpacesKeyframesAndCapsPeakRate() {
+        let preset = TBDisplayCapturePreset.native5k60Experimental
+
+        XCTAssertEqual(preset.maxKeyFrameIntervalDuration, 4)
+        XCTAssertEqual(preset.maxKeyFrameInterval, 240)
+        XCTAssertEqual(preset.peakBitRate, 225_000_000)
+    }
+
+    func testStableProfilesKeepPreviousEncoderTuning() {
+        XCTAssertEqual(TBDisplayCapturePreset.native5k.maxKeyFrameIntervalDuration, 1)
+        XCTAssertEqual(TBDisplayCapturePreset.native5k.maxKeyFrameInterval, 48)
+        XCTAssertNil(TBDisplayCapturePreset.native5k.peakBitRate)
+        XCTAssertNil(TBDisplayCapturePreset.retina4k60.peakBitRate)
+    }
+
     func testRetina4KPresetMatches215InchIMacPanel() {
         let preset = TBDisplayCapturePreset.retina4k60
 
