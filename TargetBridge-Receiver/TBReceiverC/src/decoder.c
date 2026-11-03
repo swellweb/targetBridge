@@ -19,6 +19,7 @@
 
 #if defined(__APPLE__)
 #  include <CoreVideo/CoreVideo.h>
+#  include <VideoToolbox/VideoToolbox.h>
 #endif
 
 #define ANNEXB_START   "\x00\x00\x00\x01"
@@ -109,6 +110,16 @@ void tb_dec_set_pixbuf_cb(struct tb_decoder *d, tb_pixbuf_cb cb) {
 int tb_dec_supports_hevc_hwdecode(void) {
     const AVCodec *codec = avcodec_find_decoder(AV_CODEC_ID_HEVC);
     if (!codec) return 0;
+
+#if defined(__APPLE__)
+    /* FFmpeg's videotoolbox hwaccel config and a successful hwdevice context
+     * only prove that VideoToolbox exists, not that this GPU can decode HEVC.
+     * On Macs without an HEVC decode block (e.g. Haswell/Broadwell iMacs)
+     * VideoToolbox silently falls back to its software decoder in
+     * VTDecoderXPCService, so advertising HEVC makes the sender pick a codec
+     * this receiver can only decode on the CPU. Ask VideoToolbox directly. */
+    if (!VTIsHardwareDecodeSupported(kCMVideoCodecType_HEVC)) return 0;
+#endif
 
     enum AVHWDeviceType type = pick_hwdev();
     if (type == AV_HWDEVICE_TYPE_NONE) return 0;
