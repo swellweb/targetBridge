@@ -1493,6 +1493,13 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         if preferredCodec == kCMVideoCodecType_H264, hevcAvailable {
             return TBDisplayCodecDecision(codecType: kCMVideoCodecType_HEVC, usedFallback: true)
         }
+        // The receiver has no HEVC hardware decoder, but there is no hardware H.264
+        // encoder for this size either (e.g. 5K on Apple Silicon). The receiver can
+        // still decode HEVC in software, which is slow but keeps the session usable,
+        // as it was before supportsHEVCDecode reflected hardware support.
+        if senderSupportsHEVC {
+            return TBDisplayCodecDecision(codecType: kCMVideoCodecType_HEVC, usedFallback: true)
+        }
 
         return nil
     }
