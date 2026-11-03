@@ -243,6 +243,30 @@ final class TBSenderAutomationParsingTests: XCTestCase {
         XCTAssertEqual(h264ToHEVC?.usedFallback, true)
     }
 
+    func testCodecSelectionUsesSoftwareDecodedHEVCWhenH264CannotEncodeTheSize() {
+        // e.g. a Haswell iMac receiver (no HEVC decode block) at 5K: H.264 has no hardware
+        // encoder at 5120x2880, so HEVC (software-decoded on the receiver) is the only path.
+        let decision = TBDisplaySenderSession.chooseCodec(
+            preference: .automatic,
+            preset: .native5k,
+            receiverSupportsHEVC: false,
+            senderSupportsH264: false,
+            senderSupportsHEVC: true
+        )
+        XCTAssertEqual(decision?.codecType, kCMVideoCodecType_HEVC)
+        XCTAssertEqual(decision?.usedFallback, true)
+
+        // Where H.264 can be hardware-encoded, it is still preferred over software HEVC.
+        let at4k = TBDisplaySenderSession.chooseCodec(
+            preference: .automatic,
+            preset: .retina4k60,
+            receiverSupportsHEVC: false,
+            senderSupportsH264: true,
+            senderSupportsHEVC: true
+        )
+        XCTAssertEqual(at4k?.codecType, kCMVideoCodecType_H264)
+    }
+
     func testCodecSelectionFailsCleanlyWhenNoHardwarePathExists() {
         XCTAssertNil(TBDisplaySenderSession.chooseCodec(
             preference: .automatic,
