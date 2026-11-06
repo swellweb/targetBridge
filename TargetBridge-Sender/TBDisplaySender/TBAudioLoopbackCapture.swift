@@ -39,6 +39,11 @@ final class TBAudioLoopbackCapture: @unchecked Sendable {
     /// 'tbnm', matching kNameProperty in the driver.
     private static let nameProperty: AudioObjectPropertySelector = 0x74626E6D
     private static let volumeSelectors = [kAudioDevicePropertyVolumeScalar, kAudioDevicePropertyMute]
+    private static let defaultOutputSelectors = [
+        kAudioHardwarePropertyDefaultOutputDevice,
+        kAudioHardwarePropertyDefaultSystemOutputDevice
+    ]
+    private static let previousOutputKey = "fd.tbdisplaysender.previousAudioOutputUID"
 
     // AudioDeviceStop can wait for the running I/O cycle, so the I/O block only
     // ever takes handlerLock, never lifecycleLock.
@@ -47,6 +52,7 @@ final class TBAudioLoopbackCapture: @unchecked Sendable {
     private var subscribers: [UUID: Subscriber] = [:]
     private let volumeQueue = DispatchQueue(label: "targetbridge.audio.volume")
     private var volumeListener: AudioObjectPropertyListenerBlock?
+    private var defaultOutputListener: AudioObjectPropertyListenerBlock?
     private var deviceID = AudioObjectID(kAudioObjectUnknown)
     private var ioProcID: AudioDeviceIOProcID?
 
@@ -146,6 +152,19 @@ final class TBAudioLoopbackCapture: @unchecked Sendable {
             AudioObjectAddPropertyListenerBlock(device, &address, volumeQueue, listener)
         }
         volumeListener = listener
+
+        Self.rememberPreviousOutput(excluding: device)
+        let outputListener: AudioObjectPropertyListenerBlock = { _, _ in
+            Self.rememberPreviousOutput(excluding: device)
+        }
+        var outputAddress = Self.systemAddress(kAudioHardwarePropertyDefaultOutputDevice)
+        AudioObjectAddPropertyListenerBlock(
+            AudioObjectID(kAudioObjectSystemObject),
+            &outputAddress,
+            volumeQueue,
+            outputListener
+        )
+        defaultOutputListener = outputListener
         return true
     }
 
@@ -158,9 +177,20 @@ final class TBAudioLoopbackCapture: @unchecked Sendable {
             }
             volumeListener = nil
         }
+        if let outputListener = defaultOutputListener {
+            var outputAddress = Self.systemAddress(kAudioHardwarePropertyDefaultOutputDevice)
+            AudioObjectRemovePropertyListenerBlock(
+                AudioObjectID(kAudioObjectSystemObject),
+                &outputAddress,
+                volumeQueue,
+                outputListener
+            )
+            defaultOutputListener = nil
+        }
         AudioDeviceStop(deviceID, procID)
         AudioDeviceDestroyIOProcID(deviceID, procID)
         ioProcID = nil
+        Self.restorePreviousOutput(replacing: deviceID)
         deviceID = AudioObjectID(kAudioObjectUnknown)
     }
 
@@ -273,8 +303,71 @@ final class TBAudioLoopbackCapture: @unchecked Sendable {
         )
     }
 
-    private static func findDevice() -> AudioObjectID? {
-        let uid = deviceUID as CFString
+    private static func rememberPreviousOutput(excluding device: AudioObjectID) {
+        guard let current = defaultDevice(kAudioHardwarePropertyDefaultOutputDevice),
+              current != device,
+              let uid = uid(of: current) else { return }
+        UserDefaults.standard.set(uid, forKey: previousOutputKey)
+    }
+
+    /// Leaves the selection alone if the user already moved away from this device,
+    /// or if the previous output is gone, such as unplugged headphones.
+    private static func restorePreviousOutput(replacing device: AudioObjectID) {
+        guard let uid = UserDefaults.standard.string(forKey: previousOutputKey),
+              var previous = findDevice(uid: uid) else { return }
+
+        for selector in defaultOutputSelectors where defaultDevice(selector) == device {
+            var address = systemAddress(selector)
+            let status = AudioObjectSetPropertyData(
+                AudioObjectID(kAudioObjectSystemObject),
+                &address,
+                0,
+                nil,
+                UInt32(MemoryLayout<AudioObjectID>.size),
+                &previous
+            )
+            if status != noErr {
+                NSLog("TargetBridge: could not restore audio output: %d", status)
+            }
+        }
+    }
+
+    private static func defaultDevice(_ selector: AudioObjectPropertySelector) -> AudioObjectID? {
+        var address = systemAddress(selector)
+        var device = AudioObjectID(kAudioObjectUnknown)
+        var size = UInt32(MemoryLayout<AudioObjectID>.size)
+        let status = AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject),
+            &address,
+            0,
+            nil,
+            &size,
+            &device
+        )
+        guard status == noErr, device != AudioObjectID(kAudioObjectUnknown) else { return nil }
+        return device
+    }
+
+    private static func uid(of device: AudioObjectID) -> String? {
+        var address = systemAddress(kAudioDevicePropertyDeviceUID)
+        var uid: Unmanaged<CFString>?
+        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+        guard AudioObjectGetPropertyData(device, &address, 0, nil, &size, &uid) == noErr else {
+            return nil
+        }
+        return uid?.takeRetainedValue() as String?
+    }
+
+    private static func systemAddress(_ selector: AudioObjectPropertySelector) -> AudioObjectPropertyAddress {
+        AudioObjectPropertyAddress(
+            mSelector: selector,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+    }
+
+    private static func findDevice(uid: String = deviceUID) -> AudioObjectID? {
+        let uid = uid as CFString
         var device = AudioObjectID(kAudioObjectUnknown)
         var size = UInt32(MemoryLayout<AudioObjectID>.size)
         var address = AudioObjectPropertyAddress(

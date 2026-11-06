@@ -65,6 +65,7 @@ Each session chooses one audio source. New sessions start with the default set i
 * **TargetBridge Audio device**: An optional driver adds this output to the macOS sound settings. Its mix is looped back to an input stream on the same device (48 kHz stereo), and `TBAudioLoopbackCapture` reads that input. Only audio sent to this output reaches the receiver, so apps can be routed individually.
 
 Device behaviour:
+* **Output restore**: When the last session using the device ends, macOS returns to the previous output if the device is still selected.
 * **Fallback**: If the driver is missing or microphone access is denied, the session uses system audio capture.
 * **Volume**: The driver does not apply the device's volume or mute, so the stream stays at full level. The Sender forwards those controls to the Receiver, which sets the iMac's speaker volume. The session's volume slider is hidden.
 * **Scope**: There is one device. Every session using it receives the same stream. The receiver and the packet format are unchanged.
