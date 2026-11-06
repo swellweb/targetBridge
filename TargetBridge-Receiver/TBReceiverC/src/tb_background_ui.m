@@ -72,7 +72,6 @@ static NSWindow *tb_ui_largest_window(void) {
     _showAtStartItem = [menu addItemWithTitle:@"" action:@selector(toggleShowAtStart:) keyEquivalent:@""];
     _showAtStartItem.target = self;
     [menu addItem:NSMenuItem.separatorItem];
-    [menu addItem:NSMenuItem.separatorItem];
     _quitItem = [menu addItemWithTitle:@"" action:@selector(quit:) keyEquivalent:@""];
     _quitItem.target = self;
     _statusItem.menu = menu;
