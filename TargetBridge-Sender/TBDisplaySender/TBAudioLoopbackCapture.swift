@@ -24,18 +24,27 @@ enum TBAudioSource: String, CaseIterable, Identifiable, Sendable {
 /// Reads the input side of the "TargetBridge Audio" device, which carries
 /// whatever macOS sends to that output, as S16 interleaved 48 kHz stereo.
 final class TBAudioLoopbackCapture: @unchecked Sendable {
-    typealias Handler = @Sendable (Data) -> Void
+    typealias AudioHandler = @Sendable (Data) -> Void
+    typealias VolumeHandler = @Sendable (Double) -> Void
+
+    private struct Subscriber {
+        let audio: AudioHandler
+        let volume: VolumeHandler
+    }
 
     static let shared = TBAudioLoopbackCapture()
     static let deviceUID = "com.targetbridge.audio.device"
 
     private static let preferredBufferFrames: UInt32 = 1024
+    private static let volumeSelectors = [kAudioDevicePropertyVolumeScalar, kAudioDevicePropertyMute]
 
     // AudioDeviceStop can wait for the running I/O cycle, so the I/O block only
     // ever takes handlerLock, never lifecycleLock.
     private let lifecycleLock = NSLock()
     private let handlerLock = NSLock()
-    private var handlers: [UUID: Handler] = [:]
+    private var subscribers: [UUID: Subscriber] = [:]
+    private let volumeQueue = DispatchQueue(label: "targetbridge.audio.volume")
+    private var volumeListener: AudioObjectPropertyListenerBlock?
     private var deviceID = AudioObjectID(kAudioObjectUnknown)
     private var ioProcID: AudioDeviceIOProcID?
 
@@ -56,13 +65,13 @@ final class TBAudioLoopbackCapture: @unchecked Sendable {
         }
     }
 
-    func subscribe(_ handler: @escaping Handler) -> UUID? {
+    func subscribe(audio: @escaping AudioHandler, volume: @escaping VolumeHandler) -> UUID? {
         lifecycleLock.lock()
         defer { lifecycleLock.unlock() }
 
         let id = UUID()
         handlerLock.lock()
-        handlers[id] = handler
+        subscribers[id] = Subscriber(audio: audio, volume: volume)
         handlerLock.unlock()
 
         if ioProcID == nil, !startIO() {
@@ -85,8 +94,8 @@ final class TBAudioLoopbackCapture: @unchecked Sendable {
     private func removeHandler(_ id: UUID) -> Int {
         handlerLock.lock()
         defer { handlerLock.unlock() }
-        handlers[id] = nil
-        return handlers.count
+        subscribers[id] = nil
+        return subscribers.count
     }
 
     private func startIO() -> Bool {
@@ -126,11 +135,27 @@ final class TBAudioLoopbackCapture: @unchecked Sendable {
 
         deviceID = device
         ioProcID = procID
+
+        let listener: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+            self?.publishVolume(of: device)
+        }
+        for selector in Self.volumeSelectors {
+            var address = Self.outputAddress(selector)
+            AudioObjectAddPropertyListenerBlock(device, &address, volumeQueue, listener)
+        }
+        volumeListener = listener
         return true
     }
 
     private func stopIO() {
         guard let procID = ioProcID else { return }
+        if let listener = volumeListener {
+            for selector in Self.volumeSelectors {
+                var address = Self.outputAddress(selector)
+                AudioObjectRemovePropertyListenerBlock(deviceID, &address, volumeQueue, listener)
+            }
+            volumeListener = nil
+        }
         AudioDeviceStop(deviceID, procID)
         AudioDeviceDestroyIOProcID(deviceID, procID)
         ioProcID = nil
@@ -159,12 +184,54 @@ final class TBAudioLoopbackCapture: @unchecked Sendable {
         guard !isSilent else { return }
 
         handlerLock.lock()
-        let currentHandlers = Array(handlers.values)
+        let currentSubscribers = Array(subscribers.values)
         handlerLock.unlock()
 
-        for handler in currentHandlers {
-            handler(data)
+        for subscriber in currentSubscribers {
+            subscriber.audio(data)
         }
+    }
+
+    private func publishVolume(of device: AudioObjectID) {
+        guard let level = Self.outputLevel(of: device) else { return }
+
+        handlerLock.lock()
+        let currentSubscribers = Array(subscribers.values)
+        handlerLock.unlock()
+
+        for subscriber in currentSubscribers {
+            subscriber.volume(level)
+        }
+    }
+
+    /// The device's volume as set on this Mac, or 0 while muted.
+    static func currentOutputLevel() -> Double? {
+        findDevice().flatMap(outputLevel(of:))
+    }
+
+    private static func outputLevel(of device: AudioObjectID) -> Double? {
+        var volumeAddress = outputAddress(kAudioDevicePropertyVolumeScalar)
+        var volume: Float32 = 0
+        var volumeSize = UInt32(MemoryLayout<Float32>.size)
+        guard AudioObjectGetPropertyData(device, &volumeAddress, 0, nil, &volumeSize, &volume) == noErr else {
+            return nil
+        }
+
+        var muteAddress = outputAddress(kAudioDevicePropertyMute)
+        var muted: UInt32 = 0
+        var muteSize = UInt32(MemoryLayout<UInt32>.size)
+        if AudioObjectGetPropertyData(device, &muteAddress, 0, nil, &muteSize, &muted) == noErr, muted != 0 {
+            return 0
+        }
+        return Double(volume)
+    }
+
+    private static func outputAddress(_ selector: AudioObjectPropertySelector) -> AudioObjectPropertyAddress {
+        AudioObjectPropertyAddress(
+            mSelector: selector,
+            mScope: kAudioDevicePropertyScopeOutput,
+            mElement: kAudioObjectPropertyElementMain
+        )
     }
 
     private static func findDevice() -> AudioObjectID? {

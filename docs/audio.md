@@ -66,9 +66,11 @@ Each session chooses one audio source. New sessions start with the default set i
 
 Device behaviour:
 * **Fallback**: If the driver is missing or microphone access is denied, the session uses system audio capture.
-* **Volume**: The device's volume and mute controls are applied in the driver, so the Mac's volume keys set the level. The session's volume slider is hidden, and the receiver is set to 100% for the session. The Receiver saves its previous volume and restores it when the session ends, including when the connection drops. Older Receivers return to the slider level on a clean stop and stay at 100% if the connection drops.
+* **Volume**: The driver does not apply the device's volume or mute, so the stream stays at full level. The Sender forwards those controls to the Receiver, which sets the iMac's speaker volume. The session's volume slider is hidden.
 * **Scope**: There is one device. Every session using it receives the same stream. The receiver and the packet format are unchanged.
 * **Permission**: macOS treats reading any input device as microphone use, so its indicator shows during a session.
+
+For every audio source, the Receiver restores the volume it had before the session when the session ends, including when the connection drops.
 
 The driver is built with libASPL (`scripts/build_audio_driver.sh`) and embedded in `TargetBridge.app/Contents/PlugIns` by `scripts/build_targetbridge_sender_app.sh`, which CI and releases use. Install it from **Settings > Audio**. For development, `sudo scripts/install_audio_driver.sh` installs the built driver and `-u` removes it.
 

@@ -28,7 +28,7 @@
  * type 0x34 = input control mode update (JSON)
  * type 0x35 = brightness update (JSON)
  * type 0x36 = clipboard update (JSON)
- * type 0x37 = volume update (JSON): level, optional temporary and restore
+ * type 0x37 = volume update (JSON)
  *
  * Compatible with the new TBDisplaySender Swift app.
  */

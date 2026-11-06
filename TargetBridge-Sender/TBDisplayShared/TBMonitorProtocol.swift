@@ -103,10 +103,6 @@ struct TBMonitorBrightness: Codable {
 
 struct TBMonitorVolume: Codable {
     var level: Double
-    /// The receiver keeps its current volume and returns to it when the session ends.
-    var temporary: Bool?
-    /// Return to the volume saved by a temporary level. Older receivers apply `level`.
-    var restore: Bool?
 }
 
 struct TBMonitorDisplayTweaks: Codable {

@@ -1339,6 +1339,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         didSet { isUsingOutputDevice = loopbackAudioSubscription != nil }
     }
     @Published private(set) var isUsingOutputDevice = false
+    private var outputDeviceLevel: Double = 1
     private var activeProfile: TBMonitorDisplayProfile?
     private var activeCodecType: CMVideoCodecType?
     private var activeCodecName: String?
@@ -2096,14 +2097,10 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         send(packet)
     }
 
-    private func sendVolumeUpdate(restoringReceiverLevel: Bool = false) {
+    private func sendVolumeUpdate() {
         guard let packet = TBMonitorProtocol.makeJSONPacket(
             type: .volume,
-            value: TBMonitorVolume(
-                level: isUsingOutputDevice ? 1.0 : volume,
-                temporary: isUsingOutputDevice ? true : nil,
-                restore: restoringReceiverLevel ? true : nil
-            )
+            value: TBMonitorVolume(level: isUsingOutputDevice ? outputDeviceLevel : volume)
         ) else { return }
         send(packet)
     }
@@ -3890,15 +3887,27 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         }
         guard connection != nil, loopbackAudioSubscription == nil else { return }
 
-        loopbackAudioSubscription = TBAudioLoopbackCapture.shared.subscribe { [weak self] data in
-            guard let self else { return }
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    self.sendLoopbackAudio(data)
+        loopbackAudioSubscription = TBAudioLoopbackCapture.shared.subscribe(
+            audio: { [weak self] data in
+                guard let self else { return }
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        self.sendLoopbackAudio(data)
+                    }
+                }
+            },
+            volume: { [weak self] level in
+                guard let self else { return }
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        self.outputDeviceLevel = level
+                        self.sendVolumeUpdate()
+                    }
                 }
             }
-        }
-        // The Mac sets the level for this source, so the receiver stays at full volume.
+        )
+        // The Mac's volume for this device now drives the receiver's speaker volume.
+        outputDeviceLevel = TBAudioLoopbackCapture.currentOutputLevel() ?? 1
         sendVolumeUpdate()
     }
 
@@ -3906,7 +3915,6 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         guard let subscription = loopbackAudioSubscription else { return }
         loopbackAudioSubscription = nil
         TBAudioLoopbackCapture.shared.unsubscribe(subscription)
-        sendVolumeUpdate(restoringReceiverLevel: true)
     }
 
     private func sendLoopbackAudio(_ data: Data) {

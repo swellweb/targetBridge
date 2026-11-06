@@ -50,6 +50,27 @@ public:
         return kAudioHardwareNoError;
     }
 
+    // The volume and mute controls are not applied here. The Sender forwards
+    // them to the receiver, so the stream itself stays at full level.
+    void OnProcessClientOutput(const std::shared_ptr<aspl::Client>& client,
+        const std::shared_ptr<aspl::Stream>& stream,
+        Float64 zeroTimestamp,
+        Float64 timestamp,
+        Float32* frames,
+        UInt32 frameCount,
+        UInt32 channelCount) override
+    {
+    }
+
+    void OnProcessMixedOutput(const std::shared_ptr<aspl::Stream>& stream,
+        Float64 zeroTimestamp,
+        Float64 timestamp,
+        Float32* frames,
+        UInt32 frameCount,
+        UInt32 channelCount) override
+    {
+    }
+
     void OnWriteMixedOutput(const std::shared_ptr<aspl::Stream>& stream,
         Float64 zeroTimestamp,
         Float64 timestamp,

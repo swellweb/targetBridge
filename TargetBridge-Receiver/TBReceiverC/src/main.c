@@ -1151,7 +1151,7 @@ static void tb_set_system_volume(double level) {
     }
 }
 
-/* Volume to return to after a temporary level, however the session ends. */
+/* Volume from before the session's first change, restored however it ends. */
 static int g_volume_restore_pending = 0;
 static double g_volume_restore_level = 0.0;
 
@@ -1161,12 +1161,8 @@ static void tb_restore_system_volume(void) {
     tb_set_system_volume(g_volume_restore_level);
 }
 
-static void tb_apply_volume_packet(double level, int temporary, int restore) {
-    if (restore && g_volume_restore_pending) {
-        tb_restore_system_volume();
-        return;
-    }
-    if (temporary && !g_volume_restore_pending) {
+static void tb_apply_session_volume(double level) {
+    if (!g_volume_restore_pending) {
         g_volume_restore_pending = tb_get_system_volume(&g_volume_restore_level);
     }
     tb_set_system_volume(level);
@@ -1298,12 +1294,8 @@ static void on_packet(uint8_t type, const uint8_t *payload, size_t len, void *ud
     case TB_PKT_VOLUME:
         {
             double level = 1.0;
-            int temporary = 0;
-            int restore = 0;
             (void)extract_json_double_field(payload, len, "\"level\"", &level);
-            (void)extract_json_bool_field(payload, len, "\"temporary\"", &temporary);
-            (void)extract_json_bool_field(payload, len, "\"restore\"", &restore);
-            tb_apply_volume_packet(level, temporary, restore);
+            tb_apply_session_volume(level);
         }
         break;
     case TB_PKT_AUDIO_FRAME:
