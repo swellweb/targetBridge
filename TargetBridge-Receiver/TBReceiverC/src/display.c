@@ -431,7 +431,7 @@ static void tb_disp_rebuild_status_texture(struct tb_display *d,
     int window_w = 0;
     SDL_GetWindowSize(d->win, &window_w, NULL);
     const CGFloat points_to_pixels = window_w > 0 ? canvas_w / (CGFloat)window_w : 1.0;
-    const CGFloat bar_h = 44.0 * points_to_pixels;
+    const CGFloat bar_h = 72.0 * points_to_pixels;
     const CGFloat bar_y = canvas_h - bar_h;
 
     tb_disp_fill_rect(ctx, 0, 0, canvas_w, canvas_h, 0.06, 0.07, 0.09, 1.0);

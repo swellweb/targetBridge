@@ -18,7 +18,6 @@ static NSString *const kShowWindowAtStartKey = @"showWindowAtStart";
 @property(nonatomic, strong) NSButton *checkbox;
 @property(nonatomic, strong) NSButton *showAtStartCheckbox;
 @property(nonatomic, strong) NSTextField *loginHint;
-@property(nonatomic, strong) NSMenuItem *loginHintItem;
 @property(nonatomic, copy) NSString *language;
 @property(nonatomic, copy) NSString *status;
 @property(nonatomic) unsigned int actions;
@@ -73,8 +72,6 @@ static NSWindow *tb_ui_largest_window(void) {
     _showAtStartItem = [menu addItemWithTitle:@"" action:@selector(toggleShowAtStart:) keyEquivalent:@""];
     _showAtStartItem.target = self;
     [menu addItem:NSMenuItem.separatorItem];
-    _loginHintItem = [menu addItemWithTitle:@"" action:nil keyEquivalent:@""];
-    _loginHintItem.enabled = NO;
     [menu addItem:NSMenuItem.separatorItem];
     _quitItem = [menu addItemWithTitle:@"" action:@selector(quit:) keyEquivalent:@""];
     _quitItem.target = self;
@@ -119,8 +116,8 @@ static NSWindow *tb_ui_largest_window(void) {
     hint.alignment = NSTextAlignmentRight;
     hint.lineBreakMode = NSLineBreakByWordWrapping;
     hint.maximumNumberOfLines = 2;
-    CGFloat hintWidth = MIN(420.0, NSWidth(content.bounds) - 48.0);
-    hint.frame = NSMakeRect(NSWidth(content.bounds) - hintWidth - 36.0, 52.0, hintWidth, 32.0);
+    CGFloat hintWidth = MIN(640.0, NSWidth(content.bounds) - 240.0);
+    hint.frame = NSMakeRect(NSWidth(content.bounds) - hintWidth - 24.0, 8.0, hintWidth, 30.0);
     hint.autoresizingMask = NSViewMinXMargin | NSViewMaxYMargin;
     [content addSubview:hint positioned:NSWindowAbove relativeTo:nil];
     self.loginHint = hint;
@@ -144,7 +141,7 @@ static NSWindow *tb_ui_largest_window(void) {
     for (NSButton *checkbox in @[ self.showAtStartCheckbox, self.checkbox ]) {
         [checkbox sizeToFit];
         NSSize size = checkbox.frame.size;
-        checkbox.frame = NSMakeRect(right - size.width, 14.0, size.width, size.height);
+        checkbox.frame = NSMakeRect(right - size.width, 42.0, size.width, size.height);
         right -= size.width + 18.0;
     }
 }
@@ -159,7 +156,6 @@ static NSWindow *tb_ui_largest_window(void) {
     self.backgroundItem.title = tb_ui_text("receiver.background.run");
     self.showAtStartItem.title = tb_ui_text("receiver.background.show_main_window_at_start");
     self.quitItem.title = tb_ui_text("receiver.background.quit");
-    self.loginHintItem.title = tb_ui_text("receiver.background.login_hint");
     self.loginHint.stringValue = tb_ui_text("receiver.background.login_hint");
     self.checkbox.title = tb_ui_text("receiver.background.run");
     self.showAtStartCheckbox.title = tb_ui_text("receiver.background.show_at_start");
