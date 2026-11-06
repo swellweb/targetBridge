@@ -35,6 +35,8 @@ struct tb_display {
     SDL_Texture  *status_tex;
     int           tex_w, tex_h;
     int           quit;
+    int           window_hidden;
+    int           close_hides;
     int           preferred_fullscreen;
     int           is_connected;
     int           is_connecting;
@@ -551,7 +553,7 @@ static SDL_Renderer *tb_disp_create_accelerated_renderer(SDL_Window *win) {
     return tb_disp_try_renderer(win, NULL);
 }
 
-struct tb_display *tb_disp_create(int fullscreen) {
+struct tb_display *tb_disp_create(int fullscreen, int start_hidden) {
     /* Best-quality scaling (linear filter; Metal backend uses bilinear
      * regardless but this sets the hint correctly). "best" enables
      * anisotropic where supported. Must be set BEFORE renderer creation. */
@@ -619,7 +621,8 @@ struct tb_display *tb_disp_create(int fullscreen) {
     d->last_video_frame_time = 0;
 
     tb_disp_refresh_window_mode(d);
-    SDL_ShowWindow(d->win);
+    d->window_hidden = start_hidden;
+    if (!start_hidden) SDL_ShowWindow(d->win);
     return d;
 }
 
@@ -1166,11 +1169,17 @@ unsigned int tb_disp_poll_actions(struct tb_display *d) {
     unsigned int actions = TB_DISP_ACTION_NONE;
     SDL_Event ev;
     while (SDL_PollEvent(&ev)) {
-        if (ev.type == SDL_QUIT) d->quit = 1;
+        if (ev.type == SDL_QUIT) {
+            if (d->close_hides) actions |= TB_DISP_ACTION_HIDE_WINDOW;
+            else d->quit = 1;
+        }
         else if (!d->input_capture_active &&
                  !d->input_intercept_active &&
                  ev.type == SDL_KEYDOWN &&
-                 ev.key.keysym.sym == SDLK_ESCAPE) d->quit = 1;
+                 ev.key.keysym.sym == SDLK_ESCAPE) {
+            if (d->close_hides) actions |= TB_DISP_ACTION_HIDE_WINDOW;
+            else d->quit = 1;
+        }
         else if (!d->input_capture_active &&
                  !d->input_intercept_active &&
                  ev.type == SDL_KEYDOWN &&
@@ -1375,6 +1384,21 @@ static void tb_disp_set_connecting_state(struct tb_display *d, int connecting) {
     tb_disp_set_stream_state(d, 0, connecting ? 1 : 0);
 }
 
+void tb_disp_set_window_visible(struct tb_display *d, int visible) {
+    if (!d || !d->win || d->window_hidden == !visible) return;
+    d->window_hidden = !visible;
+    if (visible) {
+        SDL_ShowWindow(d->win);
+        SDL_RaiseWindow(d->win);
+    } else {
+        SDL_HideWindow(d->win);
+    }
+}
+
+void tb_disp_set_close_hides(struct tb_display *d, int close_hides) {
+    if (d) d->close_hides = close_hides;
+}
+
 void tb_disp_set_input_capture_active(struct tb_display *d, int active) {
     if (!d) return;
     d->input_capture_active = active ? 1 : 0;
@@ -1414,6 +1438,7 @@ void tb_disp_render_status(struct tb_display *d,
     if (!d || !d->ren || !d->win) return;
 
     tb_disp_set_connection_state(d, 0);
+    if (d->window_hidden) return;
 
     if (!ip) ip = tb_i18n_get("receiver.network.not_detected");
     if (!status) status = tb_i18n_get("receiver.status.waiting_for_sender");

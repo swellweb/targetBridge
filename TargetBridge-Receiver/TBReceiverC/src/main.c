@@ -21,6 +21,7 @@
 #include "proto.h"
 #include "tb_gesture_bridge.h"
 #include "tb_display_tweaks.h"
+#include "tb_background_ui.h"
 #include "tb_i18n.h"
 
 #include <SDL.h>
@@ -76,6 +77,8 @@ struct app {
 
     uint64_t last_recv_ms;      /* idle watchdog: last time the sender sent anything */
     int      close_requested;
+    int      background_mode;
+    int      window_requested;
     int      have_video_frame;
     /* A real streaming session has begun (the sender sent a session packet, not
      * just a transient probe like a UI-language push). Gates the fullscreen
@@ -1946,12 +1949,27 @@ static void send_receiver_info(struct app *a) {
     free(pkt);
 }
 
+static void tb_receiver_update_window_visibility(struct app *a) {
+    const int session = a->client_fd >= 0 && a->session_active;
+    const int visible = session || !a->background_mode || a->window_requested;
+
+    tb_disp_set_close_hides(a->disp, a->background_mode && !session);
+    if (visible) {
+        tb_background_ui_update(a->background_mode, 1, session, a->status_text);
+        tb_disp_set_window_visible(a->disp, 1);
+    } else {
+        tb_disp_set_window_visible(a->disp, 0);
+        tb_background_ui_update(a->background_mode, 0, session, a->status_text);
+    }
+}
+
 static void close_client(struct app *a) {
     if (a->client_fd >= 0) close(a->client_fd);
     a->client_fd = -1;
     tb_restore_system_volume();
     a->session_active = 0;
     a->close_requested = 0;
+    a->window_requested = 0;
     a->have_video_frame = 0;
     snprintf(a->input_control_mode, sizeof(a->input_control_mode), "off");
     SDL_EnableScreenSaver();
@@ -2086,8 +2104,10 @@ int main(int argc, char **argv) {
     tb_gesture_bridge_install(tb_receiver_space_switch_callback, &a);
     tb_gesture_bridge_set_active(0);
 
-    a.disp = tb_disp_create(fullscreen);
+    a.background_mode = tb_background_mode_load();
+    a.disp = tb_disp_create(fullscreen, a.background_mode);
     if (!a.disp) { fprintf(stderr, "tb_disp_create failed\n"); return 1; }
+    tb_background_ui_install();
 
     /* SDL starts with screen-saver inhibition enabled. A Receiver that has not
      * accepted a client yet never reaches close_client(), so release the
@@ -2120,6 +2140,18 @@ int main(int argc, char **argv) {
         int socket_activity = 0;
         CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.0, true);
         if (disp_actions & TB_DISP_ACTION_QUIT) break;
+        if (disp_actions & TB_DISP_ACTION_HIDE_WINDOW) a.window_requested = 0;
+
+        unsigned int ui_actions = tb_background_ui_take_actions();
+        if (ui_actions & TB_BACKGROUND_UI_QUIT) break;
+        if (ui_actions & TB_BACKGROUND_UI_SHOW_WINDOW) a.window_requested = 1;
+        if (ui_actions & TB_BACKGROUND_UI_TOGGLE) {
+            a.background_mode = !a.background_mode;
+            a.window_requested = 0;
+            tb_background_mode_save(a.background_mode);
+        }
+        tb_receiver_update_window_visibility(&a);
+
         if ((disp_actions & TB_DISP_ACTION_CYCLE_LANGUAGE) && a.client_fd < 0) {
             tb_receiver_cycle_language_preference(&a);
         }

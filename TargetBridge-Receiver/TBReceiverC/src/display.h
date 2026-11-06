@@ -25,13 +25,18 @@ struct tb_display_info {
 enum tb_display_action {
     TB_DISP_ACTION_NONE = 0,
     TB_DISP_ACTION_QUIT = 1 << 0,
-    TB_DISP_ACTION_CYCLE_LANGUAGE = 1 << 1
+    TB_DISP_ACTION_CYCLE_LANGUAGE = 1 << 1,
+    TB_DISP_ACTION_HIDE_WINDOW = 1 << 2
 };
 
-struct tb_display *tb_disp_create(int fullscreen);
+struct tb_display *tb_disp_create(int fullscreen, int start_hidden);
 void               tb_disp_destroy(struct tb_display *d);
 void               tb_disp_set_connection_state(struct tb_display *d, int connected);
 void               tb_disp_set_input_capture_active(struct tb_display *d, int active);
+
+/* Background mode: the window can hide, and closing it hides it instead of quitting. */
+void               tb_disp_set_window_visible(struct tb_display *d, int visible);
+void               tb_disp_set_close_hides(struct tb_display *d, int close_hides);
 void               tb_disp_set_input_intercept_active(struct tb_display *d, int active);
 
 /* Whether the receiver display window is on the active macOS Space. Used to

@@ -223,3 +223,7 @@ Choose **Uncompressed** under **Video compression** in the session settings. Fra
 ## Session Names and Auto-Connect
 
 Sessions can be named in their settings. The display shown in macOS uses the session name unless it has its own **Display name**, which applies on the next connection. With **Connect automatically** on, a session connects when its receiver is found while TargetBridge is open. Pressing Stop pauses this until the next manual connect.
+
+## Receiver Background Mode
+
+The Receiver has a menu bar icon. Turn on **Run in background** from that menu or from the checkbox on its main screen, and the app waits with no window or Dock icon. It stays that way across restarts, so it can be added to macOS Login Items. When a session starts, the window and Dock icon return for the session, then hide again. Closing the window while in background mode hides it, and **Quit** in the menu exits the app.
