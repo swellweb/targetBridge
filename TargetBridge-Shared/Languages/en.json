@@ -196,6 +196,7 @@
   "receiver.background.run": "Run in background",
   "receiver.background.login_hint": "To start automatically, turn on Run in background, then add this app under System Settings > General > Login Items.",
   "receiver.background.show_at_start": "Always show this window at start",
+  "receiver.background.show_main_window_at_start": "Show main window at start",
   "receiver.background.show_window": "Show Window",
   "receiver.background.quit": "Quit TargetBridge Receiver",
   "receiver.language.auto": "Auto",

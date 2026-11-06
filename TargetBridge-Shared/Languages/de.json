@@ -196,6 +196,7 @@
   "receiver.background.run": "Im Hintergrund ausführen",
   "receiver.background.login_hint": "Für den automatischen Start: „Im Hintergrund ausführen“ aktivieren und die App unter Systemeinstellungen > Allgemein > Anmeldeobjekte hinzufügen.",
   "receiver.background.show_at_start": "Dieses Fenster beim Start immer anzeigen",
+  "receiver.background.show_main_window_at_start": "Hauptfenster beim Start anzeigen",
   "receiver.background.show_window": "Fenster anzeigen",
   "receiver.background.quit": "TargetBridge Receiver beenden",
   "receiver.language.auto": "Automatisch",

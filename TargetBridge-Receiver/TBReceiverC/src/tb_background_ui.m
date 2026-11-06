@@ -157,7 +157,7 @@ static NSWindow *tb_ui_largest_window(void) {
 
     self.showWindowItem.title = tb_ui_text("receiver.background.show_window");
     self.backgroundItem.title = tb_ui_text("receiver.background.run");
-    self.showAtStartItem.title = tb_ui_text("receiver.background.show_at_start");
+    self.showAtStartItem.title = tb_ui_text("receiver.background.show_main_window_at_start");
     self.quitItem.title = tb_ui_text("receiver.background.quit");
     self.loginHintItem.title = tb_ui_text("receiver.background.login_hint");
     self.loginHint.stringValue = tb_ui_text("receiver.background.login_hint");

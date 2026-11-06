@@ -196,6 +196,7 @@
   "receiver.background.run": "Exécuter en arrière-plan",
   "receiver.background.login_hint": "Pour un démarrage automatique, activez Exécuter en arrière-plan, puis ajoutez cette app dans Réglages Système > Général > Ouverture.",
   "receiver.background.show_at_start": "Toujours afficher cette fenêtre au démarrage",
+  "receiver.background.show_main_window_at_start": "Afficher la fenêtre principale au démarrage",
   "receiver.background.show_window": "Afficher la fenêtre",
   "receiver.background.quit": "Quitter TargetBridge Receiver",
   "receiver.language.auto": "Auto",
