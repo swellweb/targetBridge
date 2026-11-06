@@ -2,7 +2,7 @@ name: CI Build Verification
 
 on:
   push:
-    branches: [ main, 3.1-maint, maint-3.5, 3.2-dev, dev-3.3.0, dev-3.4.0, dev-3.6.0, 'feature/**' ]
+    branches: [ main, 3.1-maint, maint-3.5, 3.2-dev, dev-3.3.0, dev-3.4.0, dev-3.6.0, upgrades, 'feature/**' ]
   pull_request:
     branches: [ main, 3.1-maint, maint-3.5, 3.2-dev, dev-3.3.0, dev-3.4.0, dev-3.6.0 ]
 
