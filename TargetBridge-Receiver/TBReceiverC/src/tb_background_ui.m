@@ -6,14 +6,17 @@
 #include "tb_i18n.h"
 
 static NSString *const kBackgroundModeKey = @"backgroundMode";
+static NSString *const kShowWindowAtStartKey = @"showWindowAtStart";
 
 @interface TBBackgroundUI : NSObject
 @property(nonatomic, strong) NSStatusItem *statusItem;
 @property(nonatomic, strong) NSMenuItem *statusLine;
 @property(nonatomic, strong) NSMenuItem *showWindowItem;
 @property(nonatomic, strong) NSMenuItem *backgroundItem;
+@property(nonatomic, strong) NSMenuItem *showAtStartItem;
 @property(nonatomic, strong) NSMenuItem *quitItem;
 @property(nonatomic, strong) NSButton *checkbox;
+@property(nonatomic, strong) NSButton *showAtStartCheckbox;
 @property(nonatomic, copy) NSString *language;
 @property(nonatomic, copy) NSString *status;
 @property(nonatomic) unsigned int actions;
@@ -65,6 +68,8 @@ static NSWindow *tb_ui_largest_window(void) {
     _showWindowItem.target = self;
     _backgroundItem = [menu addItemWithTitle:@"" action:@selector(toggleBackground:) keyEquivalent:@""];
     _backgroundItem.target = self;
+    _showAtStartItem = [menu addItemWithTitle:@"" action:@selector(toggleShowAtStart:) keyEquivalent:@""];
+    _showAtStartItem.target = self;
     [menu addItem:NSMenuItem.separatorItem];
     _quitItem = [menu addItemWithTitle:@"" action:@selector(quit:) keyEquivalent:@""];
     _quitItem.target = self;
@@ -80,6 +85,10 @@ static NSWindow *tb_ui_largest_window(void) {
     self.actions |= TB_BACKGROUND_UI_TOGGLE;
 }
 
+- (void)toggleShowAtStart:(id)sender {
+    self.actions |= TB_BACKGROUND_UI_TOGGLE_SHOW_AT_START;
+}
+
 - (void)quit:(id)sender {
     self.actions |= TB_BACKGROUND_UI_QUIT;
 }
@@ -90,17 +99,37 @@ static NSWindow *tb_ui_largest_window(void) {
     NSView *content = window.contentView;
     if (!content) return;
 
-    NSButton *checkbox = [NSButton checkboxWithTitle:tb_ui_text("receiver.background.run")
-                                              target:self
-                                              action:@selector(toggleBackground:)];
+    self.showAtStartCheckbox = [self addCheckboxTo:content
+                                               key:"receiver.background.show_at_start"
+                                            action:@selector(toggleShowAtStart:)
+                                                 y:18.0];
+    self.checkbox = [self addCheckboxTo:content
+                                    key:"receiver.background.run"
+                                 action:@selector(toggleBackground:)
+                                      y:44.0];
+    self.language = nil;
+}
+
+- (NSButton *)addCheckboxTo:(NSView *)content key:(const char *)key action:(SEL)action y:(CGFloat)y {
+    NSButton *checkbox = [NSButton checkboxWithTitle:tb_ui_text(key) target:self action:action];
     checkbox.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
     [checkbox sizeToFit];
     NSSize size = checkbox.frame.size;
-    checkbox.frame = NSMakeRect(NSWidth(content.bounds) - size.width - 24.0, 18.0, size.width, size.height);
+    checkbox.frame = NSMakeRect(NSWidth(content.bounds) - size.width - 24.0, y, size.width, size.height);
     checkbox.autoresizingMask = NSViewMinXMargin | NSViewMaxYMargin;
     [content addSubview:checkbox positioned:NSWindowAbove relativeTo:nil];
-    self.checkbox = checkbox;
-    self.language = nil;
+    return checkbox;
+}
+
+- (void)setTitle:(NSString *)title ofCheckbox:(NSButton *)checkbox {
+    if (!checkbox) return;
+    checkbox.title = title;
+    NSRect frame = checkbox.frame;
+    CGFloat right = NSMaxX(frame);
+    [checkbox sizeToFit];
+    frame.size = checkbox.frame.size;
+    frame.origin.x = right - frame.size.width;
+    checkbox.frame = frame;
 }
 
 - (void)refreshTextsIfNeeded {
@@ -111,19 +140,17 @@ static NSWindow *tb_ui_largest_window(void) {
 
     self.showWindowItem.title = tb_ui_text("receiver.background.show_window");
     self.backgroundItem.title = tb_ui_text("receiver.background.run");
+    self.showAtStartItem.title = tb_ui_text("receiver.background.show_at_start");
     self.quitItem.title = tb_ui_text("receiver.background.quit");
-    if (self.checkbox) {
-        self.checkbox.title = tb_ui_text("receiver.background.run");
-        NSRect frame = self.checkbox.frame;
-        CGFloat right = NSMaxX(frame);
-        [self.checkbox sizeToFit];
-        frame.size = self.checkbox.frame.size;
-        frame.origin.x = right - frame.size.width;
-        self.checkbox.frame = frame;
-    }
+    [self setTitle:tb_ui_text("receiver.background.run") ofCheckbox:self.checkbox];
+    [self setTitle:tb_ui_text("receiver.background.show_at_start") ofCheckbox:self.showAtStartCheckbox];
 }
 
-- (void)updateBackground:(int)background visible:(int)visible session:(int)session status:(const char *)status {
+- (void)updateBackground:(int)background
+             showAtStart:(int)showAtStart
+                 visible:(int)visible
+                 session:(int)session
+                  status:(const char *)status {
     if (visible != self.policyVisible) {
         self.policyVisible = visible;
         [NSApp setActivationPolicy:visible ? NSApplicationActivationPolicyRegular
@@ -138,6 +165,14 @@ static NSWindow *tb_ui_largest_window(void) {
     self.backgroundItem.state = state;
     self.checkbox.state = state;
     self.checkbox.hidden = session != 0;
+
+    /* Without background mode the window always shows at start. */
+    NSControlStateValue showAtStartState = showAtStart ? NSControlStateValueOn : NSControlStateValueOff;
+    self.showAtStartItem.state = showAtStartState;
+    self.showAtStartItem.enabled = background != 0;
+    self.showAtStartCheckbox.state = showAtStartState;
+    self.showAtStartCheckbox.enabled = background != 0;
+    self.showAtStartCheckbox.hidden = session != 0;
     self.showWindowItem.enabled = !visible;
 
     NSString *text = status ? [NSString stringWithUTF8String:status] : @"";
@@ -159,15 +194,25 @@ void tb_background_mode_save(int enabled) {
     [NSUserDefaults.standardUserDefaults setBool:enabled != 0 forKey:kBackgroundModeKey];
 }
 
+int tb_show_window_at_start_load(void) {
+    return [NSUserDefaults.standardUserDefaults boolForKey:kShowWindowAtStartKey] ? 1 : 0;
+}
+
+void tb_show_window_at_start_save(int enabled) {
+    [NSUserDefaults.standardUserDefaults setBool:enabled != 0 forKey:kShowWindowAtStartKey];
+}
+
 void tb_background_ui_install(void) {
     if (!g_background_ui) g_background_ui = [[TBBackgroundUI alloc] init];
 }
 
 void tb_background_ui_update(int background_mode,
+                             int show_at_start,
                              int window_visible,
                              int session_active,
                              const char *status) {
     [g_background_ui updateBackground:background_mode
+                          showAtStart:show_at_start
                               visible:window_visible
                               session:session_active
                                status:status];

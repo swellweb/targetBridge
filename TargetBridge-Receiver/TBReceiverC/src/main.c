@@ -78,6 +78,7 @@ struct app {
     uint64_t last_recv_ms;      /* idle watchdog: last time the sender sent anything */
     int      close_requested;
     int      background_mode;
+    int      show_window_at_start;
     int      window_requested;
     int      have_video_frame;
     /* A real streaming session has begun (the sender sent a session packet, not
@@ -1955,11 +1956,11 @@ static void tb_receiver_update_window_visibility(struct app *a) {
 
     tb_disp_set_close_hides(a->disp, a->background_mode && !session);
     if (visible) {
-        tb_background_ui_update(a->background_mode, 1, session, a->status_text);
+        tb_background_ui_update(a->background_mode, a->show_window_at_start, 1, session, a->status_text);
         tb_disp_set_window_visible(a->disp, 1);
     } else {
         tb_disp_set_window_visible(a->disp, 0);
-        tb_background_ui_update(a->background_mode, 0, session, a->status_text);
+        tb_background_ui_update(a->background_mode, a->show_window_at_start, 0, session, a->status_text);
     }
 }
 
@@ -2105,7 +2106,9 @@ int main(int argc, char **argv) {
     tb_gesture_bridge_set_active(0);
 
     a.background_mode = tb_background_mode_load();
-    a.disp = tb_disp_create(fullscreen, a.background_mode);
+    a.show_window_at_start = tb_show_window_at_start_load();
+    a.window_requested = a.background_mode && a.show_window_at_start;
+    a.disp = tb_disp_create(fullscreen, a.background_mode && !a.show_window_at_start);
     if (!a.disp) { fprintf(stderr, "tb_disp_create failed\n"); return 1; }
     tb_background_ui_install();
 
@@ -2149,6 +2152,10 @@ int main(int argc, char **argv) {
             a.background_mode = !a.background_mode;
             a.window_requested = 0;
             tb_background_mode_save(a.background_mode);
+        }
+        if (ui_actions & TB_BACKGROUND_UI_TOGGLE_SHOW_AT_START) {
+            a.show_window_at_start = !a.show_window_at_start;
+            tb_show_window_at_start_save(a.show_window_at_start);
         }
         tb_receiver_update_window_visibility(&a);
 

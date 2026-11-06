@@ -194,6 +194,7 @@
   "receiver.ui.help_3": "Se il sender si ferma, il receiver torna qui pronto per una nuova sessione.",
   "receiver.ui.help_4": "Premi L per cambiare la lingua del receiver.",
   "receiver.background.run": "Esegui in background",
+  "receiver.background.show_at_start": "Mostra sempre questa finestra all’avvio",
   "receiver.background.show_window": "Mostra finestra",
   "receiver.background.quit": "Esci da TargetBridge Receiver",
   "receiver.language.auto": "Automatico",
