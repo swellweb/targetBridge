@@ -120,7 +120,7 @@ static NSWindow *tb_ui_largest_window(void) {
     hint.lineBreakMode = NSLineBreakByWordWrapping;
     hint.maximumNumberOfLines = 2;
     CGFloat hintWidth = MIN(420.0, NSWidth(content.bounds) - 48.0);
-    hint.frame = NSMakeRect(NSWidth(content.bounds) - hintWidth - 24.0, 72.0, hintWidth, 32.0);
+    hint.frame = NSMakeRect(NSWidth(content.bounds) - hintWidth - 36.0, 52.0, hintWidth, 32.0);
     hint.autoresizingMask = NSViewMinXMargin | NSViewMaxYMargin;
     [content addSubview:hint positioned:NSWindowAbove relativeTo:nil];
     self.loginHint = hint;
@@ -135,16 +135,16 @@ static NSWindow *tb_ui_largest_window(void) {
     return checkbox;
 }
 
-/* One row in the footer band, right-aligned, to the right of the version text. */
+/* One row in the bottom bar, right-aligned, to the right of the version text. */
 - (void)layoutCheckboxes {
     NSView *content = self.checkbox.superview;
     if (!content) return;
 
-    CGFloat right = NSWidth(content.bounds) - 36.0;
+    CGFloat right = NSWidth(content.bounds) - 24.0;
     for (NSButton *checkbox in @[ self.showAtStartCheckbox, self.checkbox ]) {
         [checkbox sizeToFit];
         NSSize size = checkbox.frame.size;
-        checkbox.frame = NSMakeRect(right - size.width, 42.0, size.width, size.height);
+        checkbox.frame = NSMakeRect(right - size.width, 14.0, size.width, size.height);
         right -= size.width + 18.0;
     }
 }
