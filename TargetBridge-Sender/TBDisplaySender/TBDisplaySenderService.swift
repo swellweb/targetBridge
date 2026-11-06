@@ -2081,7 +2081,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         send(packet)
     }
 
-    static let brightnessStep = 1.0 / 16.0
+    nonisolated static let brightnessStep = 1.0 / 16.0
 
     func isShowing(displayID: CGDirectDisplayID) -> Bool {
         isConnected && displayID != kCGNullDirectDisplay && session.displayID == displayID
