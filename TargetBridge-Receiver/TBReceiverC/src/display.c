@@ -436,8 +436,14 @@ static void tb_disp_rebuild_status_texture(struct tb_display *d,
 
     tb_disp_draw_text(ctx, tb_i18n_get("receiver.ui.title"), title_font, 28, 72, (CGFloat)drawable_h - 84, 0.95, 0.97, 1.0);
     tb_disp_draw_text(ctx, tb_i18n_get("receiver.ui.subtitle"), body_font, 17, 72, (CGFloat)drawable_h - 118, 0.72, 0.76, 0.84);
-    tb_disp_draw_text(ctx, TB_RECEIVER_VERSION, mono_bold_font, 17, (CGFloat)drawable_w - 220, (CGFloat)drawable_h - 82, 0.64, 0.69, 0.78);
-    tb_disp_draw_text(ctx, TB_RECEIVER_BUILD, mono_font, 13, (CGFloat)drawable_w - 220, (CGFloat)drawable_h - 114, 0.53, 0.57, 0.66);
+    /* The native background checkboxes sit to the right of the version. */
+    int window_w = 0;
+    SDL_GetWindowSize(d->win, &window_w, NULL);
+    const CGFloat points_to_pixels = window_w > 0 ? (CGFloat)drawable_w / (CGFloat)window_w : 1.0;
+    CGFloat version_x = (CGFloat)drawable_w - 590.0 * points_to_pixels;
+    if (version_x < 480.0) version_x = 480.0;
+    tb_disp_draw_text(ctx, TB_RECEIVER_VERSION, mono_bold_font, 17, version_x, (CGFloat)drawable_h - 82, 0.64, 0.69, 0.78);
+    tb_disp_draw_text(ctx, TB_RECEIVER_BUILD, mono_font, 13, version_x, (CGFloat)drawable_h - 114, 0.53, 0.57, 0.66);
 
     tb_disp_draw_text(ctx, tb_i18n_get("receiver.ui.ip_thunderbolt_bridge"), section_font, 15, outer_x, top_y, 0.54, 0.62, 0.76);
     tb_disp_draw_text(ctx, ip, mono_bold_font, 34, outer_x, top_y - 42.0, 0.43, 0.93, 0.60);

@@ -106,12 +106,11 @@ static NSWindow *tb_ui_largest_window(void) {
 
     self.showAtStartCheckbox = [self addCheckboxTo:content
                                                key:"receiver.background.show_at_start"
-                                            action:@selector(toggleShowAtStart:)
-                                                 y:18.0];
+                                            action:@selector(toggleShowAtStart:)];
     self.checkbox = [self addCheckboxTo:content
                                     key:"receiver.background.run"
-                                 action:@selector(toggleBackground:)
-                                      y:44.0];
+                                 action:@selector(toggleBackground:)];
+    [self layoutCheckboxes];
 
     NSTextField *hint = [NSTextField labelWithString:tb_ui_text("receiver.background.login_hint")];
     hint.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
@@ -128,26 +127,26 @@ static NSWindow *tb_ui_largest_window(void) {
     self.language = nil;
 }
 
-- (NSButton *)addCheckboxTo:(NSView *)content key:(const char *)key action:(SEL)action y:(CGFloat)y {
+- (NSButton *)addCheckboxTo:(NSView *)content key:(const char *)key action:(SEL)action {
     NSButton *checkbox = [NSButton checkboxWithTitle:tb_ui_text(key) target:self action:action];
     checkbox.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
-    [checkbox sizeToFit];
-    NSSize size = checkbox.frame.size;
-    checkbox.frame = NSMakeRect(NSWidth(content.bounds) - size.width - 24.0, y, size.width, size.height);
     checkbox.autoresizingMask = NSViewMinXMargin | NSViewMaxYMargin;
     [content addSubview:checkbox positioned:NSWindowAbove relativeTo:nil];
     return checkbox;
 }
 
-- (void)setTitle:(NSString *)title ofCheckbox:(NSButton *)checkbox {
-    if (!checkbox) return;
-    checkbox.title = title;
-    NSRect frame = checkbox.frame;
-    CGFloat right = NSMaxX(frame);
-    [checkbox sizeToFit];
-    frame.size = checkbox.frame.size;
-    frame.origin.x = right - frame.size.width;
-    checkbox.frame = frame;
+/* One row in the footer band, right-aligned, to the right of the version text. */
+- (void)layoutCheckboxes {
+    NSView *content = self.checkbox.superview;
+    if (!content) return;
+
+    CGFloat right = NSWidth(content.bounds) - 36.0;
+    for (NSButton *checkbox in @[ self.showAtStartCheckbox, self.checkbox ]) {
+        [checkbox sizeToFit];
+        NSSize size = checkbox.frame.size;
+        checkbox.frame = NSMakeRect(right - size.width, 42.0, size.width, size.height);
+        right -= size.width + 18.0;
+    }
 }
 
 - (void)refreshTextsIfNeeded {
@@ -162,8 +161,9 @@ static NSWindow *tb_ui_largest_window(void) {
     self.quitItem.title = tb_ui_text("receiver.background.quit");
     self.loginHintItem.title = tb_ui_text("receiver.background.login_hint");
     self.loginHint.stringValue = tb_ui_text("receiver.background.login_hint");
-    [self setTitle:tb_ui_text("receiver.background.run") ofCheckbox:self.checkbox];
-    [self setTitle:tb_ui_text("receiver.background.show_at_start") ofCheckbox:self.showAtStartCheckbox];
+    self.checkbox.title = tb_ui_text("receiver.background.run");
+    self.showAtStartCheckbox.title = tb_ui_text("receiver.background.show_at_start");
+    [self layoutCheckboxes];
 }
 
 - (void)updateBackground:(int)background
