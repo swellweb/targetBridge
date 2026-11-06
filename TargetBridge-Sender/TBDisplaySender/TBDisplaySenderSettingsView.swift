@@ -192,6 +192,7 @@ struct TBDisplaySenderSettingsView: View {
             .padding(20)
         }
         .background(appBackground)
+        .preferredColorScheme(.dark)
         .alert(addonImportErrorTitle, isPresented: Binding(
             get: { importError != nil },
             set: { if !$0 { importError = nil } }

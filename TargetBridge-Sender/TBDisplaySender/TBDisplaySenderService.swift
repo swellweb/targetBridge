@@ -391,6 +391,8 @@ enum TBDisplayCodecPreference: String, CaseIterable, Identifiable, Codable {
     case automatic
     case h264
     case hevc
+    /// Raw NV12 frames. Falls back to automatic if the receiver lacks support.
+    case uncompressed
 
     var id: String { rawValue }
 }
@@ -1203,6 +1205,15 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
 
     @Published var audioEnabled: Bool
     @Published var audioSource: TBAudioSource
+    @Published var customName = ""
+    @Published var autoConnect = false {
+        didSet { autoConnectSuspended = false }
+    }
+    /// Set by a manual Stop so a rediscovered receiver does not reconnect.
+    private var autoConnectSuspended = false
+    var shouldAutoConnect: Bool {
+        autoConnect && !autoConnectSuspended && !isConnected && !isStreaming
+    }
     @Published var brightness: Double = 1.0 {
         didSet {
             sendBrightnessUpdate()
@@ -1475,7 +1486,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         let preferredCodec: CMVideoCodecType
 
         switch preference {
-        case .automatic:
+        case .automatic, .uncompressed:
             preferredCodec = preset.codecType == kCMVideoCodecType_HEVC || hevcAvailable
                 ? kCMVideoCodecType_HEVC
                 : kCMVideoCodecType_H264
@@ -1599,6 +1610,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
 
     func connect() {
         guard connection == nil, !receiverIP.isEmpty, !localInterfaceIP.isEmpty else { return }
+        autoConnectSuspended = false
         connectTimeoutWorkItem?.cancel()
         connectTimeoutWorkItem = nil
         recvBuffer.removeAll(keepingCapacity: false)
@@ -1814,6 +1826,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         completion: (@MainActor @Sendable () -> Void)? = nil
     ) {
         TBSenderAutomation.suspendAutomaticReconnectAfterUserStop()
+        autoConnectSuspended = true
         stop(
             resetStatusTo: .stopped,
             persistArrangement: persistArrangement,
@@ -2804,7 +2817,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
                     return await startDirectDisplayStream(displayID: session.displayID, preset: preset)
                 } else if let mirrorDisplay = try await resolveMirrorCaptureDisplay() {
                     display = mirrorDisplay
-                } else if let fallbackDisplayID = directMirrorFallbackDisplayID() {
+                } else if !usesRawNV12, let fallbackDisplayID = directMirrorFallbackDisplayID() {
                     TBLog.connection.warning("capture: no virtual ScreenCaptureKit display; using direct fallback id=\(fallbackDisplayID, privacy: .public)")
                     return await startDirectDisplayStream(displayID: fallbackDisplayID, preset: preset)
                 } else {
@@ -3143,6 +3156,9 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     /// override can enable it, so older builds never receive unknown frames.
     private func rawNV12Enabled(for profile: TBMonitorDisplayProfile) -> Bool {
         guard profile.supportsRawNV12 == true else { return false }
+        // The headless path captures BGRA through CGDisplayStream, not NV12.
+        guard !headlessMirrorUsesVirtualDisplay else { return false }
+        if codecPreference == .uncompressed { return true }
         guard let value = ProcessInfo.processInfo.environment["RAW"]?.lowercased() else { return false }
         return value == "1" || value == "true"
     }

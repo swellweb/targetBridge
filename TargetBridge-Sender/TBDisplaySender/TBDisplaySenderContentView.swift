@@ -555,6 +555,22 @@ private struct TBDisplaySenderSessionSettingsSheet: View {
                 header
 
                 settingsSection(title: connectionSettingsTitle) {
+                    settingRow(
+                        TBDisplaySenderL10n.text("sender.session.name_label", service.language),
+                        details: TBDisplaySenderL10n.text("sender.session.name_details", service.language)
+                    ) {
+                        TextField(service.defaultSessionTitle(for: session), text: $session.customName)
+                            .textFieldStyle(.roundedBorder)
+                    }
+
+                    settingRow(
+                        TBDisplaySenderL10n.text("sender.session.auto_connect_label", service.language),
+                        details: TBDisplaySenderL10n.text("sender.session.auto_connect_details", service.language)
+                    ) {
+                        Toggle("", isOn: $session.autoConnect)
+                            .labelsHidden()
+                    }
+
                     settingRow(TBDisplaySenderL10n.transportKind(service.language), details: transportDetails) {
                         Picker(TBDisplaySenderL10n.transportKind(service.language), selection: $session.transportKind) {
                             ForEach(service.availableTransportKinds) { transportKind in

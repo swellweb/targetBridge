@@ -390,6 +390,8 @@ final class TBDisplaySenderService: ObservableObject {
         var captureSource: String
         var audioEnabled: Bool
         var audioSource: String?
+        var customName: String?
+        var autoConnect: Bool?
         var brightness: Double
         var inputGestureMode: String
         var volume: Double?
@@ -427,6 +429,8 @@ final class TBDisplaySenderService: ObservableObject {
                 captureSource: session.captureSource.rawValue,
                 audioEnabled: session.audioEnabled,
                 audioSource: session.audioSource.rawValue,
+                customName: session.customName,
+                autoConnect: session.autoConnect,
                 brightness: session.brightness,
                 inputGestureMode: session.inputGestureMode.rawValue,
                 volume: session.volume,
@@ -521,6 +525,8 @@ final class TBDisplaySenderService: ObservableObject {
         session.audioSource = config.audioSource
             .flatMap(TBAudioSource.init(rawValue:))
             ?? defaultAudioSource
+        session.customName = config.customName ?? ""
+        session.autoConnect = config.autoConnect ?? false
         session.brightness = config.brightness
         session.volume = config.volume ?? 0.5
         session.matchRenderToStream = config.matchRenderToStream ?? false
@@ -533,6 +539,7 @@ final class TBDisplaySenderService: ObservableObject {
         localInterfaces = detectLocalInterfaces()
         receiverDiscovery.refresh()
         normalizeSessionInterfaces()
+        reconcileDiscoveredReceivers(discoveredReceivers)
         objectWillChange.send()
     }
 
@@ -570,6 +577,9 @@ final class TBDisplaySenderService: ObservableObject {
             session.receiverIP = receiver.ip(for: session.transportKind)
             session.receiverSupportsHEVCDecodeHint = receiver.supportsHEVCDecode
             restoreCodecPreference(for: receiver, to: session, defaultToAutomatic: false)
+            if session.shouldAutoConnect {
+                session.connect()
+            }
         }
     }
 
@@ -670,6 +680,11 @@ final class TBDisplaySenderService: ObservableObject {
     }
 
     func sessionTitle(for session: TBDisplaySenderSession) -> String {
+        let name = session.customName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? defaultSessionTitle(for: session) : name
+    }
+
+    func defaultSessionTitle(for session: TBDisplaySenderSession) -> String {
         let index = sessions.firstIndex(where: { $0.id == session.id }).map { $0 + 1 } ?? 0
         return TBDisplaySenderL10n.sessionTitle(language, index: index)
     }
