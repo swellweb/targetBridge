@@ -37,7 +37,9 @@
 #define kAudioObjectPropertyElementMain kAudioObjectPropertyElementMaster
 #endif
 
+#include <CoreVideo/CoreVideo.h>
 #include <errno.h>
+#include <poll.h>
 #include <limits.h>
 #include <signal.h>
 #include <stdint.h>
@@ -78,6 +80,17 @@ struct app {
     uint64_t last_recv_ms;      /* idle watchdog: last time the sender sent anything */
     int      close_requested;
     int      background_mode;
+    /* Performance switches (Receiver menu bar > Performance). */
+    int      perf_newest_frame;
+    int      perf_wake_on_data;
+    int      perf_metal;
+    int      perf_show_stats;
+    CVPixelBufferRef pending_pixel_buffer;
+    uint64_t stats_skipped;
+    uint64_t stats_draw_us_total;
+    uint64_t stats_draw_us_max;
+    uint64_t stats_draw_count;
+    uint64_t stats_bytes;
     int      show_window_at_start;
     int      window_requested;
     int      have_video_frame;
@@ -172,6 +185,12 @@ static void tb_receiver_input_log(const char *fmt, ...) {
 
 static volatile sig_atomic_t g_term = 0;
 static void on_sigint(int s) { (void)s; g_term = 1; }
+
+static uint64_t now_us(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000000ULL + ts.tv_nsec / 1000ULL;
+}
 
 static uint64_t now_ms(void) {
     struct timespec ts;
@@ -957,8 +976,55 @@ static void on_frame(const uint8_t *y, int y_stride,
         snprintf(height_text, sizeof(height_text), "%d", h);
         tb_format_i18n(a->mode_text, sizeof(a->mode_text), "receiver.mode.receiving", pairs, 2);
     }
+    const uint64_t draw_start = now_us();
     tb_disp_render_nv12(a->disp, y, y_stride, uv, uv_stride, w, h);
+    const uint64_t draw_us = now_us() - draw_start;
+    a->stats_draw_us_total += draw_us;
+    if (draw_us > a->stats_draw_us_max) a->stats_draw_us_max = draw_us;
+    a->stats_draw_count++;
     a->frames++;
+}
+
+static void tb_receiver_present_pixel_buffer(struct app *a, CVPixelBufferRef pb) {
+    if (CVPixelBufferLockBaseAddress(pb, kCVPixelBufferLock_ReadOnly) != 0) return;
+    on_frame((const uint8_t *)CVPixelBufferGetBaseAddressOfPlane(pb, 0),
+             (int)CVPixelBufferGetBytesPerRowOfPlane(pb, 0),
+             (const uint8_t *)CVPixelBufferGetBaseAddressOfPlane(pb, 1),
+             (int)CVPixelBufferGetBytesPerRowOfPlane(pb, 1),
+             (int)CVPixelBufferGetWidth(pb),
+             (int)CVPixelBufferGetHeight(pb),
+             a);
+    CVPixelBufferUnlockBaseAddress(pb, kCVPixelBufferLock_ReadOnly);
+}
+
+/* With "draw only the newest frame", every frame is still decoded (later
+ * frames depend on it), but only the latest one per loop is drawn. */
+static void on_pixel_buffer(void *pixel_buffer, void *ud) {
+    struct app *a = (struct app *)ud;
+    CVPixelBufferRef pb = (CVPixelBufferRef)pixel_buffer;
+    if (!a->perf_newest_frame) {
+        tb_receiver_present_pixel_buffer(a, pb);
+        return;
+    }
+    if (a->pending_pixel_buffer) {
+        CVPixelBufferRelease(a->pending_pixel_buffer);
+        a->stats_skipped++;
+    }
+    a->pending_pixel_buffer = CVPixelBufferRetain(pb);
+}
+
+static void tb_receiver_present_pending_frame(struct app *a) {
+    CVPixelBufferRef pb = a->pending_pixel_buffer;
+    if (!pb) return;
+    a->pending_pixel_buffer = NULL;
+    tb_receiver_present_pixel_buffer(a, pb);
+    CVPixelBufferRelease(pb);
+}
+
+static void tb_receiver_drop_pending_frame(struct app *a) {
+    if (!a->pending_pixel_buffer) return;
+    CVPixelBufferRelease(a->pending_pixel_buffer);
+    a->pending_pixel_buffer = NULL;
 }
 
 /* Raw passthrough: render received NV12 planes directly, bypassing the decoder.
@@ -997,7 +1063,12 @@ static void handle_raw_frame(struct app *a, const uint8_t *p, size_t len) {
         snprintf(height_text, sizeof(height_text), "%u", h);
         tb_format_i18n(a->mode_text, sizeof(a->mode_text), "receiver.mode.receiving", pairs, 2);
     }
+    const uint64_t draw_start = now_us();
     tb_disp_render_nv12(a->disp, y, (int)ys, uv, (int)us, (int)w, (int)h);
+    const uint64_t draw_us = now_us() - draw_start;
+    a->stats_draw_us_total += draw_us;
+    if (draw_us > a->stats_draw_us_max) a->stats_draw_us_max = draw_us;
+    a->stats_draw_count++;
     a->frames++;
 }
 
@@ -1369,6 +1440,7 @@ static int drain_socket(struct app *a) {
         ssize_t n = read(a->client_fd, buf, sizeof(buf));
         if (n > 0) {
             saw_data = 1;
+            a->stats_bytes += (uint64_t)n;
             if (tb_parser_feed(&a->parser, buf, (size_t)n) < 0) return -1;
         } else if (n == 0) {
             return -1;  /* peer closed */
@@ -1971,6 +2043,8 @@ static void close_client(struct app *a) {
     a->session_active = 0;
     a->close_requested = 0;
     a->window_requested = 0;
+    tb_receiver_drop_pending_frame(a);
+    tb_disp_set_stats_text(a->disp, NULL);
     a->have_video_frame = 0;
     snprintf(a->input_control_mode, sizeof(a->input_control_mode), "off");
     SDL_EnableScreenSaver();
@@ -2108,7 +2182,11 @@ int main(int argc, char **argv) {
     a.background_mode = tb_background_mode_load();
     a.show_window_at_start = tb_show_window_at_start_load();
     a.window_requested = a.background_mode && a.show_window_at_start;
-    a.disp = tb_disp_create(fullscreen, a.background_mode && !a.show_window_at_start);
+    a.perf_newest_frame = tb_pref_get("perfNewestFrameOnly", 1);
+    a.perf_wake_on_data = tb_pref_get("perfWakeOnData", 1);
+    a.perf_metal = tb_pref_get("perfMetalRenderer", 0);
+    a.perf_show_stats = tb_pref_get("perfShowStats", 0);
+    a.disp = tb_disp_create(fullscreen, a.background_mode && !a.show_window_at_start, a.perf_metal);
     if (!a.disp) { fprintf(stderr, "tb_disp_create failed\n"); return 1; }
     tb_background_ui_install();
 
@@ -2128,6 +2206,7 @@ int main(int argc, char **argv) {
     bonjour_update(&a, TB_PORT);
 
     a.dec = tb_dec_create(on_frame, &a);
+    if (a.dec) tb_dec_set_pixel_buffer_cb(a.dec, on_pixel_buffer);
     if (!a.dec) { fprintf(stderr, "tb_dec_create failed\n"); tb_disp_destroy(a.disp); return 1; }
 
     tb_parser_init(&a.parser, on_packet, &a);
@@ -2153,6 +2232,26 @@ int main(int argc, char **argv) {
             a.window_requested = 0;
             tb_background_mode_save(a.background_mode);
         }
+        if (ui_actions & TB_BACKGROUND_UI_TOGGLE_NEWEST_FRAME) {
+            a.perf_newest_frame = !a.perf_newest_frame;
+            tb_pref_set("perfNewestFrameOnly", a.perf_newest_frame);
+        }
+        if (ui_actions & TB_BACKGROUND_UI_TOGGLE_WAKE_ON_DATA) {
+            a.perf_wake_on_data = !a.perf_wake_on_data;
+            tb_pref_set("perfWakeOnData", a.perf_wake_on_data);
+        }
+        if (ui_actions & TB_BACKGROUND_UI_TOGGLE_METAL) {
+            /* Applies on the next launch: the renderer is chosen at startup. */
+            a.perf_metal = !a.perf_metal;
+            tb_pref_set("perfMetalRenderer", a.perf_metal);
+        }
+        if (ui_actions & TB_BACKGROUND_UI_TOGGLE_STATS) {
+            a.perf_show_stats = !a.perf_show_stats;
+            tb_pref_set("perfShowStats", a.perf_show_stats);
+            if (!a.perf_show_stats) tb_disp_set_stats_text(a.disp, NULL);
+        }
+        tb_background_ui_set_performance(a.perf_newest_frame, a.perf_wake_on_data,
+                                         a.perf_metal, a.perf_show_stats);
         if (ui_actions & TB_BACKGROUND_UI_TOGGLE_SHOW_AT_START) {
             a.show_window_at_start = !a.show_window_at_start;
             tb_show_window_at_start_save(a.show_window_at_start);
@@ -2281,6 +2380,8 @@ int main(int argc, char **argv) {
             tb_receiver_send_display_tweaks_if_changed(&a);
         }
 
+        if (a.client_fd >= 0) tb_receiver_present_pending_frame(&a);
+
         if (a.client_fd < 0 || !a.session_active) {
             /* No client, or a connection that hasn't started a real streaming
              * session (e.g. a transient UI-language push during discovery):
@@ -2364,13 +2465,36 @@ int main(int argc, char **argv) {
             uint64_t df = a.frames - a.last_fps_count;
             a.last_fps_count   = a.frames;
             a.last_fps_tick_ms = t;
-            if (df > 0) fprintf(stderr, "[main] %llu fps\n", (unsigned long long)df);
+            char stats[192];
+            const double draw_avg_ms = a.stats_draw_count
+                ? (double)a.stats_draw_us_total / 1000.0 / (double)a.stats_draw_count : 0.0;
+            snprintf(stats, sizeof(stats),
+                     "%llu fps | %llu skipped | draw %.1f ms (max %.1f) | %.0f Mbit/s | %s",
+                     (unsigned long long)df,
+                     (unsigned long long)a.stats_skipped,
+                     draw_avg_ms,
+                     (double)a.stats_draw_us_max / 1000.0,
+                     (double)a.stats_bytes * 8.0 / 1000000.0,
+                     tb_disp_renderer_name(a.disp));
+            if (df > 0) fprintf(stderr, "[main] %s\n", stats);
+            tb_disp_set_stats_text(a.disp, a.perf_show_stats && a.client_fd >= 0 ? stats : NULL);
+            a.stats_skipped = 0;
+            a.stats_draw_us_total = 0;
+            a.stats_draw_us_max = 0;
+            a.stats_draw_count = 0;
+            a.stats_bytes = 0;
         }
 
         /* Yield when idle or when a nonblocking active socket had no data,
          * otherwise the receiver can busy-spin between incoming frame packets. */
         if (a.client_fd < 0 || !a.have_video_frame || socket_activity == 0) {
-            SDL_Delay(1);
+            if (a.client_fd >= 0 && a.perf_wake_on_data) {
+                /* Same 1 ms ceiling, but returns as soon as data arrives. */
+                struct pollfd pfd = { a.client_fd, POLLIN, 0 };
+                (void)poll(&pfd, 1, 1);
+            } else {
+                SDL_Delay(1);
+            }
         }
     }
 

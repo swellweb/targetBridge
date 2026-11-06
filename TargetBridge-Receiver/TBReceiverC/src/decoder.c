@@ -45,6 +45,7 @@ struct tb_decoder {
     size_t            scratch_cap;
 
     tb_frame_cb       cb;
+    tb_pixel_buffer_cb pixel_buffer_cb;
     void             *ud;
 
     int               opened;
@@ -84,6 +85,10 @@ static enum AVPixelFormat get_hw_format(AVCodecContext *ctx,
 
     fprintf(stderr, "[dec] no compatible pixel format available\n");
     return AV_PIX_FMT_NONE;
+}
+
+void tb_dec_set_pixel_buffer_cb(struct tb_decoder *d, tb_pixel_buffer_cb cb) {
+    if (d) d->pixel_buffer_cb = cb;
 }
 
 struct tb_decoder *tb_dec_create(tb_frame_cb cb, void *ud) {
@@ -368,6 +373,11 @@ int tb_dec_feed_frame(struct tb_decoder *d, const uint8_t *avcc, size_t len) {
          * Major win on Intel iMac + Radeon (~6× faster in practice). */
         if (d->hw_frame->format == d->hw_pix_fmt && d->hw_frame->data[3]) {
             CVPixelBufferRef pb = (CVPixelBufferRef)d->hw_frame->data[3];
+            if (d->pixel_buffer_cb) {
+                d->pixel_buffer_cb(pb, d->ud);
+                av_frame_unref(d->hw_frame);
+                continue;
+            }
             if (CVPixelBufferLockBaseAddress(pb, kCVPixelBufferLock_ReadOnly) == 0) {
                 uint8_t *y   = (uint8_t *)CVPixelBufferGetBaseAddressOfPlane(pb, 0);
                 size_t   ys  =            CVPixelBufferGetBytesPerRowOfPlane(pb, 0);

@@ -29,7 +29,7 @@ enum tb_display_action {
     TB_DISP_ACTION_HIDE_WINDOW = 1 << 2
 };
 
-struct tb_display *tb_disp_create(int fullscreen, int start_hidden);
+struct tb_display *tb_disp_create(int fullscreen, int start_hidden, int prefer_metal);
 void               tb_disp_destroy(struct tb_display *d);
 void               tb_disp_set_connection_state(struct tb_display *d, int connected);
 void               tb_disp_set_input_capture_active(struct tb_display *d, int active);
@@ -62,6 +62,10 @@ void tb_disp_set_cursor(struct tb_display *d,
                         int large);
 
 void tb_disp_set_brightness(struct tb_display *d, double level);
+
+/* Performance overlay drawn over the video. NULL or "" removes it. */
+void        tb_disp_set_stats_text(struct tb_display *d, const char *text);
+const char *tb_disp_renderer_name(struct tb_display *d);
 
 /* Poll input actions while idle/connected. */
 unsigned int tb_disp_poll_actions(struct tb_display *d);

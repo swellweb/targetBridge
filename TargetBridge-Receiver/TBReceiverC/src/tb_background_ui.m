@@ -15,6 +15,11 @@ static NSString *const kShowWindowAtStartKey = @"showWindowAtStart";
 @property(nonatomic, strong) NSMenuItem *backgroundItem;
 @property(nonatomic, strong) NSMenuItem *showAtStartItem;
 @property(nonatomic, strong) NSMenuItem *quitItem;
+@property(nonatomic, strong) NSMenuItem *performanceItem;
+@property(nonatomic, strong) NSMenuItem *newestFrameItem;
+@property(nonatomic, strong) NSMenuItem *wakeOnDataItem;
+@property(nonatomic, strong) NSMenuItem *metalItem;
+@property(nonatomic, strong) NSMenuItem *statsItem;
 @property(nonatomic, strong) NSButton *checkbox;
 @property(nonatomic, strong) NSButton *showAtStartCheckbox;
 @property(nonatomic, strong) NSTextField *loginHint;
@@ -72,6 +77,17 @@ static NSWindow *tb_ui_largest_window(void) {
     _showAtStartItem = [menu addItemWithTitle:@"" action:@selector(toggleShowAtStart:) keyEquivalent:@""];
     _showAtStartItem.target = self;
     [menu addItem:NSMenuItem.separatorItem];
+
+    NSMenu *performance = [[NSMenu alloc] init];
+    performance.autoenablesItems = NO;
+    _newestFrameItem = [self addItemTo:performance action:@selector(toggleNewestFrame:)];
+    _wakeOnDataItem = [self addItemTo:performance action:@selector(toggleWakeOnData:)];
+    _metalItem = [self addItemTo:performance action:@selector(toggleMetal:)];
+    [performance addItem:NSMenuItem.separatorItem];
+    _statsItem = [self addItemTo:performance action:@selector(toggleStats:)];
+    _performanceItem = [menu addItemWithTitle:@"" action:nil keyEquivalent:@""];
+    _performanceItem.submenu = performance;
+    [menu addItem:NSMenuItem.separatorItem];
     _quitItem = [menu addItemWithTitle:@"" action:@selector(quit:) keyEquivalent:@""];
     _quitItem.target = self;
     _statusItem.menu = menu;
@@ -84,6 +100,28 @@ static NSWindow *tb_ui_largest_window(void) {
 
 - (void)toggleBackground:(id)sender {
     self.actions |= TB_BACKGROUND_UI_TOGGLE;
+}
+
+- (NSMenuItem *)addItemTo:(NSMenu *)menu action:(SEL)action {
+    NSMenuItem *item = [menu addItemWithTitle:@"" action:action keyEquivalent:@""];
+    item.target = self;
+    return item;
+}
+
+- (void)toggleNewestFrame:(id)sender {
+    self.actions |= TB_BACKGROUND_UI_TOGGLE_NEWEST_FRAME;
+}
+
+- (void)toggleWakeOnData:(id)sender {
+    self.actions |= TB_BACKGROUND_UI_TOGGLE_WAKE_ON_DATA;
+}
+
+- (void)toggleMetal:(id)sender {
+    self.actions |= TB_BACKGROUND_UI_TOGGLE_METAL;
+}
+
+- (void)toggleStats:(id)sender {
+    self.actions |= TB_BACKGROUND_UI_TOGGLE_STATS;
 }
 
 - (void)toggleShowAtStart:(id)sender {
@@ -155,6 +193,11 @@ static NSWindow *tb_ui_largest_window(void) {
     self.backgroundItem.title = tb_ui_text("receiver.background.run");
     self.showAtStartItem.title = tb_ui_text("receiver.background.show_main_window_at_start");
     self.quitItem.title = tb_ui_text("receiver.background.quit");
+    self.performanceItem.title = tb_ui_text("receiver.performance.menu");
+    self.newestFrameItem.title = tb_ui_text("receiver.performance.newest_frame");
+    self.wakeOnDataItem.title = tb_ui_text("receiver.performance.wake_on_data");
+    self.metalItem.title = tb_ui_text("receiver.performance.metal_renderer");
+    self.statsItem.title = tb_ui_text("receiver.performance.show_stats");
     self.loginHint.stringValue = tb_ui_text("receiver.background.login_hint");
     self.checkbox.title = tb_ui_text("receiver.background.run");
     self.showAtStartCheckbox.title = tb_ui_text("receiver.background.show_at_start");
@@ -216,6 +259,27 @@ int tb_show_window_at_start_load(void) {
 
 void tb_show_window_at_start_save(int enabled) {
     [NSUserDefaults.standardUserDefaults setBool:enabled != 0 forKey:kShowWindowAtStartKey];
+}
+
+int tb_pref_get(const char *key, int default_value) {
+    NSString *name = [NSString stringWithUTF8String:key];
+    id value = [NSUserDefaults.standardUserDefaults objectForKey:name];
+    return value ? ([value boolValue] ? 1 : 0) : default_value;
+}
+
+void tb_pref_set(const char *key, int value) {
+    [NSUserDefaults.standardUserDefaults setBool:value != 0 forKey:[NSString stringWithUTF8String:key]];
+}
+
+static NSControlStateValue tb_ui_state(int on) {
+    return on ? NSControlStateValueOn : NSControlStateValueOff;
+}
+
+void tb_background_ui_set_performance(int newest_frame, int wake_on_data, int metal, int stats) {
+    g_background_ui.newestFrameItem.state = tb_ui_state(newest_frame);
+    g_background_ui.wakeOnDataItem.state = tb_ui_state(wake_on_data);
+    g_background_ui.metalItem.state = tb_ui_state(metal);
+    g_background_ui.statsItem.state = tb_ui_state(stats);
 }
 
 void tb_background_ui_install(void) {

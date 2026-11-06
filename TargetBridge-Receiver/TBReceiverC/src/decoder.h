@@ -16,9 +16,14 @@ typedef void (*tb_frame_cb)(const uint8_t *y, int y_stride,
                             const uint8_t *uv, int uv_stride,
                             int width, int height, void *ud);
 
+/* Optional: receives each VideoToolbox CVPixelBufferRef instead of the NV12
+ * callback. The callee must retain it to keep it past the call. */
+typedef void (*tb_pixel_buffer_cb)(void *pixel_buffer, void *ud);
+
 struct tb_decoder;
 
 struct tb_decoder *tb_dec_create(tb_frame_cb cb, void *ud);
+void               tb_dec_set_pixel_buffer_cb(struct tb_decoder *d, tb_pixel_buffer_cb cb);
 void               tb_dec_destroy(struct tb_decoder *d);
 int                tb_dec_supports_hevc_hwdecode(void);
 

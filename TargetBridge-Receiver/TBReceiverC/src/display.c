@@ -33,6 +33,10 @@ struct tb_display {
     SDL_Renderer *ren;
     SDL_Texture  *tex;
     SDL_Texture  *status_tex;
+    SDL_Texture  *stats_tex;
+    int           stats_w, stats_h;
+    char          last_stats[192];
+    char          renderer_name[32];
     int           tex_w, tex_h;
     int           quit;
     int           window_hidden;
@@ -548,7 +552,7 @@ static SDL_Renderer *tb_disp_try_renderer(SDL_Window *win, const char *driver) {
     return ren;
 }
 
-static SDL_Renderer *tb_disp_create_accelerated_renderer(SDL_Window *win) {
+static SDL_Renderer *tb_disp_create_accelerated_renderer(SDL_Window *win, int prefer_metal) {
     const char *forced_driver = getenv("TB_RECEIVER_RENDER_DRIVER");
     if (forced_driver && forced_driver[0] != '\0') {
         fprintf(stderr, "[disp] renderer override = %s\n", forced_driver);
@@ -556,7 +560,11 @@ static SDL_Renderer *tb_disp_create_accelerated_renderer(SDL_Window *win) {
     }
 
 #if defined(__APPLE__)
-    const char *macos_drivers[] = { "opengl", "metal", NULL };
+    const char *macos_drivers[] = {
+        prefer_metal ? "metal" : "opengl",
+        prefer_metal ? "opengl" : "metal",
+        NULL
+    };
     for (int i = 0; macos_drivers[i] != NULL; i++) {
         SDL_Renderer *ren = tb_disp_try_renderer(win, macos_drivers[i]);
         if (ren) return ren;
@@ -566,7 +574,7 @@ static SDL_Renderer *tb_disp_create_accelerated_renderer(SDL_Window *win) {
     return tb_disp_try_renderer(win, NULL);
 }
 
-struct tb_display *tb_disp_create(int fullscreen, int start_hidden) {
+struct tb_display *tb_disp_create(int fullscreen, int start_hidden, int prefer_metal) {
     /* Best-quality scaling (linear filter; Metal backend uses bilinear
      * regardless but this sets the hint correctly). "best" enables
      * anisotropic where supported. Must be set BEFORE renderer creation. */
@@ -593,7 +601,7 @@ struct tb_display *tb_disp_create(int fullscreen, int start_hidden) {
     /* No VSYNC: lets us present as fast as decode produces frames.
      * On Intel iMac with Radeon Pro 570 + 5K display, VSYNC at 60Hz combined
      * with GPU→CPU NV12 transfer was stalling the pipeline to ~4 fps. */
-    d->ren = tb_disp_create_accelerated_renderer(d->win);
+    d->ren = tb_disp_create_accelerated_renderer(d->win, prefer_metal);
     if (!d->ren) {
         fprintf(stderr, "[disp] CreateRenderer: %s\n", SDL_GetError());
         SDL_DestroyWindow(d->win); free(d); return NULL;
@@ -605,6 +613,7 @@ struct tb_display *tb_disp_create(int fullscreen, int start_hidden) {
     SDL_RendererInfo info;
     if (SDL_GetRendererInfo(d->ren, &info) == 0) {
         fprintf(stderr, "[disp] renderer = %s\n", info.name);
+        snprintf(d->renderer_name, sizeof(d->renderer_name), "%s", info.name);
     }
 
     int win_w = 0, win_h = 0, out_w = 0, out_h = 0;
@@ -1130,11 +1139,64 @@ static void tb_disp_draw_cursor(struct tb_display *d) {
     SDL_SetRenderDrawBlendMode(d->ren, old_blend);
 }
 
+static void tb_disp_rebuild_stats_texture(struct tb_display *d, const char *text) {
+    if (d->stats_tex) {
+        SDL_DestroyTexture(d->stats_tex);
+        d->stats_tex = NULL;
+    }
+    if (!text || !*text) return;
+
+    const int w = 1200;
+    const int h = 46;
+    const size_t bytes_per_row = (size_t)w * 4u;
+    uint32_t *pixels = (uint32_t *)calloc((size_t)w * (size_t)h, sizeof(uint32_t));
+    if (!pixels) return;
+
+    CGColorSpaceRef color_space = CGColorSpaceCreateDeviceRGB();
+    CGContextRef ctx = CGBitmapContextCreate(pixels, (size_t)w, (size_t)h, 8, bytes_per_row, color_space,
+                                             kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Little);
+    CGColorSpaceRelease(color_space);
+    if (!ctx) {
+        free(pixels);
+        return;
+    }
+    CGContextTranslateCTM(ctx, 0, (CGFloat)h);
+    CGContextScaleCTM(ctx, 1.0, -1.0);
+    tb_disp_fill_rounded_rect(ctx, 0, 0, (CGFloat)w, (CGFloat)h, 10.0, 0.0, 0.0, 0.0, 0.62);
+    tb_disp_draw_text(ctx, text, "Menlo", 22, 16, 31, 0.55, 1.0, 0.65);
+    CGContextRelease(ctx);
+
+    d->stats_tex = SDL_CreateTexture(d->ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STATIC, w, h);
+    if (d->stats_tex) {
+        SDL_UpdateTexture(d->stats_tex, NULL, pixels, (int)bytes_per_row);
+        SDL_SetTextureBlendMode(d->stats_tex, SDL_BLENDMODE_BLEND);
+        d->stats_w = w;
+        d->stats_h = h;
+    }
+    free(pixels);
+}
+
+void tb_disp_set_stats_text(struct tb_display *d, const char *text) {
+    if (!d) return;
+    if (!text) text = "";
+    if (strcmp(d->last_stats, text) == 0) return;
+    snprintf(d->last_stats, sizeof(d->last_stats), "%s", text);
+    tb_disp_rebuild_stats_texture(d, text);
+}
+
+const char *tb_disp_renderer_name(struct tb_display *d) {
+    return d && d->renderer_name[0] ? d->renderer_name : "unknown";
+}
+
 static void tb_disp_render_current(struct tb_display *d) {
     if (!d || !d->tex) return;
     SDL_RenderClear(d->ren);
     SDL_RenderCopy(d->ren, d->tex, NULL, NULL);
     tb_disp_draw_cursor(d);
+    if (d->stats_tex) {
+        SDL_Rect stats_rect = { 24, 24, d->stats_w, d->stats_h };
+        SDL_RenderCopy(d->ren, d->stats_tex, NULL, &stats_rect);
+    }
     SDL_RenderPresent(d->ren);
 }
 
