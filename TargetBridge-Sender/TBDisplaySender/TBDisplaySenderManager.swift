@@ -394,6 +394,7 @@ final class TBDisplaySenderService: ObservableObject {
         var audioEnabled: Bool
         var audioSource: String?
         var customName: String?
+        var customDisplayName: String?
         var autoConnect: Bool?
         var brightness: Double
         var inputGestureMode: String
@@ -433,6 +434,7 @@ final class TBDisplaySenderService: ObservableObject {
                 audioEnabled: session.audioEnabled,
                 audioSource: session.audioSource.rawValue,
                 customName: session.customName,
+                customDisplayName: session.customDisplayName,
                 autoConnect: session.autoConnect,
                 brightness: session.brightness,
                 inputGestureMode: session.inputGestureMode.rawValue,
@@ -529,6 +531,7 @@ final class TBDisplaySenderService: ObservableObject {
             .flatMap(TBAudioSource.init(rawValue:))
             ?? defaultAudioSource
         session.customName = config.customName ?? ""
+        session.customDisplayName = config.customDisplayName ?? ""
         session.autoConnect = config.autoConnect ?? false
         session.brightness = config.brightness
         session.volume = config.volume ?? 0.5
@@ -795,6 +798,10 @@ final class TBDisplaySenderService: ObservableObject {
 
     private func attachSession(_ session: TBDisplaySenderSession) {
         session.audioAddonAvailable = audioRelayAvailable
+        session.sessionTitleProvider = { [weak self, weak session] in
+            guard let self, let session else { return "" }
+            return self.sessionTitle(for: session)
+        }
         session.onRemoteSwitchRequest = { [weak self, weak session] direction in
             guard let self, let session else { return }
             self.switchReceiverMasterTarget(from: session, direction: direction)

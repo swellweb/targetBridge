@@ -222,4 +222,4 @@ Choose **Uncompressed** under **Video compression** in the session settings. Fra
 
 ## Session Names and Auto-Connect
 
-Sessions can be named in their settings. With **Connect automatically** on, a session connects when its receiver is found while TargetBridge is open. Pressing Stop pauses this until the next manual connect.
+Sessions can be named in their settings. The display shown in macOS uses the session name unless it has its own **Display name**, which applies on the next connection. With **Connect automatically** on, a session connects when its receiver is found while TargetBridge is open. Pressing Stop pauses this until the next manual connect.

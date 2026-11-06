@@ -67,6 +67,8 @@
   "sender.codec.hint.uncompressed": "Envoie les images sans codec vidéo, en couleur 4:2:0. Utilisez un câble Thunderbolt direct : la 5K à 60 Hz demande environ 10,6 Gb/s. Le mode automatique est utilisé si le récepteur ou un Mac sans écran ne le prend pas en charge.",
   "sender.session.name_label": "Nom de la session",
   "sender.session.name_details": "Laissez vide pour utiliser le nom par défaut.",
+  "sender.session.display_name_label": "Nom de l’écran",
+  "sender.session.display_name_details": "Le nom affiché dans les réglages Moniteurs de macOS. Laissez vide pour utiliser le nom de la session. Les modifications s’appliquent à la prochaine connexion.",
   "sender.session.auto_connect_label": "Connexion automatique",
   "sender.session.auto_connect_details": "Se connecte lorsque ce récepteur est détecté pendant que TargetBridge est ouvert. Arrêter suspend cette option jusqu’à la prochaine connexion.",
   "sender.audio_source.title": "Source audio",

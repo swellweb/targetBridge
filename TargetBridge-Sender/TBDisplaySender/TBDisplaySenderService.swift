@@ -1206,6 +1206,13 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     @Published var audioEnabled: Bool
     @Published var audioSource: TBAudioSource
     @Published var customName = ""
+    @Published var customDisplayName = ""
+    var sessionTitleProvider: (() -> String)?
+    /// What macOS shows for this session's display: its own name, or the session's.
+    private var macOSDisplayName: String? {
+        let name = customDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? sessionTitleProvider?() : name
+    }
     @Published var autoConnect = false {
         didSet { autoConnectSuspended = false }
     }
@@ -2684,6 +2691,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
                 refreshRate: self.capturePreset.virtualDisplayRefreshRate,
                 modeOverride: modeOverride,
                 identity: self.captureSource.virtualDisplayIdentity(receiverKey: receiverKey),
+                displayName: self.macOSDisplayName,
                 receiverKey: receiverKey
             ) else {
                 self.setStatus(.virtualDisplayCreationFailed)

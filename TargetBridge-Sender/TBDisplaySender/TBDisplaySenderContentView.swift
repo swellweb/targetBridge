@@ -601,6 +601,14 @@ private struct TBDisplaySenderSessionSettingsSheet: View {
                     }
 
                     settingRow(
+                        TBDisplaySenderL10n.text("sender.session.display_name_label", service.language),
+                        details: TBDisplaySenderL10n.text("sender.session.display_name_details", service.language)
+                    ) {
+                        TextField(service.sessionTitle(for: session), text: $session.customDisplayName)
+                            .textFieldStyle(.roundedBorder)
+                    }
+
+                    settingRow(
                         TBDisplaySenderL10n.text("sender.session.auto_connect_label", service.language),
                         details: TBDisplaySenderL10n.text("sender.session.auto_connect_details", service.language)
                     ) {

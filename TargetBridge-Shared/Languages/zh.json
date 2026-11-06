@@ -67,6 +67,8 @@
   "sender.codec.hint.uncompressed": "不使用视频编解码器发送画面，采用 4:2:0 色彩。请使用 Thunderbolt 线直连：5K 60 Hz 约需 10.6 Gb/s。如果接收端或无屏幕的 Mac 不支持，将使用自动模式。",
   "sender.session.name_label": "会话名称",
   "sender.session.name_details": "留空则使用默认名称。",
+  "sender.session.display_name_label": "显示器名称",
+  "sender.session.display_name_details": "显示在 macOS“显示器”设置中的名称。留空则使用会话名称。更改将在下次连接时生效。",
   "sender.session.auto_connect_label": "自动连接",
   "sender.session.auto_connect_details": "在 TargetBridge 打开时发现此接收端后自动连接。按“停止”后将暂停，直到你再次连接。",
   "sender.audio_source.title": "音频来源",
