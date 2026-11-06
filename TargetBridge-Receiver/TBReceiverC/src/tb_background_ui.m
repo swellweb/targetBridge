@@ -17,6 +17,8 @@ static NSString *const kShowWindowAtStartKey = @"showWindowAtStart";
 @property(nonatomic, strong) NSMenuItem *quitItem;
 @property(nonatomic, strong) NSButton *checkbox;
 @property(nonatomic, strong) NSButton *showAtStartCheckbox;
+@property(nonatomic, strong) NSTextField *loginHint;
+@property(nonatomic, strong) NSMenuItem *loginHintItem;
 @property(nonatomic, copy) NSString *language;
 @property(nonatomic, copy) NSString *status;
 @property(nonatomic) unsigned int actions;
@@ -71,6 +73,9 @@ static NSWindow *tb_ui_largest_window(void) {
     _showAtStartItem = [menu addItemWithTitle:@"" action:@selector(toggleShowAtStart:) keyEquivalent:@""];
     _showAtStartItem.target = self;
     [menu addItem:NSMenuItem.separatorItem];
+    _loginHintItem = [menu addItemWithTitle:@"" action:nil keyEquivalent:@""];
+    _loginHintItem.enabled = NO;
+    [menu addItem:NSMenuItem.separatorItem];
     _quitItem = [menu addItemWithTitle:@"" action:@selector(quit:) keyEquivalent:@""];
     _quitItem.target = self;
     _statusItem.menu = menu;
@@ -107,6 +112,19 @@ static NSWindow *tb_ui_largest_window(void) {
                                     key:"receiver.background.run"
                                  action:@selector(toggleBackground:)
                                       y:44.0];
+
+    NSTextField *hint = [NSTextField labelWithString:tb_ui_text("receiver.background.login_hint")];
+    hint.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
+    hint.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+    hint.textColor = NSColor.secondaryLabelColor;
+    hint.alignment = NSTextAlignmentRight;
+    hint.lineBreakMode = NSLineBreakByWordWrapping;
+    hint.maximumNumberOfLines = 2;
+    CGFloat hintWidth = MIN(420.0, NSWidth(content.bounds) - 48.0);
+    hint.frame = NSMakeRect(NSWidth(content.bounds) - hintWidth - 24.0, 72.0, hintWidth, 32.0);
+    hint.autoresizingMask = NSViewMinXMargin | NSViewMaxYMargin;
+    [content addSubview:hint positioned:NSWindowAbove relativeTo:nil];
+    self.loginHint = hint;
     self.language = nil;
 }
 
@@ -142,6 +160,8 @@ static NSWindow *tb_ui_largest_window(void) {
     self.backgroundItem.title = tb_ui_text("receiver.background.run");
     self.showAtStartItem.title = tb_ui_text("receiver.background.show_at_start");
     self.quitItem.title = tb_ui_text("receiver.background.quit");
+    self.loginHintItem.title = tb_ui_text("receiver.background.login_hint");
+    self.loginHint.stringValue = tb_ui_text("receiver.background.login_hint");
     [self setTitle:tb_ui_text("receiver.background.run") ofCheckbox:self.checkbox];
     [self setTitle:tb_ui_text("receiver.background.show_at_start") ofCheckbox:self.showAtStartCheckbox];
 }
@@ -173,6 +193,7 @@ static NSWindow *tb_ui_largest_window(void) {
     self.showAtStartCheckbox.state = showAtStartState;
     self.showAtStartCheckbox.enabled = background != 0;
     self.showAtStartCheckbox.hidden = session != 0;
+    self.loginHint.hidden = session != 0;
     self.showWindowItem.enabled = !visible;
 
     NSString *text = status ? [NSString stringWithUTF8String:status] : @"";

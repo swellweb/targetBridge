@@ -194,6 +194,7 @@
   "receiver.ui.help_3": "If the sender stops, the receiver returns here ready for a new session.",
   "receiver.ui.help_4": "Press L to change the receiver language.",
   "receiver.background.run": "Run in background",
+  "receiver.background.login_hint": "To start automatically, turn on Run in background, then add this app under System Settings > General > Login Items.",
   "receiver.background.show_at_start": "Always show this window at start",
   "receiver.background.show_window": "Show Window",
   "receiver.background.quit": "Quit TargetBridge Receiver",

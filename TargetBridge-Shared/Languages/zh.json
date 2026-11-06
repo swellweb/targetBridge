@@ -194,6 +194,7 @@
   "receiver.ui.help_3": "发送端停止后，接收端会返回此界面，等待下一次会话。",
   "receiver.ui.help_4": "按 L 可切换接收端语言。",
   "receiver.background.run": "在后台运行",
+  "receiver.background.login_hint": "要自动启动，请打开“在后台运行”，然后在“系统设置 > 通用 > 登录项”中添加此应用。",
   "receiver.background.show_at_start": "启动时始终显示此窗口",
   "receiver.background.show_window": "显示窗口",
   "receiver.background.quit": "退出 TargetBridge Receiver",
