@@ -398,6 +398,7 @@ final class TBDisplaySenderService: ObservableObject {
         var captureSource: String
         var audioEnabled: Bool
         var audioSource: String?
+        var selectsAudioOutputOnConnect: Bool?
         var customName: String?
         var customDisplayName: String?
         var autoConnect: Bool?
@@ -438,6 +439,7 @@ final class TBDisplaySenderService: ObservableObject {
                 captureSource: session.captureSource.rawValue,
                 audioEnabled: session.audioEnabled,
                 audioSource: session.audioSource.rawValue,
+                selectsAudioOutputOnConnect: session.selectsAudioOutputOnConnect,
                 customName: session.customName,
                 customDisplayName: session.customDisplayName,
                 autoConnect: session.autoConnect,
@@ -535,6 +537,7 @@ final class TBDisplaySenderService: ObservableObject {
         session.audioSource = config.audioSource
             .flatMap(TBAudioSource.init(rawValue:))
             ?? defaultAudioSource
+        session.selectsAudioOutputOnConnect = config.selectsAudioOutputOnConnect ?? false
         session.customName = config.customName ?? ""
         session.customDisplayName = config.customDisplayName ?? ""
         session.autoConnect = config.autoConnect ?? false

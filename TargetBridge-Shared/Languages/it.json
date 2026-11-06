@@ -76,6 +76,8 @@
   "sender.audio_source.device": "Dispositivo TargetBridge Audio",
   "sender.audio_source.details": "L’acquisizione audio di sistema invia tutto il suono di questo Mac. Il dispositivo TargetBridge Audio invia solo ciò che indirizzi a questa uscita.",
   "sender.audio_source.driver_missing": "Il driver non è installato, quindi questa sessione userà l’acquisizione audio di sistema. Puoi installarlo nelle impostazioni.",
+  "sender.audio_source.auto_select_label": "Seleziona automaticamente l’uscita audio",
+  "sender.audio_source.auto_select_details": "Imposta l’uscita audio di questo Mac sul dispositivo TargetBridge Audio ogni volta che questa sessione si connette o si riconnette.",
   "sender.settings.audio_title": "Audio",
   "sender.settings.default_audio_source": "Sorgente audio predefinita per le nuove sessioni",
   "sender.settings.audio_driver_installed": "Il driver TargetBridge Audio è installato.",

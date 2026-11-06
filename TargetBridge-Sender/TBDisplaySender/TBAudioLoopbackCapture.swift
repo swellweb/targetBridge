@@ -333,6 +333,23 @@ final class TBAudioLoopbackCapture: @unchecked Sendable {
         }
     }
 
+    /// Makes the device the Mac's sound output. The previous one was saved when I/O started.
+    static func selectAsDefaultOutput() {
+        guard var device = findDevice() else { return }
+        var address = systemAddress(kAudioHardwarePropertyDefaultOutputDevice)
+        let status = AudioObjectSetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject),
+            &address,
+            0,
+            nil,
+            UInt32(MemoryLayout<AudioObjectID>.size),
+            &device
+        )
+        if status != noErr {
+            NSLog("TargetBridge: could not select audio output: %d", status)
+        }
+    }
+
     private static func builtInOutputDevice() -> AudioObjectID? {
         var address = systemAddress(kAudioHardwarePropertyDevices)
         let system = AudioObjectID(kAudioObjectSystemObject)

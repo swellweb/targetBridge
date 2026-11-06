@@ -76,6 +76,8 @@
   "sender.audio_source.device": "TargetBridge Audio device",
   "sender.audio_source.details": "System audio capture sends all sound from this Mac. The TargetBridge Audio device sends only what you route to that output.",
   "sender.audio_source.driver_missing": "The driver is not installed, so this session will use system audio capture. You can install it in Settings.",
+  "sender.audio_source.auto_select_label": "Select audio output automatically",
+  "sender.audio_source.auto_select_details": "Switches this Mac's sound output to the TargetBridge Audio device each time this session connects or reconnects.",
   "sender.settings.audio_title": "Audio",
   "sender.settings.default_audio_source": "Default audio source for new sessions",
   "sender.settings.audio_driver_installed": "The TargetBridge Audio driver is installed.",

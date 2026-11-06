@@ -76,6 +76,8 @@
   "sender.audio_source.device": "TargetBridge Audio 设备",
   "sender.audio_source.details": "系统音频捕获会发送此 Mac 的全部声音。TargetBridge Audio 设备只发送你路由到该输出的声音。",
   "sender.audio_source.driver_missing": "驱动未安装，此会话将使用系统音频捕获。你可以在设置中安装。",
+  "sender.audio_source.auto_select_label": "自动选择音频输出",
+  "sender.audio_source.auto_select_details": "每次此会话连接或重新连接时，将此 Mac 的声音输出切换到 TargetBridge Audio 设备。",
   "sender.settings.audio_title": "音频",
   "sender.settings.default_audio_source": "新会话的默认音频来源",
   "sender.settings.audio_driver_installed": "TargetBridge Audio 驱动已安装。",

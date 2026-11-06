@@ -752,6 +752,16 @@ private struct TBDisplaySenderSessionSettingsSheet: View {
                                 .pickerStyle(.menu)
                                 .disabled(session.isConnected || session.isStreaming)
                             }
+
+                            if session.audioSource == .outputDevice {
+                                settingRow(
+                                    TBDisplaySenderL10n.text("sender.audio_source.auto_select_label", service.language),
+                                    details: TBDisplaySenderL10n.text("sender.audio_source.auto_select_details", service.language)
+                                ) {
+                                    Toggle("", isOn: $session.selectsAudioOutputOnConnect)
+                                        .labelsHidden()
+                                }
+                            }
                         }
                     }
 

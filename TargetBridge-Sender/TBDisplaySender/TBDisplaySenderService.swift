@@ -1208,6 +1208,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     @Published var customName = ""
     @Published var customDisplayName = ""
     var audioOutputDeviceAvailable = true
+    @Published var selectsAudioOutputOnConnect = false
     var sessionTitleProvider: (() -> String)?
     /// What macOS shows for this session's display: its own name, or the session's.
     private var macOSDisplayName: String? {
@@ -3933,6 +3934,9 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         // The Mac's volume for this device now drives the receiver's speaker volume.
         outputDeviceLevel = TBAudioLoopbackCapture.currentOutputLevel() ?? 1
         sendVolumeUpdate()
+        if selectsAudioOutputOnConnect, loopbackAudioSubscription != nil {
+            TBAudioLoopbackCapture.selectAsDefaultOutput()
+        }
     }
 
     private func stopLoopbackAudio() {
