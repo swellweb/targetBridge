@@ -1208,7 +1208,8 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     @Published var customName = ""
     @Published var customDisplayName = ""
     var audioOutputDeviceAvailable = true
-    @Published var selectsAudioOutputOnConnect = false
+    /// On for new sessions: the device only exists while a session uses it.
+    @Published var selectsAudioOutputOnConnect = true
     var sessionTitleProvider: (() -> String)?
     /// What macOS shows for this session's display: its own name, or the session's.
     private var macOSDisplayName: String? {

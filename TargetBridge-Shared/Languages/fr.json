@@ -77,7 +77,7 @@
   "sender.audio_source.details": "La capture de l’audio système envoie tout le son de ce Mac. Le périphérique TargetBridge Audio envoie uniquement ce que vous dirigez vers cette sortie.",
   "sender.audio_source.driver_missing": "Le pilote n’est pas installé : cette session utilisera la capture de l’audio système. Vous pouvez l’installer dans les réglages.",
   "sender.audio_source.auto_select_label": "Sélectionner automatiquement la sortie audio",
-  "sender.audio_source.auto_select_details": "Bascule la sortie son de ce Mac vers le périphérique TargetBridge Audio à chaque connexion ou reconnexion de cette session.",
+  "sender.audio_source.auto_select_details": "Bascule la sortie son de ce Mac vers le périphérique TargetBridge Audio à chaque connexion ou reconnexion de cette session. Le périphérique n’apparaît que lorsqu’une session l’utilise.",
   "sender.settings.audio_title": "Audio",
   "sender.settings.default_audio_source": "Source audio par défaut des nouvelles sessions",
   "sender.settings.audio_driver_installed": "Le pilote TargetBridge Audio est installé.",
