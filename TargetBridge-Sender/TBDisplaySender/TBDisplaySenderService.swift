@@ -1207,6 +1207,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     @Published var audioSource: TBAudioSource
     @Published var customName = ""
     @Published var customDisplayName = ""
+    var audioOutputDeviceAvailable = true
     var sessionTitleProvider: (() -> String)?
     /// What macOS shows for this session's display: its own name, or the session's.
     private var macOSDisplayName: String? {
@@ -2078,6 +2079,20 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         ) else { return }
         TBInputDebugLog.log("sender send control mode update \(inputControlRole.rawValue) to \(receiverIP)")
         send(packet)
+    }
+
+    static let brightnessStep = 1.0 / 16.0
+
+    func isShowing(displayID: CGDirectDisplayID) -> Bool {
+        isConnected && displayID != kCGNullDirectDisplay && session.displayID == displayID
+    }
+
+    func stepBrightness(increase: Bool) {
+        brightness = Self.steppedBrightness(from: brightness, increase: increase)
+    }
+
+    nonisolated static func steppedBrightness(from level: Double, increase: Bool) -> Double {
+        min(1, max(0, level + (increase ? brightnessStep : -brightnessStep)))
     }
 
     private func sendBrightnessUpdate() {
@@ -3881,6 +3896,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
 
     private func startLoopbackAudioIfAvailable() async {
         guard shouldRelayAudio,
+              audioOutputDeviceAvailable,
               audioSource == .outputDevice,
               loopbackAudioSubscription == nil else { return }
 

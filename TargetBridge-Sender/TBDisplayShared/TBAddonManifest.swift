@@ -4,6 +4,8 @@ enum TBAddonCapability: String, Codable, CaseIterable, Hashable {
     case networkLink = "network-link"
     case audioRelay = "audio-relay"
     case inputDockstation = "input-dockstation"
+    case audioOutputDevice = "audio-output-device"
+    case brightnessKeys = "brightness-keys"
 }
 
 enum TBAddonOrigin: String, Hashable {

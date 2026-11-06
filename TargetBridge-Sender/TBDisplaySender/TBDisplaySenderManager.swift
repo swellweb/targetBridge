@@ -116,6 +116,7 @@ final class TBDisplaySenderService: ObservableObject {
     @Published private(set) var audioDriverError: String?
     @Published private(set) var audioDeviceName: String?
     @Published private(set) var audioDeviceRenameFailed = false
+    private let brightnessKeyController = TBBrightnessKeyController()
     private var userQuitPending = false
     private var sessionCancellables: [UUID: AnyCancellable] = [:]
     private let receiverDiscovery = TBReceiverDiscovery()
@@ -235,6 +236,10 @@ final class TBDisplaySenderService: ObservableObject {
 
     var audioRelayAvailable: Bool {
         isAddonCapabilityEnabled(.audioRelay)
+    }
+
+    var audioOutputDeviceAvailable: Bool {
+        audioRelayAvailable && isAddonCapabilityEnabled(.audioOutputDevice)
     }
 
     var inputDockstationAvailable: Bool {
@@ -798,6 +803,7 @@ final class TBDisplaySenderService: ObservableObject {
 
     private func attachSession(_ session: TBDisplaySenderSession) {
         session.audioAddonAvailable = audioRelayAvailable
+        session.audioOutputDeviceAvailable = audioOutputDeviceAvailable
         session.sessionTitleProvider = { [weak self, weak session] in
             guard let self, let session else { return "" }
             return self.sessionTitle(for: session)
@@ -879,6 +885,32 @@ final class TBDisplaySenderService: ObservableObject {
         addonStore.isCapabilityEnabled(capability)
     }
 
+    func updateBrightnessKeyController() {
+        guard isAddonCapabilityEnabled(.brightnessKeys) else {
+            brightnessKeyController.stop()
+            return
+        }
+        brightnessKeyController.handler = { [weak self] key in
+            self?.handleBrightnessKey(key) ?? false
+        }
+        brightnessKeyController.start()
+    }
+
+    /// Keys over a TargetBridge display adjust that receiver. All others stay with macOS.
+    private func handleBrightnessKey(_ key: TBBrightnessKeyEvent) -> Bool {
+        guard let pointer = CGEvent(source: nil)?.location else { return false }
+        var displayID = kCGNullDirectDisplay
+        var count: UInt32 = 0
+        guard CGGetDisplaysWithPoint(pointer, 1, &displayID, &count) == .success, count > 0,
+              let session = sessions.first(where: { $0.isShowing(displayID: displayID) }) else {
+            return false
+        }
+        if key.isPressed {
+            session.stepBrightness(increase: key.isIncrease)
+        }
+        return true
+    }
+
     private func normalizeAddonState() {
         let networkLinkEnabled = isAddonCapabilityEnabled(.networkLink)
         let audioEnabled = audioRelayAvailable
@@ -886,6 +918,7 @@ final class TBDisplaySenderService: ObservableObject {
 
         for session in sessions {
             session.audioAddonAvailable = audioEnabled
+            session.audioOutputDeviceAvailable = audioOutputDeviceAvailable
             if !networkLinkEnabled, session.transportKind == .networkLink {
                 session.transportKind = .thunderboltBridge
             }
@@ -896,6 +929,7 @@ final class TBDisplaySenderService: ObservableObject {
         }
 
         normalizeSessionInterfaces()
+        updateBrightnessKeyController()
         updateInputRelayController()
         sessions.forEach { $0.updateInputControlMode() }
     }

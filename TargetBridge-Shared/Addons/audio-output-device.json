@@ -1,0 +1,13 @@
+{
+  "id": "targetbridge.audio-output-device",
+  "name": "TargetBridge Audio Device",
+  "version": "1.0",
+  "summary": "Add a macOS audio output that sends only what you route to it. Needs Audio Relay.",
+  "author": "TargetBridge",
+  "minimumSenderVersion": "3.6",
+  "capabilities": [
+    "audio-output-device"
+  ],
+  "experimental": false,
+  "defaultEnabled": true
+}

@@ -741,7 +741,7 @@ private struct TBDisplaySenderSessionSettingsSheet: View {
                                 .disabled(session.isConnected || session.isStreaming)
                         }
 
-                        if session.audioEnabled {
+                        if session.audioEnabled, service.audioOutputDeviceAvailable {
                             settingRow(audioSourceTitle, details: audioSourceDetails) {
                                 Picker(audioSourceTitle, selection: $session.audioSource) {
                                     ForEach(TBAudioSource.allCases) { source in

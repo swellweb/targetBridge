@@ -61,7 +61,7 @@ struct TBDisplaySenderSettingsView: View {
                     Toggle(TBDisplaySenderL10n.verboseDisplayLogging(service.language), isOn: $service.verboseDisplayLogging)
                 }
 
-                if service.audioRelayAvailable {
+                if service.audioOutputDeviceAvailable {
                     settingsSection(title: audioText("sender.settings.audio_title")) {
                         Picker(audioText("sender.settings.default_audio_source"), selection: $service.defaultAudioSource) {
                             ForEach(TBAudioSource.allCases) { source in
@@ -229,7 +229,10 @@ struct TBDisplaySenderSettingsView: View {
         }
         .background(appBackground)
         .preferredColorScheme(.dark)
-        .onAppear { service.refreshAudioDriverStatus() }
+        .onAppear {
+            service.refreshAudioDriverStatus()
+            service.updateBrightnessKeyController()
+        }
         .alert(addonImportErrorTitle, isPresented: Binding(
             get: { importError != nil },
             set: { if !$0 { importError = nil } }
@@ -646,6 +649,16 @@ struct TBDisplaySenderSettingsView: View {
         case (.inputDockstation, .english): return "Input Dockstation"
         case (.inputDockstation, .german): return "Input Dockstation"
         case (.inputDockstation, .french): return "Station d’accueil des entrées"
+        case (.audioOutputDevice, .italian): return "Dispositivo audio"
+        case (.audioOutputDevice, .english): return "Audio Device"
+        case (.audioOutputDevice, .german): return "Audiogerät"
+        case (.audioOutputDevice, .french): return "Périphérique audio"
+        case (.audioOutputDevice, .chinese): return "音频设备"
+        case (.brightnessKeys, .italian): return "Tasti luminosità"
+        case (.brightnessKeys, .english): return "Brightness Keys"
+        case (.brightnessKeys, .german): return "Helligkeitstasten"
+        case (.brightnessKeys, .french): return "Touches de luminosité"
+        case (.brightnessKeys, .chinese): return "亮度键"
         case (.inputDockstation, .chinese): return "输入扩展坞"
         }
     }
