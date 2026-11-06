@@ -5,7 +5,8 @@ import Foundation
 enum TBAudioDriverInstaller {
     private static let driverName = "TargetBridgeAudio.driver"
     private static let installedPath = "/Library/Audio/Plug-Ins/HAL/\(driverName)"
-    private static let restartCoreAudio = "/bin/launchctl kickstart -k system/com.apple.audio.coreaudiod"
+    // launchd brings coreaudiod back. SIP can refuse `launchctl kickstart` here.
+    private static let restartCoreAudio = "/usr/bin/killall coreaudiod"
 
     private struct CommandError: LocalizedError {
         let message: String

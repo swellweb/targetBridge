@@ -24,5 +24,5 @@ else
   chown -R root:wheel "$TARGET"
 fi
 
-launchctl kickstart -k system/com.apple.audio.coreaudiod
+killall coreaudiod
 echo "Done."

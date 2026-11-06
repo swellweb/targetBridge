@@ -26,6 +26,6 @@ final class TBAudioSourceTests: XCTestCase {
         let source = URL(fileURLWithPath: "/Applications/My Apps/TargetBridgeAudio.driver")
         let command = TBAudioDriverInstaller.installCommand(from: source)
         XCTAssertTrue(command.contains("'/Applications/My Apps/TargetBridgeAudio.driver'"))
-        XCTAssertTrue(command.hasSuffix("system/com.apple.audio.coreaudiod"))
+        XCTAssertTrue(command.hasSuffix("/usr/bin/killall coreaudiod"))
     }
 }
