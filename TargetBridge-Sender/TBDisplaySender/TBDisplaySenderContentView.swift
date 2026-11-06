@@ -679,6 +679,19 @@ private struct TBDisplaySenderSessionSettingsSheet: View {
                                 .labelsHidden()
                                 .disabled(session.isConnected || session.isStreaming)
                         }
+
+                        if session.audioEnabled {
+                            settingRow(audioSourceTitle, details: audioSourceDetails) {
+                                Picker(audioSourceTitle, selection: $session.audioSource) {
+                                    ForEach(TBAudioSource.allCases) { source in
+                                        Text(source.title(service.language)).tag(source)
+                                    }
+                                }
+                                .labelsHidden()
+                                .pickerStyle(.menu)
+                                .disabled(session.isConnected || session.isStreaming)
+                            }
+                        }
                     }
 
                     if service.inputDockstationAvailable {
@@ -1080,6 +1093,18 @@ private struct TBDisplaySenderSessionSettingsSheet: View {
         case .french: return "Commencez avec des préréglages prudents sur Wi-Fi ou les liaisons lentes, puis augmentez-les si la stabilité reste bonne."
         case .chinese: return "在 Wi‑Fi 或较慢链路上先使用保守预设，稳定后再逐步提高。"
         }
+    }
+
+    private var audioSourceTitle: String {
+        TBDisplaySenderL10n.text("sender.audio_source.title", service.language)
+    }
+
+    private var audioSourceDetails: String {
+        var details = TBDisplaySenderL10n.text("sender.audio_source.details", service.language)
+        if session.audioSource == .outputDevice, !service.audioDriverInstalled {
+            details += " " + TBDisplaySenderL10n.text("sender.audio_source.driver_missing", service.language)
+        }
+        return details
     }
 
     private var audioDetails: String {

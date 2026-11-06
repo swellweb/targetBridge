@@ -58,6 +58,22 @@ When broadcasting to multiple receivers, audio can be controlled on a per-sessio
 
 ---
 
+### 5. Audio Sources
+Each session chooses one audio source. New sessions start with the default set in **Settings > Audio**, which is system audio capture unless changed. The choice is saved with the session and can only be changed while disconnected.
+
+* **System audio capture**: The original ScreenCaptureKit pipeline above. It sends all sound from the Mac.
+* **TargetBridge Audio device**: An optional driver adds this output to the macOS sound settings. Its mix is looped back to an input stream on the same device (48 kHz stereo), and `TBAudioLoopbackCapture` reads that input. Only audio sent to this output reaches the receiver, so apps can be routed individually.
+
+Device behaviour:
+* **Fallback**: If the driver is missing or microphone access is denied, the session uses system audio capture.
+* **Volume**: The device's volume and mute controls are applied in the driver.
+* **Scope**: There is one device. Every session using it receives the same stream. The receiver and the packet format are unchanged.
+* **Permission**: macOS treats reading any input device as microphone use, so its indicator shows during a session.
+
+The driver is built with libASPL (`scripts/build_audio_driver.sh`) and embedded in `TargetBridge.app/Contents/PlugIns` by `scripts/build_targetbridge_sender_app.sh`, which CI and releases use. Install it from **Settings > Audio**. For development, `sudo scripts/install_audio_driver.sh` installs the built driver and `-u` removes it.
+
+---
+
 ## 🔊 Receiver-Side Architecture (C)
 
 The receiver utilizes the cross-platform **SDL2 Audio Subsystem** configured for raw PCM playback:

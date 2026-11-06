@@ -103,6 +103,17 @@ final class TBDisplaySenderService: ObservableObject {
             objectWillChange.send()
         }
     }
+    @Published var defaultAudioSource: TBAudioSource = UserDefaults.standard
+        .string(forKey: "fd.tbdisplaysender.defaultAudioSource")
+        .flatMap(TBAudioSource.init(rawValue:)) ?? .systemCapture {
+        didSet {
+            UserDefaults.standard.set(defaultAudioSource.rawValue, forKey: "fd.tbdisplaysender.defaultAudioSource")
+            objectWillChange.send()
+        }
+    }
+    @Published private(set) var audioDriverInstalled = TBAudioDriverInstaller.isInstalled
+    @Published private(set) var audioDriverBusy = false
+    @Published private(set) var audioDriverError: String?
     private var userQuitPending = false
     private var sessionCancellables: [UUID: AnyCancellable] = [:]
     private let receiverDiscovery = TBReceiverDiscovery()
@@ -283,6 +294,7 @@ final class TBDisplaySenderService: ObservableObject {
             preventDisplaySleep: preventDisplaySleep,
             autoRestartOnWake: autoRestartOnWake,
             audioEnabled: audioEnabled,
+            audioSource: defaultAudioSource,
             verboseDisplayLogging: verboseDisplayLogging
         )
         if let previous = sessions.last {
@@ -377,6 +389,7 @@ final class TBDisplaySenderService: ObservableObject {
         var capturePreset: String
         var captureSource: String
         var audioEnabled: Bool
+        var audioSource: String?
         var brightness: Double
         var inputGestureMode: String
         var volume: Double?
@@ -413,6 +426,7 @@ final class TBDisplaySenderService: ObservableObject {
                 capturePreset: session.capturePreset.rawValue,
                 captureSource: session.captureSource.rawValue,
                 audioEnabled: session.audioEnabled,
+                audioSource: session.audioSource.rawValue,
                 brightness: session.brightness,
                 inputGestureMode: session.inputGestureMode.rawValue,
                 volume: session.volume,
@@ -504,6 +518,9 @@ final class TBDisplaySenderService: ObservableObject {
             from: config.audioEnabled,
             repairPending: !UserDefaults.standard.bool(forKey: Self.audioPreferenceRepairKey)
         )
+        session.audioSource = config.audioSource
+            .flatMap(TBAudioSource.init(rawValue:))
+            ?? defaultAudioSource
         session.brightness = config.brightness
         session.volume = config.volume ?? 0.5
         session.matchRenderToStream = config.matchRenderToStream ?? false
@@ -683,6 +700,37 @@ final class TBDisplaySenderService: ObservableObject {
 
     func refreshAddons() {
         addonStore.refresh()
+    }
+
+    func refreshAudioDriverStatus() {
+        audioDriverInstalled = TBAudioDriverInstaller.isInstalled
+    }
+
+    func installAudioDriver() {
+        guard let source = TBAudioDriverInstaller.bundledURL else { return }
+        runAudioDriverCommand(TBAudioDriverInstaller.installCommand(from: source))
+    }
+
+    func removeAudioDriver() {
+        runAudioDriverCommand(TBAudioDriverInstaller.removeCommand)
+    }
+
+    private func runAudioDriverCommand(_ command: String) {
+        guard !audioDriverBusy else { return }
+        audioDriverBusy = true
+        audioDriverError = nil
+        Task { @MainActor [weak self] in
+            var failure: String?
+            do {
+                try await TBAudioDriverInstaller.runAsAdministrator(command)
+            } catch {
+                failure = error.localizedDescription
+            }
+            guard let self else { return }
+            self.audioDriverError = failure
+            self.audioDriverBusy = false
+            self.refreshAudioDriverStatus()
+        }
     }
 
     func openAddonsFolder() {

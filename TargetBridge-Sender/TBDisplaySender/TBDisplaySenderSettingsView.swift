@@ -60,6 +60,62 @@ struct TBDisplaySenderSettingsView: View {
                     Toggle(TBDisplaySenderL10n.verboseDisplayLogging(service.language), isOn: $service.verboseDisplayLogging)
                 }
 
+                if service.audioRelayAvailable {
+                    settingsSection(title: audioText("sender.settings.audio_title")) {
+                        Picker(audioText("sender.settings.default_audio_source"), selection: $service.defaultAudioSource) {
+                            ForEach(TBAudioSource.allCases) { source in
+                                Text(source.title(service.language)).tag(source)
+                            }
+                        }
+                        .pickerStyle(.menu)
+
+                        Text(audioText(
+                            service.audioDriverInstalled
+                                ? "sender.settings.audio_driver_installed"
+                                : "sender.settings.audio_driver_missing"
+                        ))
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+
+                        if TBAudioDriverInstaller.bundledURL != nil {
+                            Text(audioText("sender.settings.audio_driver_hint"))
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+
+                            HStack(spacing: 12) {
+                                Button(audioText(
+                                    service.audioDriverInstalled
+                                        ? "sender.settings.update_audio_driver"
+                                        : "sender.settings.install_audio_driver"
+                                )) {
+                                    service.installAudioDriver()
+                                }
+                                .buttonStyle(.borderedProminent)
+
+                                if service.audioDriverInstalled {
+                                    Button(audioText("sender.settings.remove_audio_driver")) {
+                                        service.removeAudioDriver()
+                                    }
+                                    .buttonStyle(.bordered)
+                                }
+                            }
+                            .disabled(service.audioDriverBusy || service.anyConnected)
+                        }
+
+                        if let error = service.audioDriverError {
+                            Text(TBDisplaySenderL10n.text(
+                                "sender.settings.audio_driver_failed",
+                                service.language,
+                                ["error": error]
+                            ))
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                            .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+
                 settingsSection(title: behaviorTitle) {
                     Text(TBDisplaySenderL10n.settingsHint(service.language))
                         .font(.footnote)
@@ -146,6 +202,10 @@ struct TBDisplaySenderSettingsView: View {
         } message: {
             Text(importError ?? "")
         }
+    }
+
+    private func audioText(_ key: String) -> String {
+        TBDisplaySenderL10n.text(key, service.language)
     }
 
     private func settingsSection<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {

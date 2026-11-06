@@ -1105,6 +1105,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         preventDisplaySleep: Bool,
         autoRestartOnWake: Bool,
         audioEnabled: Bool,
+        audioSource: TBAudioSource = .systemCapture,
         verboseDisplayLogging: Bool = false
     ) {
         self.statusText = TBDisplaySenderStatusState.ready.text(language)
@@ -1117,6 +1118,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         self.preventDisplaySleep = preventDisplaySleep
         self.autoRestartOnWake = autoRestartOnWake
         self.audioEnabled = audioEnabled
+        self.audioSource = audioSource
         self.verboseDisplayLogging = verboseDisplayLogging
         self.streamResolutionText = TBDisplaySenderL10n.streamSummary(
             preset: .standard1440p,
@@ -1200,6 +1202,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     }
 
     @Published var audioEnabled: Bool
+    @Published var audioSource: TBAudioSource
     @Published var brightness: Double = 1.0 {
         didSet {
             sendBrightnessUpdate()
@@ -1321,6 +1324,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
 
     private var session = ReceiverBackedVirtualDisplaySession()
     private let audioConverter = SBAudioConverter()
+    private var loopbackAudioSubscription: UUID?
     private var activeProfile: TBMonitorDisplayProfile?
     private var activeCodecType: CMVideoCodecType?
     private var activeCodecName: String?
@@ -1839,6 +1843,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         teardownCompletion: (@MainActor @Sendable () -> Void)? = nil
     ) {
         let connectionToClose = connection
+        stopLoopbackAudio()
         captureRestartGeneration &+= 1
         isRestartingCaptureAfterWake = false
         if persistArrangement {
@@ -2734,6 +2739,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     }
 
     private func startCapture(for profile: TBMonitorDisplayProfile) async -> Bool {
+        await startLoopbackAudioIfAvailable()
         do {
             guard CGPreflightScreenCaptureAccess() else {
                 captureBlockedByScreenRecordingPermission = true
@@ -2827,7 +2833,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
             configuration.showsCursor = !usesCursorOverlay
             configuration.scalesToFit = true
             configuration.captureResolution = preset.captureResolution
-            configuration.capturesAudio = shouldRelayAudio
+            configuration.capturesAudio = shouldCaptureSystemAudio
             configuration.excludesCurrentProcessAudio = true
             configuration.sampleRate = 48000
             configuration.channelCount = 2
@@ -2869,7 +2875,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
                 type: .screen,
                 sampleHandlerQueue: pipeline.queue
             )
-            if shouldRelayAudio {
+            if shouldCaptureSystemAudio {
                 try stream.addStreamOutput(
                     delegate,
                     type: .audio,
@@ -2965,7 +2971,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     private func startAuxiliaryAudioCapture(preferredDisplayID: CGDirectDisplayID) async {
         guard Self.needsAuxiliaryAudioCapture(
             usingDirectDisplayStream: true,
-            shouldRelayAudio: shouldRelayAudio
+            shouldRelayAudio: shouldCaptureSystemAudio
         ) else { return }
 
         do {
@@ -3829,7 +3835,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     }
 
     private func processAudio(_ sampleBuffer: CMSampleBuffer) {
-        guard shouldRelayAudio else { return }
+        guard shouldCaptureSystemAudio else { return }
         guard let data = audioConverter.convert(sampleBuffer: sampleBuffer) else { return }
         let packet = TBMonitorProtocol.makePacket(type: .audioFrame, payload: data)
         send(packet)
@@ -3837,6 +3843,49 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
 
     private var shouldRelayAudio: Bool {
         audioEnabled && audioAddonAvailable
+    }
+
+    /// System capture stays off while this session reads the output device. It
+    /// remains the fallback if the driver is missing or access is denied.
+    private var shouldCaptureSystemAudio: Bool {
+        shouldRelayAudio && loopbackAudioSubscription == nil
+    }
+
+    private func startLoopbackAudioIfAvailable() async {
+        guard shouldRelayAudio,
+              audioSource == .outputDevice,
+              loopbackAudioSubscription == nil else { return }
+
+        guard TBAudioLoopbackCapture.isDriverInstalled else {
+            TBLog.connection.warning("audio: output device missing; using system audio capture")
+            return
+        }
+
+        guard await TBAudioLoopbackCapture.requestMicrophoneAccess() else {
+            TBLog.connection.warning("audio: microphone access denied; using system audio capture")
+            return
+        }
+        guard connection != nil, loopbackAudioSubscription == nil else { return }
+
+        loopbackAudioSubscription = TBAudioLoopbackCapture.shared.subscribe { [weak self] data in
+            guard let self else { return }
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    self.sendLoopbackAudio(data)
+                }
+            }
+        }
+    }
+
+    private func stopLoopbackAudio() {
+        guard let subscription = loopbackAudioSubscription else { return }
+        loopbackAudioSubscription = nil
+        TBAudioLoopbackCapture.shared.unsubscribe(subscription)
+    }
+
+    private func sendLoopbackAudio(_ data: Data) {
+        guard shouldRelayAudio else { return }
+        send(TBMonitorProtocol.makePacket(type: .audioFrame, payload: data))
     }
 
     private func send(_ packet: Data) {
