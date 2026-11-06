@@ -36,6 +36,18 @@ jobs:
           file ../build/TargetBridge.app/Contents/MacOS/TargetBridge | grep -q "${{ matrix.arch }}"
           file ../build/TargetBridge.app/Contents/PlugIns/TargetBridgeAudio.driver/Contents/MacOS/TargetBridgeAudio | grep -q "${{ matrix.arch }}"
 
+      - name: Zip Sender App
+        run: |
+          cd build
+          zip -ry TargetBridge-${{ matrix.arch }}.app.zip TargetBridge.app
+
+      - name: Upload Sender App
+        uses: actions/upload-artifact@v7
+        with:
+          name: TargetBridge-${{ matrix.arch }}
+          path: build/TargetBridge-${{ matrix.arch }}.app.zip
+          retention-days: 7
+
       - name: Run Sender Unit Tests
         run: |
           cd TargetBridge-Sender
@@ -78,6 +90,18 @@ jobs:
         run: |
           cd TargetBridge-Receiver
           ./scripts/build_tbreceiver_c_app.sh
+
+      - name: Zip Receiver App
+        run: |
+          cd build
+          zip -ry TargetBridge-Receiver-${{ matrix.arch }}.app.zip "TargetBridge Receiver.app"
+
+      - name: Upload Receiver App
+        uses: actions/upload-artifact@v7
+        with:
+          name: TargetBridge-Receiver-${{ matrix.arch }}
+          path: build/TargetBridge-Receiver-${{ matrix.arch }}.app.zip
+          retention-days: 7
 
       - name: Check Receiver Permission Probe
         run: ruby TargetBridge-Sender/scripts/test_permission_status.rb receiver 'build/TargetBridge Receiver.app/Contents/MacOS/TargetBridgeReceiver'
