@@ -310,11 +310,12 @@ final class TBAudioLoopbackCapture: @unchecked Sendable {
         UserDefaults.standard.set(uid, forKey: previousOutputKey)
     }
 
-    /// Leaves the selection alone if the user already moved away from this device,
-    /// or if the previous output is gone, such as unplugged headphones.
+    /// Leaves the selection alone if the user already moved away from this device.
+    /// Uses the built-in output if the previous one is gone, such as unplugged headphones.
     private static func restorePreviousOutput(replacing device: AudioObjectID) {
-        guard let uid = UserDefaults.standard.string(forKey: previousOutputKey),
-              var previous = findDevice(uid: uid) else { return }
+        let previousDevice = UserDefaults.standard.string(forKey: previousOutputKey)
+            .flatMap { findDevice(uid: $0) }
+        guard var previous = previousDevice ?? builtInOutputDevice() else { return }
 
         for selector in defaultOutputSelectors where defaultDevice(selector) == device {
             var address = systemAddress(selector)
@@ -330,6 +331,33 @@ final class TBAudioLoopbackCapture: @unchecked Sendable {
                 NSLog("TargetBridge: could not restore audio output: %d", status)
             }
         }
+    }
+
+    private static func builtInOutputDevice() -> AudioObjectID? {
+        var address = systemAddress(kAudioHardwarePropertyDevices)
+        let system = AudioObjectID(kAudioObjectSystemObject)
+        var size: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(system, &address, 0, nil, &size) == noErr else { return nil }
+
+        var devices = [AudioObjectID](
+            repeating: AudioObjectID(kAudioObjectUnknown),
+            count: Int(size) / MemoryLayout<AudioObjectID>.size
+        )
+        guard AudioObjectGetPropertyData(system, &address, 0, nil, &size, &devices) == noErr else { return nil }
+        return devices.first(where: isBuiltInOutput)
+    }
+
+    private static func isBuiltInOutput(_ device: AudioObjectID) -> Bool {
+        var transportAddress = systemAddress(kAudioDevicePropertyTransportType)
+        var transport: UInt32 = 0
+        var transportSize = UInt32(MemoryLayout<UInt32>.size)
+        guard AudioObjectGetPropertyData(device, &transportAddress, 0, nil, &transportSize, &transport) == noErr,
+              transport == kAudioDeviceTransportTypeBuiltIn else { return false }
+
+        var streamsAddress = outputAddress(kAudioDevicePropertyStreams)
+        var streamsSize: UInt32 = 0
+        return AudioObjectGetPropertyDataSize(device, &streamsAddress, 0, nil, &streamsSize) == noErr
+            && streamsSize > 0
     }
 
     private static func defaultDevice(_ selector: AudioObjectPropertySelector) -> AudioObjectID? {
