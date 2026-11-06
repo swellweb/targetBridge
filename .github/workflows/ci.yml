@@ -43,6 +43,9 @@ jobs:
       - name: Check Integrated Video Queue Guards
         run: ruby TargetBridge-Sender/scripts/test_video_queue_budget.rb
 
+      - name: Check Capture Startup Lifecycle
+        run: ruby TargetBridge-Sender/scripts/test_capture_startup.rb
+
       - name: Check Sender Permission Probe
         run: ruby TargetBridge-Sender/scripts/test_permission_status.rb sender build/TargetBridge.app/Contents/MacOS/TargetBridge
 
@@ -72,6 +75,13 @@ jobs:
         run: |
           cd TargetBridge-Receiver/TBReceiverC
           make test
+
+      - name: Check DPCM Display and Socket Lifecycle
+        run: |
+          python3 TargetBridge-Receiver/TBReceiverC/tests/test_dpcm_display.py
+          python3 TargetBridge-Receiver/TBReceiverC/tests/test_socket_drain.py
+          python3 TargetBridge-Receiver/TBReceiverC/tests/test_video_diagnostics.py
+          python3 TargetBridge-Receiver/TBReceiverC/tests/test_stream_mode.py
 
       - name: Build Receiver App
         run: |

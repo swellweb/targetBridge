@@ -47,6 +47,18 @@
 #define TB_PKT_FRAME            0x21
 #define TB_PKT_RAW_FRAME        0x22  /* uncompressed NV12 planes (raw passthrough) */
 #define TB_PKT_AUDIO_FRAME      0x23
+/* Full frame, losslessly compressed with tile-DPCM (TBD2; see tb_dpcm.h). The
+ * payload is one TBD2 blob and nothing else -- its own header carries the
+ * dimensions, so none are repeated here.
+ *
+ * Only sent to a receiver that advertised "supportsDPCM" with a working Metal
+ * decoder. The optional TB_DPCM_FLAG_ADAPTIVE_COLOR flag additionally requires
+ * "supportsDPCMAdaptiveColor". In those blobs, seed bit 31 selects each tile's
+ * coding space: raw RGB or reversible (B-G),G,(R-G), modulo the sample range.
+ * RGB reconstruction adds G back to B/R after all residuals have been decoded.
+ * A sender must leave the flag clear for an older receiver. Compression varies
+ * with content; both variants preserve every captured 8-bit or 10-bit sample. */
+#define TB_PKT_RAW_DPCM         0x25
 #define TB_PKT_HEARTBEAT        0x30
 #define TB_PKT_TEARDOWN         0x31
 #define TB_PKT_CURSOR           0x32

@@ -260,9 +260,9 @@ final class TBDisplaySenderService: ObservableObject {
             receiverAddress: session.receiverIP.trimmingCharacters(in: .whitespacesAndNewlines),
             receiverProfileAvailable: session.receiverSupportsHEVCDecodeHint != nil,
             receiverSupportsHEVC: session.receiverSupportsHEVCDecodeHint,
-            requiresHEVC: session.codecPreference == .hevc || (
+            requiresHEVC: session.codecPreference.requestedTransport(for: session.capturePreset) == .encoded && (session.codecPreference == .hevc || (
                 session.codecPreference == .automatic && session.capturePreset.codecName == "HEVC"
-            ),
+            )),
             cableRate: session.cableTestResult,
             requiresSenderInputMonitoring: role == .senderMaster,
             senderInputMonitoringGranted: localInputMonitoringTrusted,
@@ -286,7 +286,7 @@ final class TBDisplaySenderService: ObservableObject {
             verboseDisplayLogging: verboseDisplayLogging
         )
         if let previous = sessions.last {
-            session.capturePreset = previous.capturePreset
+            session.inheritStreamSelection(from: previous)
             session.captureSource = previous.captureSource
             session.transportKind = previous.transportKind
             session.audioEnabled = previous.audioEnabled
@@ -369,7 +369,7 @@ final class TBDisplaySenderService: ObservableObject {
     /// master role (Input Dockstation) is a user choice, so it is persisted too;
     /// role and bindings are optional for backward compatibility with sessions
     /// saved before either setting was added.
-    private struct PersistedSession: Codable {
+    struct PersistedSession: Codable {
         var transportKind: String
         var localInterfaceIP: String
         var receiverIP: String
@@ -384,6 +384,13 @@ final class TBDisplaySenderService: ObservableObject {
         var inputBindings: [TBInputBinding]?
         var matchRenderToStream: Bool?
         var codecPreference: String?
+
+        mutating func normalizeCaptureSelection() {
+            guard let preset = TBDisplayCapturePreset(rawValue: capturePreset) else { return }
+            let preference = codecPreference.flatMap(TBDisplayCodecPreference.init(rawValue:)) ?? .automatic
+            codecPreference = preference.normalized(for: preset).rawValue
+            capturePreset = preset.canonical.rawValue
+        }
     }
 
     private var lastPersistedData: Data?
@@ -431,13 +438,14 @@ final class TBDisplaySenderService: ObservableObject {
 
     private func restorePersistedSessions() {
         guard let data = UserDefaults.standard.data(forKey: Self.persistedSessionsKey),
-              let configs = try? JSONDecoder().decode([PersistedSession].self, from: data),
+              var configs = try? JSONDecoder().decode([PersistedSession].self, from: data),
               !configs.isEmpty
         else {
             addSession()
             return
         }
 
+        for index in configs.indices { configs[index].normalizeCaptureSelection() }
         let repairPending = !UserDefaults.standard.bool(forKey: Self.audioPreferenceRepairKey)
         lastPersistedData = data
         for config in configs {
@@ -474,6 +482,9 @@ final class TBDisplaySenderService: ObservableObject {
         // sure every restored interface still exists on this machine.
         normalizeAddonState()
         normalizeSessionInterfaces()
+        // Write canonical presets and explicit legacy transport policies even
+        // when no user action follows startup. This migration is idempotent.
+        persistSessions()
         objectWillChange.send()
     }
 
@@ -481,6 +492,8 @@ final class TBDisplaySenderService: ObservableObject {
         if let transport = TBTransportKind(rawValue: config.transportKind) {
             session.transportKind = transport
         }
+        session.codecPreference = config.codecPreference
+            .flatMap(TBDisplayCodecPreference.init(rawValue:)) ?? .automatic
         if let preset = TBDisplayCapturePreset(rawValue: config.capturePreset) {
             session.capturePreset = preset
         }
@@ -507,9 +520,6 @@ final class TBDisplaySenderService: ObservableObject {
         session.brightness = config.brightness
         session.volume = config.volume ?? 0.5
         session.matchRenderToStream = config.matchRenderToStream ?? false
-        session.codecPreference = config.codecPreference
-            .flatMap(TBDisplayCodecPreference.init(rawValue:))
-            ?? .automatic
     }
 
     func refreshLocalInterfaces() {
@@ -521,16 +531,15 @@ final class TBDisplaySenderService: ObservableObject {
 
     func applyDiscoveredReceiver(_ receiver: TBDiscoveredReceiver, to session: TBDisplaySenderSession) {
         migrateReceiverPreferences(for: receiver)
-        session.selectedReceiverID = receiver.stableIdentity
-        session.receiverIP = receiver.ip(for: session.transportKind)
-        session.receiverSupportsHEVCDecodeHint = receiver.supportsHEVCDecode
-        restoreCodecPreference(for: receiver, to: session, defaultToAutomatic: true)
+        let preference = persistedCodecPreferences[receiverCodecPreferenceKey(for: receiver)]
+            .flatMap(TBDisplayCodecPreference.init(rawValue:))
+        let changedReceiver = session.updateDiscoveredReceiver(receiver, defaultCodecPreference: preference)
         if session.localInterfaceIP.isEmpty {
             session.localInterfaceIP = suggestedInterfaceForNewSession(transportKind: session.transportKind)?.ip
                 ?? availableInterfaces(for: session.transportKind).first?.ip
                 ?? ""
         }
-        restoreDisplayProfile(for: session)
+        if changedReceiver { restoreDisplayProfile(for: session) }
         objectWillChange.send()
     }
 
@@ -549,10 +558,7 @@ final class TBDisplaySenderService: ObservableObject {
             }
 
             migrateReceiverPreferences(for: receiver)
-            session.selectedReceiverID = receiver.stableIdentity
-            session.receiverIP = receiver.ip(for: session.transportKind)
-            session.receiverSupportsHEVCDecodeHint = receiver.supportsHEVCDecode
-            restoreCodecPreference(for: receiver, to: session, defaultToAutomatic: false)
+            session.updateDiscoveredReceiver(receiver)
         }
     }
 
@@ -595,19 +601,6 @@ final class TBDisplaySenderService: ObservableObject {
         )
         if codecs != persistedCodecPreferences {
             UserDefaults.standard.set(codecs, forKey: Self.receiverCodecPreferencesKey)
-        }
-    }
-
-    private func restoreCodecPreference(
-        for receiver: TBDiscoveredReceiver,
-        to session: TBDisplaySenderSession,
-        defaultToAutomatic: Bool
-    ) {
-        let rawValue = persistedCodecPreferences[receiverCodecPreferenceKey(for: receiver)]
-        if let rawValue, let preference = TBDisplayCodecPreference(rawValue: rawValue) {
-            session.codecPreference = preference
-        } else if defaultToAutomatic {
-            session.codecPreference = .automatic
         }
     }
 

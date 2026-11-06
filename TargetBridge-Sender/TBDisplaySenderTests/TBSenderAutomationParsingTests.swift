@@ -421,6 +421,37 @@ final class TBSenderAutomationParsingTests: XCTestCase {
         XCTAssertNil(TBSenderAutomation.parsePreset("NATIVE5K"))
     }
 
+    func testIMac45KPresetsUseNativePanelAndMatchedHiDPIResolution() throws {
+        for (name, codec, raw) in [("retina4_5k60", "HEVC", false),
+                                    ("native4_5kRaw60", "DPCM", true)] {
+            let preset = try XCTUnwrap(TBSenderAutomation.parsePreset(name))
+            XCTAssertEqual(preset.width, 4480)
+            XCTAssertEqual(preset.height, 2520)
+            XCTAssertEqual(preset.expectedFrameRate, 60)
+            XCTAssertEqual(preset.virtualDisplayRefreshRate, 60)
+            XCTAssertEqual(preset.captureRequestFrameRate, 120)
+            XCTAssertEqual(preset.codecName, codec)
+            XCTAssertEqual(preset.isRawPassthrough, raw)
+            XCTAssertEqual(preset.renderMatchedDisplayMode.width * 2, preset.width)
+            XCTAssertEqual(preset.renderMatchedDisplayMode.height * 2, preset.height)
+            XCTAssertEqual(preset.renderMatchedDesktopDescription, "2240 × 1260")
+        }
+    }
+
+    func testIMac45KAliasesKeepEncodedAndDPCMSelectionsDistinct() throws {
+        for alias in ["4.5k", "4.5k60", "retina4.5k", "RETINA4_5K60",
+                      "4480x2520", "imac4.5k", "IMACM1"] {
+            let preset = try XCTUnwrap(TBSenderAutomation.parsePreset(alias))
+            XCTAssertEqual(preset.rawValue, "retina4_5k60", alias)
+            XCTAssertFalse(preset.isRawPassthrough)
+        }
+        for alias in ["4.5k-dpcm", "imacm1-dpcm", "NATIVE4_5KRAW60"] {
+            let preset = try XCTUnwrap(TBSenderAutomation.parsePreset(alias))
+            XCTAssertEqual(preset.rawValue, "native4_5kRaw60", alias)
+            XCTAssertTrue(preset.isRawPassthrough)
+        }
+    }
+
     func testExperimental5K60UsesIndependent60FPSHEVCSettings() {
         let preset = TBDisplayCapturePreset.native5k60Experimental
 

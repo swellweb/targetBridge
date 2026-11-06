@@ -9,6 +9,7 @@
 
 #include <libavcodec/avcodec.h>
 #include <libavutil/hwcontext.h>
+#include <libavutil/error.h>
 #include <libavutil/imgutils.h>
 #include <libavutil/pixdesc.h>
 #include <libswscale/swscale.h>
@@ -48,7 +49,19 @@ struct tb_decoder {
     void             *ud;
 
     int               opened;
+    unsigned int      logged_errors;
 };
+
+/* Keep decoder failures useful in a live stream without one application log
+ * per frame. The network layer separately counts failures for session_end. */
+static void log_decoder_error(struct tb_decoder *d, const char *stage, int error) {
+    if (d->logged_errors >= 3) return;
+    ++d->logged_errors;
+    char message[AV_ERROR_MAX_STRING_SIZE];
+    av_strerror(error, message, sizeof(message));
+    fprintf(stderr, "[dec] stage=%s error=%d (%s)%s\n", stage, error, message,
+            d->logged_errors == 3 ? " (further errors suppressed until reconnect)" : "");
+}
 
 /* Detect available HW device type (platform-specific). */
 static enum AVHWDeviceType pick_hwdev(void) {
@@ -82,7 +95,7 @@ static enum AVPixelFormat get_hw_format(AVCodecContext *ctx,
         return *pix_fmts;
     }
 
-    fprintf(stderr, "[dec] no compatible pixel format available\n");
+    if (d) log_decoder_error(d, "pixel_format", AVERROR(EINVAL));
     return AV_PIX_FMT_NONE;
 }
 
@@ -137,6 +150,7 @@ void tb_dec_reset(struct tb_decoder *d) {
     d->extradata      = NULL;
     d->extradata_size = 0;
     d->opened         = 0;
+    d->logged_errors  = 0;
     /* hw_dev, hw_frame, sw_frame, pkt stay allocated for reuse. */
 }
 
@@ -157,7 +171,7 @@ void tb_dec_destroy(struct tb_decoder *d) {
 /* Parse param-set payload and build Annex B extradata buffer. */
 static int build_extradata(struct tb_decoder *d,
                            const uint8_t *payload, size_t len) {
-    if (len < 2) return -1;
+    if (len < 2) return AVERROR_INVALIDDATA;
 
     switch (payload[0]) {
     case 1:
@@ -167,8 +181,7 @@ static int build_extradata(struct tb_decoder *d,
         d->codec_id = AV_CODEC_ID_HEVC;
         break;
     default:
-        fprintf(stderr, "[dec] unsupported codec marker %u\n", (unsigned)payload[0]);
-        return -1;
+        return AVERROR_INVALIDDATA;
     }
 
     int count = payload[1];
@@ -178,20 +191,20 @@ static int build_extradata(struct tb_decoder *d,
     /* first pass: compute size */
     size_t tmp_off = off;
     for (int i = 0; i < count; i++) {
-        if (tmp_off + 4 > len) return -1;
+        if (tmp_off + 4 > len) return AVERROR_INVALIDDATA;
         uint32_t sz = ((uint32_t)payload[tmp_off]     << 24) |
                       ((uint32_t)payload[tmp_off + 1] << 16) |
                       ((uint32_t)payload[tmp_off + 2] << 8)  |
                        (uint32_t)payload[tmp_off + 3];
         tmp_off += 4;
-        if (tmp_off + sz > len) return -1;
+        if (tmp_off + sz > len) return AVERROR_INVALIDDATA;
         need += ANNEXB_START_N + sz;
         tmp_off += sz;
     }
 
     av_free(d->extradata);
     d->extradata = (uint8_t *)av_malloc(need + AV_INPUT_BUFFER_PADDING_SIZE);
-    if (!d->extradata) return -1;
+    if (!d->extradata) return AVERROR(ENOMEM);
     memset(d->extradata + need, 0, AV_INPUT_BUFFER_PADDING_SIZE);
 
     size_t out = 0;
@@ -215,7 +228,7 @@ static int open_decoder(struct tb_decoder *d) {
     if (d->codec_id == AV_CODEC_ID_NONE) d->codec_id = AV_CODEC_ID_H264;
     d->codec = avcodec_find_decoder(d->codec_id);
     if (!d->codec) {
-        fprintf(stderr, "[dec] decoder not found for codec id %d\n", d->codec_id);
+        log_decoder_error(d, "find_decoder", AVERROR_DECODER_NOT_FOUND);
         return -1;
     }
 
@@ -242,12 +255,16 @@ static int open_decoder(struct tb_decoder *d) {
 
     if (d->ctx) avcodec_free_context(&d->ctx);
     d->ctx = avcodec_alloc_context3(d->codec);
-    if (!d->ctx) return -1;
+    if (!d->ctx) {
+        log_decoder_error(d, "allocate_decoder", AVERROR(ENOMEM));
+        return -1;
+    }
 
     if (d->hw_pix_fmt != AV_PIX_FMT_NONE) {
         if (!d->hw_dev) {
-            if (av_hwdevice_ctx_create(&d->hw_dev, type, NULL, NULL, 0) < 0) {
-                fprintf(stderr, "[dec] av_hwdevice_ctx_create failed\n");
+            int status = av_hwdevice_ctx_create(&d->hw_dev, type, NULL, NULL, 0);
+            if (status < 0) {
+                log_decoder_error(d, "create_hw_device", status);
             }
         }
         if (d->hw_dev) {
@@ -266,8 +283,9 @@ static int open_decoder(struct tb_decoder *d) {
         d->ctx->extradata_size = d->extradata_size;
     }
 
-    if (avcodec_open2(d->ctx, d->codec, NULL) < 0) {
-        fprintf(stderr, "[dec] avcodec_open2 failed\n");
+    int status = avcodec_open2(d->ctx, d->codec, NULL);
+    if (status < 0) {
+        log_decoder_error(d, "open_decoder", status);
         avcodec_free_context(&d->ctx);
         return -1;
     }
@@ -285,10 +303,11 @@ int tb_dec_set_param_sets(struct tb_decoder *d, const uint8_t *payload, size_t l
     d->extradata      = NULL;
     d->extradata_size = 0;
 
-    if (build_extradata(d, payload, len) < 0) {
+    int status = build_extradata(d, payload, len);
+    if (status < 0) {
         d->extradata      = prev_ed;
         d->extradata_size = prev_sz;
-        fprintf(stderr, "[dec] build_extradata failed\n");
+        log_decoder_error(d, "parameter_sets", status);
         return -1;
     }
 
@@ -313,7 +332,7 @@ static int avcc_to_annexb(struct tb_decoder *d,
     if (d->scratch_cap < in_len + AV_INPUT_BUFFER_PADDING_SIZE) {
         size_t nc = in_len + AV_INPUT_BUFFER_PADDING_SIZE;
         uint8_t *nb = (uint8_t *)realloc(d->scratch, nc);
-        if (!nb) return -1;
+        if (!nb) return AVERROR(ENOMEM);
         d->scratch     = nb;
         d->scratch_cap = nc;
     }
@@ -325,8 +344,8 @@ static int avcc_to_annexb(struct tb_decoder *d,
                        ((uint32_t)in[off + 2] << 8)  |
                         (uint32_t)in[off + 3];
         off += 4;
-        if (off + nal > in_len) return -1;
-        if (dst + 4 + nal > d->scratch_cap) return -1;
+        if (off + nal > in_len) return AVERROR_INVALIDDATA;
+        if (dst + 4 + nal > d->scratch_cap) return AVERROR_INVALIDDATA;
         memcpy(d->scratch + dst, ANNEXB_START, ANNEXB_START_N);
         dst += ANNEXB_START_N;
         memcpy(d->scratch + dst, in + off, nal);
@@ -340,25 +359,32 @@ static int avcc_to_annexb(struct tb_decoder *d,
 }
 
 int tb_dec_feed_frame(struct tb_decoder *d, const uint8_t *avcc, size_t len) {
-    if (!d->opened) return -1;
+    if (!d->opened) {
+        log_decoder_error(d, "frame_before_parameter_sets", AVERROR(EINVAL));
+        return -1;
+    }
 
     uint8_t *anb = NULL;
     size_t   anb_len = 0;
-    if (avcc_to_annexb(d, avcc, len, &anb, &anb_len) < 0) return -1;
+    int conversion_status = avcc_to_annexb(d, avcc, len, &anb, &anb_len);
+    if (conversion_status < 0) {
+        log_decoder_error(d, "avcc_to_annexb", conversion_status);
+        return -1;
+    }
 
     d->pkt->data = anb;
     d->pkt->size = (int)anb_len;
 
     int r = avcodec_send_packet(d->ctx, d->pkt);
     if (r < 0 && r != AVERROR(EAGAIN)) {
-        fprintf(stderr, "[dec] send_packet=%d\n", r);
+        log_decoder_error(d, "send_packet", r);
         return -1;
     }
 
     while (1) {
         r = avcodec_receive_frame(d->ctx, d->hw_frame);
         if (r == AVERROR(EAGAIN) || r == AVERROR_EOF) return 0;
-        if (r < 0) { fprintf(stderr, "[dec] recv_frame=%d\n", r); return -1; }
+        if (r < 0) { log_decoder_error(d, "receive_frame", r); return -1; }
 
 #if defined(__APPLE__)
         /* Zero-copy fast path: VideoToolbox decoded frames carry a
@@ -368,7 +394,8 @@ int tb_dec_feed_frame(struct tb_decoder *d, const uint8_t *avcc, size_t len) {
          * Major win on Intel iMac + Radeon (~6× faster in practice). */
         if (d->hw_frame->format == d->hw_pix_fmt && d->hw_frame->data[3]) {
             CVPixelBufferRef pb = (CVPixelBufferRef)d->hw_frame->data[3];
-            if (CVPixelBufferLockBaseAddress(pb, kCVPixelBufferLock_ReadOnly) == 0) {
+            CVReturn lock_status = CVPixelBufferLockBaseAddress(pb, kCVPixelBufferLock_ReadOnly);
+            if (lock_status == kCVReturnSuccess) {
                 uint8_t *y   = (uint8_t *)CVPixelBufferGetBaseAddressOfPlane(pb, 0);
                 size_t   ys  =            CVPixelBufferGetBytesPerRowOfPlane(pb, 0);
                 uint8_t *uv  = (uint8_t *)CVPixelBufferGetBaseAddressOfPlane(pb, 1);
@@ -377,6 +404,8 @@ int tb_dec_feed_frame(struct tb_decoder *d, const uint8_t *avcc, size_t len) {
                 int      h   = (int)CVPixelBufferGetHeight(pb);
                 d->cb(y, (int)ys, uv, (int)uvs, w, h, d->ud);
                 CVPixelBufferUnlockBaseAddress(pb, kCVPixelBufferLock_ReadOnly);
+            } else {
+                log_decoder_error(d, "lock_decoded_pixel_buffer", (int)lock_status);
             }
             av_frame_unref(d->hw_frame);
             continue;
@@ -387,8 +416,9 @@ int tb_dec_feed_frame(struct tb_decoder *d, const uint8_t *avcc, size_t len) {
         AVFrame *out = d->hw_frame;
         if (d->hw_frame->format == d->hw_pix_fmt) {
             d->sw_frame->format = AV_PIX_FMT_NV12;
-            if (av_hwframe_transfer_data(d->sw_frame, d->hw_frame, 0) < 0) {
-                fprintf(stderr, "[dec] hwframe_transfer failed\n");
+            int status = av_hwframe_transfer_data(d->sw_frame, d->hw_frame, 0);
+            if (status < 0) {
+                log_decoder_error(d, "transfer_decoded_frame", status);
                 av_frame_unref(d->hw_frame);
                 continue;
             }
@@ -409,10 +439,10 @@ int tb_dec_feed_frame(struct tb_decoder *d, const uint8_t *avcc, size_t len) {
             d->nv12_frame->width = out->width;
             d->nv12_frame->height = out->height;
             if (!d->sws || av_frame_get_buffer(d->nv12_frame, 32) < 0) {
-                fprintf(stderr, "[dec] could not allocate NV12 software frame\n");
+                log_decoder_error(d, "allocate_nv12_frame", AVERROR(ENOMEM));
             } else if (sws_scale(d->sws, (const uint8_t * const *)out->data, out->linesize,
                                  0, out->height, d->nv12_frame->data, d->nv12_frame->linesize) <= 0) {
-                fprintf(stderr, "[dec] software frame conversion failed\n");
+                log_decoder_error(d, "convert_nv12_frame", AVERROR_INVALIDDATA);
             } else {
                 d->cb(d->nv12_frame->data[0], d->nv12_frame->linesize[0],
                       d->nv12_frame->data[1], d->nv12_frame->linesize[1],

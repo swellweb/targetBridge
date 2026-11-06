@@ -11,8 +11,14 @@ abort 'missing usable-frame guard before health accounting' unless capture&.matc
   /guard running, let pixelBuffer = CMSampleBufferGetImageBuffer\(sampleBuffer\) else \{ return \}\s+markCaptureFrame\(\)/
 )
 abort 'capture budget must follow the usable-frame guard' unless capture.index('markCaptureFrame()') < capture.index('TBVideoQueueBudget.canEncode(')
-encoded = source[/private func handleEncoded\(.*?(?=    \/\/\/ Raw passthrough)/m]
+encoded = source[/private func handleEncoded\(.*?(?=    private let dpcmEnabled)/m]
 abort 'encoded frames are still dropped' if encoded.include?('droppedAfterEncodeFrames +=')
+abort 'capture must use negotiated format' unless source.include?('transport.configureCapture(configuration)')
+abort 'profile capability must be read' unless source.include?('receiverSupportsDPCM = profile.supportsDPCM ?? false')
+dpcm = source[/private func sendDPCMFrame\(.*?(?=    \/\/\/ Legacy NV12)/m]
+abort 'DPCM must acknowledge the first encoded frame' unless dpcm&.include?('acknowledgeFirstFrame()')
+abort 'packed RGB must not use the NV12 fallback' if dpcm&.include?('sendRawFrame(')
+abort 'DPCM encoder must be released on stop' unless source.include?('dpcmEncoder = nil')
 tests = <<~'SWIFT'
 import Foundation
 func admit(_ pending: Int, _ flight: Int, _ limit: Int = 3, _ enc: Int = 2) -> Bool {
@@ -44,3 +50,5 @@ Dir.mktmpdir('tb-video-budget.') do |dir|
   abort 'compile failed' unless system('swiftc', '-module-cache-path', File.join(dir, 'cache'), file, '-o', File.join(dir, 'test'))
   abort 'tests failed' unless system(File.join(dir, 'test'))
 end
+
+require_relative 'test_video_pending_completion'

@@ -22,5 +22,9 @@ test_net_parser
 test_input_queue
 test_idle_watchdog
 test_receiver_profile
+test_dpcm
+test_dpcm_gpu
+test_dpcm_metal
+test_hevc_startup
 test_monitor_shield
 *.dSYM/

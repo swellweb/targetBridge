@@ -26,12 +26,24 @@ Options: `--receiver auto|<id|name|ip>`, `--mode mirror|extended`, `--preset <na
 `--path auto|wired|thunderbolt|usb|ethernet|wifi`, `--transport tb|net`, `--session N`,
 `--local-ip <ip>`, `--retry`.
 Presets: `standard1080p`, `smooth1080p60`, `standard1440p`, `smooth1440p60`, `smooth1800p60`, `crisp2160p60`, `retina4k60`,
-`native5k`, `native5k60Experimental` (aliases: `1440p`, `1440p60`, `1800p`, `4k`,
+`retina4_5k60`, `native4_5kRaw60`, `native5k`, `native5k60Experimental`, `native5kRaw60`
+(aliases: `1440p`, `1440p60`, `1800p`, `4k`,
 `5k`, `5k60`, `1080p`, `1080p60`). The `retina4k60` aliases `retina4k`, `4096x2304` and `imac4k` match
 the 4096 × 2304 panel in the 21.5-inch Retina 4K iMac without changing the existing
 `4k` alias for the 3840 × 2160 preset.
-`native5k60Experimental` is an opt-in HEVC test profile for 5K at 60 FPS; it does not
-replace the stable 5K 48 FPS profile. A receiver of `auto` waits briefly for
+`retina4_5k60` (**4.5K**) selects 4480 × 2520 at 60 FPS, matching the
+24-inch M1 iMac panel. Automatic compression prefers HEVC; an explicit
+compression choice remains independent of this resolution. Its aliases are `4.5k`, `4.5k60`, `retina4.5k`, `4480x2520`,
+`imac4.5k` and `imacm1`. The UI separates **Resolution and frame rate** from
+**Video compression**. Legacy identifiers remain valid for existing scripts.
+`native4_5kRaw60` (legacy **4.5K DPCM**) requests experimental
+10-bit RGB DPCM at the same resolution and frame-rate ceiling (aliases: `4.5k-dpcm`,
+`imacm1-dpcm`). These profiles also work with other compatible receivers; they do
+not restrict the receiver model. With render matching enabled in Extended Desktop,
+both use a 2240 × 1260 HiDPI mode backed by 4480 × 2520 pixels.
+See [DPCM negotiation and verification limits](Lossless-5K60.md) before testing.
+`native5k60Experimental` is an opt-in 5K 60 FPS profile; it does not replace
+the stable 5K 48 FPS profile. Compression is selected separately. A receiver of `auto` waits briefly for
 Bonjour discovery and uses the first receiver found; a raw IP/hostname bypasses discovery.
 
 With `--path auto`, the Sender discovers the receiver addresses advertised for

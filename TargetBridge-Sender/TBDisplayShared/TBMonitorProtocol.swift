@@ -1,4 +1,5 @@
 import Foundation
+import Dispatch
 
 enum TBMonitorPacketType: UInt8 {
     case helloReceiver = 0x10
@@ -8,6 +9,10 @@ enum TBMonitorPacketType: UInt8 {
     case paramSets = 0x20
     case frame = 0x21
     case rawFrame = 0x22   // Uncompressed NV12 planes (raw passthrough mode)
+    /// Lossless tile-DPCM (TBD2). Payload is one self-describing blob -- its own
+    /// header carries the dimensions and sample depth. Sent only to a receiver
+    /// that advertised supportsDPCM; see proto.h for why that gate exists.
+    case rawDPCM = 0x25
     case audioFrame = 0x23
     case heartbeat = 0x30
     case teardown = 0x31
@@ -44,6 +49,13 @@ struct TBMonitorDisplayProfile: Codable {
     var captureHeight: Int
     var supportsHEVCDecode: Bool?
     var supportsRawNV12: Bool?
+    /// Receiver has a working Metal decode path for TBD2. Absent on older
+    /// receivers, which therefore keep receiving NV12 -- the gate is deliberately
+    /// opt-in, because CPU decode is 166 ms/frame at 5K against 6.5 ms on the GPU.
+    var supportsDPCM: Bool?
+    /// Optional TBD2 extension: per-tile reversible colour decorrelation.
+    /// Missing/false keeps legacy RGB tile coding for older receivers.
+    var supportsDPCMAdaptiveColor: Bool?
     var inputMonitoringTrusted: Bool?
     var accessibilityTrusted: Bool?
     /// Optional so older receivers still decode; absent means "cannot".
@@ -142,6 +154,35 @@ enum TBMonitorProtocol {
         appendBE32(&packet, UInt32(1 + payload.count))
         packet.append(type.rawValue)
         packet.append(payload)
+        return packet
+    }
+
+    /// Copy a borrowed encoder payload directly into its final owned packet.
+    /// The returned Data remains valid when the encoder reuses its storage.
+    static func makePacket(type: TBMonitorPacketType, payloadBytes: UnsafeBufferPointer<UInt8>) -> Data {
+        var packet = Data(capacity: 5 + payloadBytes.count)
+        appendBE32(&packet, UInt32(1 + payloadBytes.count))
+        packet.append(type.rawValue)
+        if let base = payloadBytes.baseAddress {
+            packet.append(base, count: payloadBytes.count)
+        }
+        return packet
+    }
+
+    /// Own the borrowed payload before the encoder reuses its storage. Keeping
+    /// the header and copied payload as DispatchData regions lets Network's
+    /// public DataProtocol send overload avoid bridging Data through NSData.
+    static func makeDispatchPacket(type: TBMonitorPacketType,
+                                   payloadBytes: UnsafeBufferPointer<UInt8>) -> DispatchData {
+        var header = Data(capacity: 5)
+        appendBE32(&header, UInt32(1 + payloadBytes.count))
+        header.append(type.rawValue)
+        var packet = header.withUnsafeBytes { DispatchData(bytes: $0) }
+        if !payloadBytes.isEmpty {
+            // This initializer copies synchronously; bytesNoCopy is unsafe for
+            // the encoder's reusable GPU/CPU output allocation.
+            packet.append(DispatchData(bytes: UnsafeRawBufferPointer(payloadBytes)))
+        }
         return packet
     }
 

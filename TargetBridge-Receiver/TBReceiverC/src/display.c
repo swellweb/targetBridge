@@ -7,6 +7,7 @@
  */
 
 #include "display.h"
+#include "tb_metal_plane.h"
 #include "tb_i18n.h"
 #include "tb_gesture_bridge.h"
 
@@ -625,6 +626,7 @@ struct tb_display *tb_disp_create(int fullscreen) {
 
 void tb_disp_destroy(struct tb_display *d) {
     if (!d) return;
+    tb_metal_plane_shutdown();
     if (d->system_cursor_hidden) {
         CGDisplayShowCursor(CGMainDisplayID());
         d->system_cursor_hidden = 0;
@@ -1136,7 +1138,36 @@ void tb_disp_render_nv12(struct tb_display *d,
         return;
     }
     d->last_video_frame_time = SDL_GetTicks();
+    tb_metal_plane_set_hidden(1);
     tb_disp_render_current(d);
+}
+
+int tb_disp_render_dpcm(struct tb_display *d, const uint8_t *blob, size_t len) {
+    if (!d) return -1;
+    /* Capability probing must not create a view over the SDL status UI. Create
+     * the hidden plane only when the first DPCM frame actually arrives. */
+    const int had_plane = tb_metal_plane_available();
+    if (!had_plane && !tb_metal_plane_accepts_dpcm(blob, len)) return -1;
+    if (!had_plane && tb_metal_plane_init(d->win) != 0) return -1;
+    if (!tb_metal_plane_supports_dpcm() ||
+        tb_metal_plane_render_dpcm(blob, len) != 0) {
+        if (!had_plane) tb_metal_plane_shutdown();
+        return -1;
+    }
+
+    tb_disp_set_connection_state(d, 1);
+    tb_metal_plane_set_hidden(0);
+    tb_metal_plane_set_cursor(d->cursor_x, d->cursor_y,
+                             d->cursor_source_w, d->cursor_source_h,
+                             d->cursor_visible, d->cursor_type, d->cursor_large);
+    tb_metal_plane_flush_cursor();
+    d->last_video_frame_time = SDL_GetTicks();
+    return 0;
+}
+
+int tb_disp_dpcm_available(struct tb_display *d) {
+    if (!d) return 0;
+    return tb_metal_plane_supports_dpcm();
 }
 
 void tb_disp_set_cursor(struct tb_display *d,
@@ -1153,6 +1184,13 @@ void tb_disp_set_cursor(struct tb_display *d,
     d->cursor_visible = visible;
     d->cursor_type = type;
     d->cursor_large = large;
+
+    if (tb_metal_plane_available()) {
+        tb_metal_plane_set_cursor(x, y, d->cursor_source_w, d->cursor_source_h,
+                                 visible, type, large);
+        tb_metal_plane_flush_cursor();
+        return;
+    }
 
     uint32_t now = SDL_GetTicks();
     if (now - d->last_video_frame_time > 40) {
@@ -1361,6 +1399,7 @@ int tb_disp_get_info(struct tb_display *d, struct tb_display_info *info) {
 
 static void tb_disp_set_stream_state(struct tb_display *d, int connected, int connecting) {
     if (!d) return;
+    if (!connected) tb_metal_plane_set_hidden(1);
     if (d->is_connected == connected && d->is_connecting == connecting) return;
     d->is_connected = connected;
     d->is_connecting = connecting;

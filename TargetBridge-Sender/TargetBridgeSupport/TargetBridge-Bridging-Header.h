@@ -12,6 +12,12 @@
 #import <Foundation/Foundation.h>
 #import <CoreGraphics/CoreGraphics.h>
 
+/* The lossless tile-DPCM encoder, shared with the receiver. Swift calls
+ * tb_dpcm_gpu_* directly; see TargetBridge-Shared/codec/tb_dpcm.h for the wire
+ * format. TBVideoPipeline owns the encoder on its serial capture queue. */
+#import "tb_dpcm.h"
+#import "tb_dpcm_gpu.h"
+
 // MARK: - CGVirtualDisplay Private API (macOS 14+)
 
 @interface CGVirtualDisplayDescriptor : NSObject
