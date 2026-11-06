@@ -114,6 +114,8 @@ final class TBDisplaySenderService: ObservableObject {
     @Published private(set) var audioDriverInstalled = TBAudioDriverInstaller.isInstalled
     @Published private(set) var audioDriverBusy = false
     @Published private(set) var audioDriverError: String?
+    @Published private(set) var audioDeviceName: String?
+    @Published private(set) var audioDeviceRenameFailed = false
     private var userQuitPending = false
     private var sessionCancellables: [UUID: AnyCancellable] = [:]
     private let receiverDiscovery = TBReceiverDiscovery()
@@ -720,6 +722,14 @@ final class TBDisplaySenderService: ObservableObject {
 
     func refreshAudioDriverStatus() {
         audioDriverInstalled = TBAudioDriverInstaller.isInstalled
+        audioDeviceName = TBAudioLoopbackCapture.deviceName()
+    }
+
+    func renameAudioDevice(to name: String) {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else { return }
+        audioDeviceRenameFailed = !TBAudioLoopbackCapture.renameDevice(to: trimmedName)
+        refreshAudioDriverStatus()
     }
 
     func installAudioDriver() {
@@ -744,6 +754,8 @@ final class TBDisplaySenderService: ObservableObject {
             }
             guard let self else { return }
             self.audioDriverError = failure
+            // coreaudiod needs a moment to come back with the driver loaded.
+            try? await Task.sleep(for: .seconds(2))
             self.audioDriverBusy = false
             self.refreshAudioDriverStatus()
         }

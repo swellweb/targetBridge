@@ -36,6 +36,8 @@ final class TBAudioLoopbackCapture: @unchecked Sendable {
     static let deviceUID = "com.targetbridge.audio.device"
 
     private static let preferredBufferFrames: UInt32 = 1024
+    /// 'tbnm', matching kNameProperty in the driver.
+    private static let nameProperty: AudioObjectPropertySelector = 0x74626E6D
     private static let volumeSelectors = [kAudioDevicePropertyVolumeScalar, kAudioDevicePropertyMute]
 
     // AudioDeviceStop can wait for the running I/O cycle, so the I/O block only
@@ -202,6 +204,43 @@ final class TBAudioLoopbackCapture: @unchecked Sendable {
         for subscriber in currentSubscribers {
             subscriber.volume(level)
         }
+    }
+
+    static func deviceName() -> String? {
+        guard let device = findDevice() else { return nil }
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioObjectPropertyName,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var name: Unmanaged<CFString>?
+        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+        guard AudioObjectGetPropertyData(device, &address, 0, nil, &size, &name) == noErr else {
+            return nil
+        }
+        return name?.takeRetainedValue() as String?
+    }
+
+    /// Takes effect without a restart, and the driver keeps the name.
+    static func renameDevice(to name: String) -> Bool {
+        guard let device = findDevice() else { return false }
+        var address = AudioObjectPropertyAddress(
+            mSelector: nameProperty,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        let value = name as CFString
+        let status = withUnsafePointer(to: value) { valuePointer in
+            AudioObjectSetPropertyData(
+                device,
+                &address,
+                0,
+                nil,
+                UInt32(MemoryLayout<CFString>.size),
+                valuePointer
+            )
+        }
+        return status == noErr
     }
 
     /// The device's volume as set on this Mac, or 0 while muted.

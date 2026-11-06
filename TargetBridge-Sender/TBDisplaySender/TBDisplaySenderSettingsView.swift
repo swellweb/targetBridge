@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 struct TBDisplaySenderSettingsView: View {
     @ObservedObject var service: TBDisplaySenderService
     @State private var importError: String?
+    @State private var audioDeviceNameDraft = ""
 
     var body: some View {
         ScrollView {
@@ -77,6 +78,24 @@ struct TBDisplaySenderSettingsView: View {
                         .font(.footnote)
                         .foregroundStyle(.secondary)
 
+                        if let deviceName = service.audioDeviceName {
+                            HStack(spacing: 12) {
+                                Text(audioText("sender.settings.audio_device_name"))
+                                TextField(deviceName, text: $audioDeviceNameDraft)
+                                    .textFieldStyle(.roundedBorder)
+                                Button(audioText("sender.settings.rename_audio_device")) {
+                                    service.renameAudioDevice(to: audioDeviceNameDraft)
+                                }
+                                .buttonStyle(.bordered)
+                                .disabled(
+                                    audioDeviceNameDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                        || audioDeviceNameDraft == deviceName
+                                )
+                            }
+                            .onAppear { audioDeviceNameDraft = deviceName }
+                            .onChange(of: deviceName) { _, newName in audioDeviceNameDraft = newName }
+                        }
+
                         if TBAudioDriverInstaller.bundledURL != nil {
                             Text(audioText("sender.settings.audio_driver_hint"))
                                 .font(.footnote)
@@ -112,6 +131,23 @@ struct TBDisplaySenderSettingsView: View {
                             .font(.footnote)
                             .foregroundStyle(.red)
                             .fixedSize(horizontal: false, vertical: true)
+                        }
+
+                        if service.audioDeviceRenameFailed {
+                            Text(audioText("sender.settings.audio_device_rename_failed"))
+                                .font(.footnote)
+                                .foregroundStyle(.red)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+
+                        if showsAudioRestartHint {
+                            Text(audioText("sender.settings.audio_restart_hint"))
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Text(verbatim: "sudo killall coreaudiod")
+                                .font(.system(.footnote, design: .monospaced))
+                                .textSelection(.enabled)
                         }
                     }
                 }
@@ -193,6 +229,7 @@ struct TBDisplaySenderSettingsView: View {
         }
         .background(appBackground)
         .preferredColorScheme(.dark)
+        .onAppear { service.refreshAudioDriverStatus() }
         .alert(addonImportErrorTitle, isPresented: Binding(
             get: { importError != nil },
             set: { if !$0 { importError = nil } }
@@ -203,6 +240,13 @@ struct TBDisplaySenderSettingsView: View {
         } message: {
             Text(importError ?? "")
         }
+    }
+
+    private var showsAudioRestartHint: Bool {
+        guard !service.audioDriverBusy else { return false }
+        return service.audioDriverError != nil
+            || service.audioDeviceRenameFailed
+            || (service.audioDriverInstalled && service.audioDeviceName == nil)
     }
 
     private func audioText(_ key: String) -> String {

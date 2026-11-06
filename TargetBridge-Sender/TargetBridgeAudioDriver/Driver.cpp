@@ -11,6 +11,8 @@
 #include <cstdint>
 #include <cstring>
 #include <memory>
+#include <mutex>
+#include <string>
 #include <vector>
 
 namespace {
@@ -18,6 +20,8 @@ namespace {
 constexpr UInt32 kSampleRate = 48000;
 constexpr UInt32 kChannelCount = 2;
 constexpr int64_t kRingFrames = 1 << 15; // about 680 ms
+constexpr AudioObjectPropertySelector kNameProperty = 'tbnm'; // also in the Sender
+constexpr const char* kNameStorageKey = "deviceName";
 
 AudioStreamBasicDescription MakeFormat()
 {
@@ -131,9 +135,89 @@ private:
     std::atomic<int64_t> writeEnd_ { 0 };
 };
 
+// Device whose name can be changed by the Sender and survives restarts.
+class NamedDevice : public aspl::Device
+{
+public:
+    NamedDevice(std::shared_ptr<aspl::Context> context,
+        const aspl::DeviceParameters& params,
+        std::shared_ptr<aspl::Storage> storage)
+        : aspl::Device(context, params)
+        , storage_(storage)
+        , name_(params.Name)
+    {
+        RegisterCustomProperty(
+            kNameProperty, *this, &NamedDevice::CopyNameProperty, &NamedDevice::SetNameProperty);
+    }
+
+    std::string GetName() const override
+    {
+        std::lock_guard<std::mutex> lock(nameMutex_);
+        return name_;
+    }
+
+    void LoadStoredName()
+    {
+        const auto [name, found] = storage_->ReadString(kNameStorageKey);
+        if (found && !name.empty()) {
+            ApplyName(name);
+        }
+    }
+
+private:
+    CFStringRef CopyNameProperty() const
+    {
+        return CFStringCreateWithCString(
+            kCFAllocatorDefault, GetName().c_str(), kCFStringEncodingUTF8);
+    }
+
+    void SetNameProperty(CFStringRef value)
+    {
+        char buffer[256] = {};
+        if (!CFStringGetCString(value, buffer, sizeof(buffer), kCFStringEncodingUTF8) ||
+            buffer[0] == '\0') {
+            return;
+        }
+        ApplyName(buffer);
+        storage_->WriteString(kNameStorageKey, buffer);
+    }
+
+    void ApplyName(const std::string& name)
+    {
+        {
+            std::lock_guard<std::mutex> lock(nameMutex_);
+            name_ = name;
+        }
+        NotifyPropertyChanged(kAudioObjectPropertyName);
+    }
+
+    std::shared_ptr<aspl::Storage> storage_;
+    mutable std::mutex nameMutex_;
+    std::string name_;
+};
+
+class DriverHandler : public aspl::DriverRequestHandler
+{
+public:
+    explicit DriverHandler(std::shared_ptr<NamedDevice> device)
+        : device_(device)
+    {
+    }
+
+    OSStatus OnInitialize() override
+    {
+        device_->LoadStoredName();
+        return kAudioHardwareNoError;
+    }
+
+private:
+    std::shared_ptr<NamedDevice> device_;
+};
+
 std::shared_ptr<aspl::Driver> CreateDriver()
 {
     auto context = std::make_shared<aspl::Context>();
+    auto storage = std::make_shared<aspl::Storage>(context);
 
     aspl::DeviceParameters deviceParams;
     deviceParams.Name = "TargetBridge Audio";
@@ -144,7 +228,7 @@ std::shared_ptr<aspl::Driver> CreateDriver()
     deviceParams.ChannelCount = kChannelCount;
     deviceParams.EnableMixing = true;
 
-    auto device = std::make_shared<aspl::Device>(context, deviceParams);
+    auto device = std::make_shared<NamedDevice>(context, deviceParams, storage);
 
     aspl::StreamParameters outputParams;
     outputParams.Direction = aspl::Direction::Output;
@@ -163,7 +247,9 @@ std::shared_ptr<aspl::Driver> CreateDriver()
     auto plugin = std::make_shared<aspl::Plugin>(context);
     plugin->AddDevice(device);
 
-    return std::make_shared<aspl::Driver>(context, plugin);
+    auto driver = std::make_shared<aspl::Driver>(context, plugin, storage);
+    driver->SetDriverHandler(std::make_shared<DriverHandler>(device));
+    return driver;
 }
 
 } // namespace

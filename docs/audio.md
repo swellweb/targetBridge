@@ -72,7 +72,7 @@ Device behaviour:
 
 For every audio source, the Receiver restores the volume it had before the session when the session ends, including when the connection drops.
 
-The driver is built with libASPL (`scripts/build_audio_driver.sh`) and embedded in `TargetBridge.app/Contents/PlugIns` by `scripts/build_targetbridge_sender_app.sh`, which CI and releases use. Install it from **Settings > Audio**. For development, `sudo scripts/install_audio_driver.sh` installs the built driver and `-u` removes it.
+The driver is built with libASPL (`scripts/build_audio_driver.sh`) and embedded in `TargetBridge.app/Contents/PlugIns` by `scripts/build_targetbridge_sender_app.sh`, which CI and releases use. Install it from **Settings > Audio**, where the device can also be renamed. If the device is missing or does not update, restart macOS audio with `sudo killall coreaudiod`. For development, `sudo scripts/install_audio_driver.sh` installs the built driver and `-u` removes it.
 
 ---
 
