@@ -1335,7 +1335,10 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
 
     private var session = ReceiverBackedVirtualDisplaySession()
     private let audioConverter = SBAudioConverter()
-    private var loopbackAudioSubscription: UUID?
+    private var loopbackAudioSubscription: UUID? {
+        didSet { isUsingOutputDevice = loopbackAudioSubscription != nil }
+    }
+    @Published private(set) var isUsingOutputDevice = false
     private var activeProfile: TBMonitorDisplayProfile?
     private var activeCodecType: CMVideoCodecType?
     private var activeCodecName: String?
@@ -2096,7 +2099,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     private func sendVolumeUpdate() {
         guard let packet = TBMonitorProtocol.makeJSONPacket(
             type: .volume,
-            value: TBMonitorVolume(level: volume)
+            value: TBMonitorVolume(level: isUsingOutputDevice ? 1.0 : volume)
         ) else { return }
         send(packet)
     }
@@ -3891,12 +3894,16 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
                 }
             }
         }
+        // The Mac sets the level for this source, so the receiver stays at full volume.
+        sendVolumeUpdate()
     }
 
     private func stopLoopbackAudio() {
         guard let subscription = loopbackAudioSubscription else { return }
         loopbackAudioSubscription = nil
         TBAudioLoopbackCapture.shared.unsubscribe(subscription)
+        // Gives the receiver back the session's slider level.
+        sendVolumeUpdate()
     }
 
     private func sendLoopbackAudio(_ data: Data) {

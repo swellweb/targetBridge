@@ -258,7 +258,7 @@ private struct TBDisplaySenderSessionCard: View {
                 if session.isConnected {
                     brightnessCard
                 }
-                if session.isConnected && session.audioEnabled {
+                if session.isConnected && session.audioEnabled && !session.isUsingOutputDevice {
                     volumeCard
                 }
                 monitorDetailsCard

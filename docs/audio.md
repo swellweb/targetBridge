@@ -66,7 +66,7 @@ Each session chooses one audio source. New sessions start with the default set i
 
 Device behaviour:
 * **Fallback**: If the driver is missing or microphone access is denied, the session uses system audio capture.
-* **Volume**: The device's volume and mute controls are applied in the driver.
+* **Volume**: The device's volume and mute controls are applied in the driver, so the Mac's volume keys set the level. The session's volume slider is hidden, and the receiver is set to 100% until the session stops, when it returns to the slider level.
 * **Scope**: There is one device. Every session using it receives the same stream. The receiver and the packet format are unchanged.
 * **Permission**: macOS treats reading any input device as microphone use, so its indicator shows during a session.
 
