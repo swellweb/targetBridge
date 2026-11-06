@@ -1080,11 +1080,7 @@ static void tb_audio_close_for_idle(struct app *a) {
  * level is clamped to 0.0..1.0. Sets the default output device's scalar volume,
  * preferring the master element and falling back to per-channel when a device
  * has no master volume control. Safe to call from the network/parser thread. */
-static void tb_set_system_volume(double level) {
-    if (level < 0.0) level = 0.0;
-    if (level > 1.0) level = 1.0;
-    Float32 vol = (Float32)level;
-
+static AudioDeviceID tb_default_output_device(void) {
     AudioObjectPropertyAddress dev_addr = {
         kAudioHardwarePropertyDefaultOutputDevice,
         kAudioObjectPropertyScopeGlobal,
@@ -1093,10 +1089,42 @@ static void tb_set_system_volume(double level) {
     AudioDeviceID device = kAudioObjectUnknown;
     UInt32 size = sizeof(device);
     if (AudioObjectGetPropertyData(kAudioObjectSystemObject, &dev_addr, 0, NULL,
-                                   &size, &device) != noErr ||
-        device == kAudioObjectUnknown) {
-        return;
+                                   &size, &device) != noErr) {
+        return kAudioObjectUnknown;
     }
+    return device;
+}
+
+static int tb_get_system_volume(double *level) {
+    AudioDeviceID device = tb_default_output_device();
+    if (device == kAudioObjectUnknown) return 0;
+
+    AudioObjectPropertyAddress vol_addr = {
+        kAudioDevicePropertyVolumeScalar,
+        kAudioDevicePropertyScopeOutput,
+        kAudioObjectPropertyElementMain
+    };
+    /* Element 0 is the master; devices without one report on channel 1. */
+    for (UInt32 element = 0; element <= 1; element++) {
+        vol_addr.mElement = element;
+        Float32 vol = 0;
+        UInt32 size = sizeof(vol);
+        if (AudioObjectHasProperty(device, &vol_addr) &&
+            AudioObjectGetPropertyData(device, &vol_addr, 0, NULL, &size, &vol) == noErr) {
+            *level = vol;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static void tb_set_system_volume(double level) {
+    if (level < 0.0) level = 0.0;
+    if (level > 1.0) level = 1.0;
+    Float32 vol = (Float32)level;
+
+    AudioDeviceID device = tb_default_output_device();
+    if (device == kAudioObjectUnknown) return;
 
     AudioObjectPropertyAddress vol_addr = {
         kAudioDevicePropertyVolumeScalar,
@@ -1121,6 +1149,27 @@ static void tb_set_system_volume(double level) {
             AudioObjectSetPropertyData(device, &vol_addr, 0, NULL, sizeof(vol), &vol);
         }
     }
+}
+
+/* Volume to return to after a temporary level, however the session ends. */
+static int g_volume_restore_pending = 0;
+static double g_volume_restore_level = 0.0;
+
+static void tb_restore_system_volume(void) {
+    if (!g_volume_restore_pending) return;
+    g_volume_restore_pending = 0;
+    tb_set_system_volume(g_volume_restore_level);
+}
+
+static void tb_apply_volume_packet(double level, int temporary, int restore) {
+    if (restore && g_volume_restore_pending) {
+        tb_restore_system_volume();
+        return;
+    }
+    if (temporary && !g_volume_restore_pending) {
+        g_volume_restore_pending = tb_get_system_volume(&g_volume_restore_level);
+    }
+    tb_set_system_volume(level);
 }
 
 /* ---- Callbacks: parser → decoder ------------------------------------- */
@@ -1249,8 +1298,12 @@ static void on_packet(uint8_t type, const uint8_t *payload, size_t len, void *ud
     case TB_PKT_VOLUME:
         {
             double level = 1.0;
+            int temporary = 0;
+            int restore = 0;
             (void)extract_json_double_field(payload, len, "\"level\"", &level);
-            tb_set_system_volume(level);
+            (void)extract_json_bool_field(payload, len, "\"temporary\"", &temporary);
+            (void)extract_json_bool_field(payload, len, "\"restore\"", &restore);
+            tb_apply_volume_packet(level, temporary, restore);
         }
         break;
     case TB_PKT_AUDIO_FRAME:
@@ -1904,6 +1957,7 @@ static void send_receiver_info(struct app *a) {
 static void close_client(struct app *a) {
     if (a->client_fd >= 0) close(a->client_fd);
     a->client_fd = -1;
+    tb_restore_system_volume();
     a->session_active = 0;
     a->close_requested = 0;
     a->have_video_frame = 0;
@@ -2290,6 +2344,7 @@ int main(int argc, char **argv) {
     }
 
     if (a.client_fd >= 0) close(a.client_fd);
+    tb_restore_system_volume();
     tb_receiver_stop_input_tap(&a);
     if (a.server_fd >= 0) close(a.server_fd);
     bonjour_deinit(&a);

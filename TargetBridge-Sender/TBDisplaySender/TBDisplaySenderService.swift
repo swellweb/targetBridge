@@ -2096,10 +2096,14 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         send(packet)
     }
 
-    private func sendVolumeUpdate() {
+    private func sendVolumeUpdate(restoringReceiverLevel: Bool = false) {
         guard let packet = TBMonitorProtocol.makeJSONPacket(
             type: .volume,
-            value: TBMonitorVolume(level: isUsingOutputDevice ? 1.0 : volume)
+            value: TBMonitorVolume(
+                level: isUsingOutputDevice ? 1.0 : volume,
+                temporary: isUsingOutputDevice ? true : nil,
+                restore: restoringReceiverLevel ? true : nil
+            )
         ) else { return }
         send(packet)
     }
@@ -3902,8 +3906,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         guard let subscription = loopbackAudioSubscription else { return }
         loopbackAudioSubscription = nil
         TBAudioLoopbackCapture.shared.unsubscribe(subscription)
-        // Gives the receiver back the session's slider level.
-        sendVolumeUpdate()
+        sendVolumeUpdate(restoringReceiverLevel: true)
     }
 
     private func sendLoopbackAudio(_ data: Data) {
