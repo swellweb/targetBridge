@@ -1,4 +1,45 @@
+import AppKit
 import SwiftUI
+
+/// Session settings use real windows so they get the standard title bar controls.
+@MainActor
+final class TBSessionSettingsWindows: NSObject, NSWindowDelegate {
+    static let shared = TBSessionSettingsWindows()
+
+    private var windows: [UUID: NSWindow] = [:]
+
+    func show(service: TBDisplaySenderService, session: TBDisplaySenderSession) {
+        let sessionID = session.id
+        if let window = windows[sessionID] {
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
+        let view = TBDisplaySenderSessionSettingsSheet(service: service, session: session) { [weak self] in
+            self?.close(sessionID)
+        }
+        let window = NSWindow(contentViewController: NSHostingController(rootView: view))
+        window.styleMask = [.titled, .closable, .miniaturizable]
+        window.title = service.sessionTitle(for: session)
+        window.appearance = NSAppearance(named: .darkAqua)
+        window.isReleasedWhenClosed = false
+        window.delegate = self
+        window.center()
+        windows[sessionID] = window
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func close(_ sessionID: UUID) {
+        windows[sessionID]?.close()
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow else { return }
+        windows = windows.filter { $0.value !== window }
+    }
+}
 
 struct TBDisplaySenderContentView: View {
     @ObservedObject var service: TBDisplaySenderService
@@ -204,7 +245,6 @@ struct TBDisplaySenderContentView: View {
 private struct TBDisplaySenderSessionCard: View {
     @ObservedObject var service: TBDisplaySenderService
     @ObservedObject var session: TBDisplaySenderSession
-    @State private var showingSessionSettings = false
 
     private let summaryColumns = [
         GridItem(.adaptive(minimum: 180), spacing: 12)
@@ -223,9 +263,6 @@ private struct TBDisplaySenderSessionCard: View {
                 }
                 monitorDetailsCard
             }
-        }
-        .sheet(isPresented: $showingSessionSettings) {
-            TBDisplaySenderSessionSettingsSheet(service: service, session: session)
         }
     }
 
@@ -257,7 +294,7 @@ private struct TBDisplaySenderSessionCard: View {
                 .disabled(!session.isConnected && (trimmedReceiverIP.isEmpty || session.localInterfaceIP.isEmpty))
 
                 Button {
-                    showingSessionSettings = true
+                    TBSessionSettingsWindows.shared.show(service: service, session: session)
                 } label: {
                     Label(TBDisplaySenderL10n.showSettings(service.language), systemImage: "gearshape.2")
                 }
@@ -546,7 +583,7 @@ private struct TBDisplaySenderSessionCard: View {
 private struct TBDisplaySenderSessionSettingsSheet: View {
     @ObservedObject var service: TBDisplaySenderService
     @ObservedObject var session: TBDisplaySenderSession
-    @Environment(\.dismiss) private var dismiss
+    let onClose: () -> Void
     @State private var configurationChecks: [TBConfigurationCheck] = []
 
     var body: some View {
@@ -1004,7 +1041,7 @@ private struct TBDisplaySenderSessionSettingsSheet: View {
                 Spacer()
 
                 Button(TBDisplaySenderL10n.hideSettings(service.language)) {
-                    dismiss()
+                    onClose()
                 }
                 .buttonStyle(.bordered)
             }

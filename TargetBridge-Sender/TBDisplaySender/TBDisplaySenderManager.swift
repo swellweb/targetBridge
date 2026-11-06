@@ -316,6 +316,7 @@ final class TBDisplaySenderService: ObservableObject {
 
     func removeSession(_ session: TBDisplaySenderSession) {
         guard sessions.count > 1 else { return }
+        TBSessionSettingsWindows.shared.close(session.id)
         session.stop()
         sessions.removeAll { $0.id == session.id }
         sessionCancellables.removeValue(forKey: session.id)
