@@ -36,6 +36,7 @@ struct tb_display {
     SDL_Texture  *status_tex;
     SDL_Texture  *stats_tex;
     int           stats_w, stats_h;
+    int           stats_visible;
     char          last_stats[256];
     SDL_Texture  *notice_tex;
     int           notice_w, notice_h;
@@ -1206,11 +1207,11 @@ void tb_disp_set_notice_text(struct tb_display *d, const char *text) {
                                        1.0, 0.82, 0.35);
 }
 
+/* The stats line changes every second. The texture is created once and only
+ * its pixels are replaced: destroying and recreating it every second made
+ * SDL's Metal renderer flash the whole picture once a second. */
 static void tb_disp_rebuild_stats_texture(struct tb_display *d, const char *text) {
-    if (d->stats_tex) {
-        SDL_DestroyTexture(d->stats_tex);
-        d->stats_tex = NULL;
-    }
+    d->stats_visible = 0;
     if (!text || !*text) return;
 
     const int w = 1200;
@@ -1233,12 +1234,14 @@ static void tb_disp_rebuild_stats_texture(struct tb_display *d, const char *text
     tb_disp_draw_text(ctx, text, "Menlo", 22, 16, 31, 0.55, 1.0, 0.65);
     CGContextRelease(ctx);
 
-    d->stats_tex = SDL_CreateTexture(d->ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STATIC, w, h);
-    if (d->stats_tex) {
-        SDL_UpdateTexture(d->stats_tex, NULL, pixels, (int)bytes_per_row);
-        SDL_SetTextureBlendMode(d->stats_tex, SDL_BLENDMODE_BLEND);
+    if (!d->stats_tex) {
+        d->stats_tex = SDL_CreateTexture(d->ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, w, h);
+        if (d->stats_tex) SDL_SetTextureBlendMode(d->stats_tex, SDL_BLENDMODE_BLEND);
         d->stats_w = w;
         d->stats_h = h;
+    }
+    if (d->stats_tex && SDL_UpdateTexture(d->stats_tex, NULL, pixels, (int)bytes_per_row) == 0) {
+        d->stats_visible = 1;
     }
     free(pixels);
 }
@@ -1276,7 +1279,7 @@ static void tb_disp_render_current(struct tb_display *d) {
         SDL_RenderCopy(d->ren, d->tex, NULL, NULL);
     }
     tb_disp_draw_cursor(d);
-    if (d->stats_tex) {
+    if (d->stats_tex && d->stats_visible) {
         SDL_Rect stats_rect = { 24, 24, d->stats_w, d->stats_h };
         SDL_RenderCopy(d->ren, d->stats_tex, NULL, &stats_rect);
     }
