@@ -10,6 +10,26 @@ Receiver (`com.targetbridge.receiver`). Both must retain their respective
 bundle ID, installation path, and signing identity. This matters whenever the
 app has been granted a macOS privacy permission.
 
+## Fork setup: one self-signed certificate for CI
+
+For builds you only install on your own Macs, a self-signed code-signing
+certificate is enough to keep privacy permissions across updates:
+
+1. Keep `TargetBridge-CodeSigning.p12` and its password somewhere safe (for
+   example a password manager). The same certificate must sign every build;
+   a new one means approving the permissions again.
+2. In the repository's Settings → Secrets and variables → Actions, add
+   `TARGETBRIDGE_CODESIGN_P12_BASE64` (the base64 text of the .p12) and
+   `TARGETBRIDGE_CODESIGN_P12_PASSWORD`.
+3. CI and release builds then import it and sign both apps with it. On the
+   throwaway build machine the certificate is trusted for code signing only.
+
+The first install of a build signed this way replaces the ad-hoc identity, so
+macOS asks for the permissions once more. Later updates keep them, as long as
+the apps stay in `/Applications` under the same names. Downloaded builds still
+need `xattr -cr` before the first launch; that needs Developer ID and
+notarization.
+
 ## Build and sign
 
 Use one persistent certificate and keep `com.targetbridge.sender` as the bundle
