@@ -5,10 +5,13 @@
 #include <aspl/Driver.hpp>
 
 #include <CoreAudio/AudioServerPlugIn.h>
+#include <dispatch/dispatch.h>
 
 #include <algorithm>
 #include <atomic>
+#include <functional>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <memory>
 #include <mutex>
@@ -20,7 +23,11 @@ namespace {
 constexpr UInt32 kSampleRate = 48000;
 constexpr UInt32 kChannelCount = 2;
 constexpr int64_t kRingFrames = 1 << 15; // about 680 ms
+// Both live on the plugin object, which exists even while the device is hidden.
 constexpr AudioObjectPropertySelector kNameProperty = 'tbnm'; // also in the Sender
+constexpr AudioObjectPropertySelector kVisibilityProperty = 'tbsh'; // also in the Sender
+// A Sender that asked to show the device but never started I/O has gone away.
+constexpr int64_t kShowWithoutClientTimeoutNs = 15 * NSEC_PER_SEC;
 constexpr const char* kNameStorageKey = "deviceName";
 
 AudioStreamBasicDescription MakeFormat()
@@ -41,6 +48,20 @@ AudioStreamBasicDescription MakeFormat()
 class LoopbackHandler : public aspl::ControlRequestHandler, public aspl::IORequestHandler
 {
 public:
+    std::function<void(pid_t)> onClientAdded;
+    std::function<void(pid_t)> onClientRemoved;
+
+    std::shared_ptr<aspl::Client> OnAddClient(const aspl::ClientInfo& clientInfo) override
+    {
+        if (onClientAdded) onClientAdded(clientInfo.ProcessID);
+        return std::make_shared<aspl::Client>(clientInfo);
+    }
+
+    void OnRemoveClient(std::shared_ptr<aspl::Client> client) override
+    {
+        if (onClientRemoved) onClientRemoved(client->GetProcessID());
+    }
+
     LoopbackHandler()
         : ring_(static_cast<size_t>(kRingFrames * kChannelCount), 0.0f)
     {
@@ -146,8 +167,6 @@ public:
         , storage_(storage)
         , name_(params.Name)
     {
-        RegisterCustomProperty(
-            kNameProperty, *this, &NamedDevice::CopyNameProperty, &NamedDevice::SetNameProperty);
     }
 
     std::string GetName() const override
@@ -164,24 +183,13 @@ public:
         }
     }
 
+    void Rename(const std::string& name)
+    {
+        ApplyName(name);
+        storage_->WriteString(kNameStorageKey, name);
+    }
+
 private:
-    CFStringRef CopyNameProperty() const
-    {
-        return CFStringCreateWithCString(
-            kCFAllocatorDefault, GetName().c_str(), kCFStringEncodingUTF8);
-    }
-
-    void SetNameProperty(CFStringRef value)
-    {
-        char buffer[256] = {};
-        if (!CFStringGetCString(value, buffer, sizeof(buffer), kCFStringEncodingUTF8) ||
-            buffer[0] == '\0') {
-            return;
-        }
-        ApplyName(buffer);
-        storage_->WriteString(kNameStorageKey, buffer);
-    }
-
     void ApplyName(const std::string& name)
     {
         {
@@ -194,6 +202,165 @@ private:
     std::shared_ptr<aspl::Storage> storage_;
     mutable std::mutex nameMutex_;
     std::string name_;
+};
+
+// Adds the device while a Sender session uses it and removes it afterwards,
+// including when that Sender quits or crashes.
+class DeviceVisibility : public std::enable_shared_from_this<DeviceVisibility>
+{
+public:
+    DeviceVisibility(std::shared_ptr<aspl::Plugin> plugin, std::shared_ptr<NamedDevice> device)
+        : plugin_(plugin)
+        , device_(device)
+    {
+    }
+
+    bool IsVisible() const
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return visible_;
+    }
+
+    void Show(pid_t owner)
+    {
+        uint64_t generation = 0;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            owner_ = owner;
+            ownerSeen_ = false;
+            generation = ++generation_;
+            if (!visible_) {
+                plugin_->AddDevice(device_);
+                visible_ = true;
+            }
+        }
+
+        std::weak_ptr<DeviceVisibility> weak = shared_from_this();
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, kShowWithoutClientTimeoutNs),
+            dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+                if (auto self = weak.lock()) self->HideIfOwnerNeverArrived(generation);
+            });
+    }
+
+    void Hide()
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        HideLocked();
+    }
+
+    void ClientAdded(pid_t pid)
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (pid == owner_) ownerSeen_ = true;
+    }
+
+    void ClientRemoved(pid_t pid)
+    {
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            if (pid != owner_ || !visible_) return;
+        }
+        // Not from inside the device's own client callback.
+        std::weak_ptr<DeviceVisibility> weak = shared_from_this();
+        dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+            if (auto self = weak.lock()) self->HideIfOwner(pid);
+        });
+    }
+
+private:
+    void HideIfOwner(pid_t pid)
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (pid == owner_) HideLocked();
+    }
+
+    void HideIfOwnerNeverArrived(uint64_t generation)
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (generation == generation_ && !ownerSeen_) HideLocked();
+    }
+
+    void HideLocked()
+    {
+        owner_ = 0;
+        ownerSeen_ = false;
+        if (!visible_) return;
+        plugin_->RemoveDevice(device_);
+        visible_ = false;
+    }
+
+    std::shared_ptr<aspl::Plugin> plugin_;
+    std::shared_ptr<NamedDevice> device_;
+    mutable std::mutex mutex_;
+    bool visible_ = false;
+    pid_t owner_ = 0;
+    bool ownerSeen_ = false;
+    uint64_t generation_ = 0;
+};
+
+// The Sender renames the device and shows or hides it through these properties.
+class ControlPlugin : public aspl::Plugin
+{
+public:
+    explicit ControlPlugin(std::shared_ptr<aspl::Context> context)
+        : aspl::Plugin(context)
+    {
+        RegisterCustomProperty(
+            kNameProperty, *this, &ControlPlugin::CopyName, &ControlPlugin::SetName);
+        RegisterCustomProperty(
+            kVisibilityProperty, *this, &ControlPlugin::CopyVisibility, &ControlPlugin::SetVisibility);
+    }
+
+    void Attach(std::shared_ptr<NamedDevice> device, std::shared_ptr<DeviceVisibility> visibility)
+    {
+        device_ = device;
+        visibility_ = visibility;
+    }
+
+private:
+    CFStringRef CopyName() const
+    {
+        const std::string name = device_ ? device_->GetName() : "";
+        return CFStringCreateWithCString(kCFAllocatorDefault, name.c_str(), kCFStringEncodingUTF8);
+    }
+
+    void SetName(CFStringRef value)
+    {
+        const std::string name = ToString(value);
+        if (device_ && !name.empty()) device_->Rename(name);
+    }
+
+    CFStringRef CopyVisibility() const
+    {
+        const bool visible = visibility_ && visibility_->IsVisible();
+        return CFStringCreateWithCString(
+            kCFAllocatorDefault, visible ? "visible" : "hidden", kCFStringEncodingUTF8);
+    }
+
+    // "show:<pid of the Sender>" or "hide".
+    void SetVisibility(CFStringRef value)
+    {
+        if (!visibility_) return;
+        const std::string command = ToString(value);
+        if (command.rfind("show:", 0) == 0) {
+            const long pid = std::strtol(command.c_str() + 5, nullptr, 10);
+            if (pid > 0) visibility_->Show(static_cast<pid_t>(pid));
+        } else if (command == "hide") {
+            visibility_->Hide();
+        }
+    }
+
+    static std::string ToString(CFStringRef value)
+    {
+        char buffer[256] = {};
+        if (!value || !CFStringGetCString(value, buffer, sizeof(buffer), kCFStringEncodingUTF8)) {
+            return "";
+        }
+        return buffer;
+    }
+
+    std::shared_ptr<NamedDevice> device_;
+    std::shared_ptr<DeviceVisibility> visibility_;
 };
 
 class DriverHandler : public aspl::DriverRequestHandler
@@ -244,8 +411,17 @@ std::shared_ptr<aspl::Driver> CreateDriver()
     device->SetControlHandler(handler);
     device->SetIOHandler(handler);
 
-    auto plugin = std::make_shared<aspl::Plugin>(context);
-    plugin->AddDevice(device);
+    // The device starts hidden. A Sender session adds it through the plugin.
+    auto plugin = std::make_shared<ControlPlugin>(context);
+    auto visibility = std::make_shared<DeviceVisibility>(plugin, device);
+    plugin->Attach(device, visibility);
+    std::weak_ptr<DeviceVisibility> weakVisibility = visibility;
+    handler->onClientAdded = [weakVisibility](pid_t pid) {
+        if (auto v = weakVisibility.lock()) v->ClientAdded(pid);
+    };
+    handler->onClientRemoved = [weakVisibility](pid_t pid) {
+        if (auto v = weakVisibility.lock()) v->ClientRemoved(pid);
+    };
 
     auto driver = std::make_shared<aspl::Driver>(context, plugin, storage);
     driver->SetDriverHandler(std::make_shared<DriverHandler>(device));

@@ -36,8 +36,10 @@ final class TBAudioLoopbackCapture: @unchecked Sendable {
     static let deviceUID = "com.targetbridge.audio.device"
 
     private static let preferredBufferFrames: UInt32 = 1024
-    /// 'tbnm', matching kNameProperty in the driver.
+    /// 'tbnm' and 'tbsh', matching kNameProperty and kVisibilityProperty in the driver.
     private static let nameProperty: AudioObjectPropertySelector = 0x74626E6D
+    private static let visibilityProperty: AudioObjectPropertySelector = 0x74627368
+    private static let driverBundleID = "com.targetbridge.audio.driver"
     private static let volumeSelectors = [kAudioDevicePropertyVolumeScalar, kAudioDevicePropertyMute]
     private static let defaultOutputSelectors = [
         kAudioHardwarePropertyDefaultOutputDevice,
@@ -59,7 +61,7 @@ final class TBAudioLoopbackCapture: @unchecked Sendable {
     private init() {}
 
     static var isDriverInstalled: Bool {
-        findDevice() != nil
+        findPlugin() != nil || findDevice() != nil
     }
 
     static func requestMicrophoneAccess() async -> Bool {
@@ -107,7 +109,7 @@ final class TBAudioLoopbackCapture: @unchecked Sendable {
     }
 
     private func startIO() -> Bool {
-        guard let device = Self.findDevice() else { return false }
+        guard let device = Self.showDevice() else { return false }
 
         var bufferFrames = Self.preferredBufferFrames
         var bufferAddress = AudioObjectPropertyAddress(
@@ -191,6 +193,7 @@ final class TBAudioLoopbackCapture: @unchecked Sendable {
         AudioDeviceDestroyIOProcID(deviceID, procID)
         ioProcID = nil
         Self.restorePreviousOutput(replacing: deviceID)
+        Self.setPluginString(Self.visibilityProperty, "hide")
         deviceID = AudioObjectID(kAudioObjectUnknown)
     }
 
@@ -237,6 +240,7 @@ final class TBAudioLoopbackCapture: @unchecked Sendable {
     }
 
     static func deviceName() -> String? {
+        if let name = pluginString(nameProperty), !name.isEmpty { return name }
         guard let device = findDevice() else { return nil }
         var address = AudioObjectPropertyAddress(
             mSelector: kAudioObjectPropertyName,
@@ -253,6 +257,8 @@ final class TBAudioLoopbackCapture: @unchecked Sendable {
 
     /// Takes effect without a restart, and the driver keeps the name.
     static func renameDevice(to name: String) -> Bool {
+        if setPluginString(nameProperty, name) { return true }
+        // Driver 1.2 kept the name on the device instead.
         guard let device = findDevice() else { return false }
         var address = AudioObjectPropertyAddress(
             mSelector: nameProperty,
@@ -301,6 +307,71 @@ final class TBAudioLoopbackCapture: @unchecked Sendable {
             mScope: kAudioDevicePropertyScopeOutput,
             mElement: kAudioObjectPropertyElementMain
         )
+    }
+
+    /// The driver adds the device only while a session uses it. Older drivers
+    /// always show it, so the request is allowed to fail.
+    private static func showDevice() -> AudioObjectID? {
+        if let device = findDevice() { return device }
+        guard setPluginString(visibilityProperty, "show:\(ProcessInfo.processInfo.processIdentifier)") else {
+            return nil
+        }
+        for _ in 0..<60 {
+            if let device = findDevice() { return device }
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+        NSLog("TargetBridge: audio device did not appear")
+        return nil
+    }
+
+    private static func findPlugin() -> AudioObjectID? {
+        var address = systemAddress(kAudioHardwarePropertyTranslateBundleIDToPlugIn)
+        var bundleID = driverBundleID as CFString
+        var plugin = AudioObjectID(kAudioObjectUnknown)
+        var size = UInt32(MemoryLayout<AudioObjectID>.size)
+        let status = withUnsafeMutablePointer(to: &bundleID) { bundlePointer in
+            AudioObjectGetPropertyData(
+                AudioObjectID(kAudioObjectSystemObject),
+                &address,
+                UInt32(MemoryLayout<CFString>.size),
+                bundlePointer,
+                &size,
+                &plugin
+            )
+        }
+        guard status == noErr, plugin != AudioObjectID(kAudioObjectUnknown) else { return nil }
+        return plugin
+    }
+
+    private static func pluginString(_ selector: AudioObjectPropertySelector) -> String? {
+        guard let plugin = findPlugin() else { return nil }
+        var address = systemAddress(selector)
+        guard AudioObjectHasProperty(plugin, &address) else { return nil }
+        var value: Unmanaged<CFString>?
+        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+        guard AudioObjectGetPropertyData(plugin, &address, 0, nil, &size, &value) == noErr else {
+            return nil
+        }
+        return value?.takeRetainedValue() as String?
+    }
+
+    @discardableResult
+    private static func setPluginString(_ selector: AudioObjectPropertySelector, _ text: String) -> Bool {
+        guard let plugin = findPlugin() else { return false }
+        var address = systemAddress(selector)
+        guard AudioObjectHasProperty(plugin, &address) else { return false }
+        let value = text as CFString
+        let status = withUnsafePointer(to: value) { valuePointer in
+            AudioObjectSetPropertyData(
+                plugin,
+                &address,
+                0,
+                nil,
+                UInt32(MemoryLayout<CFString>.size),
+                valuePointer
+            )
+        }
+        return status == noErr
     }
 
     private static func rememberPreviousOutput(excluding device: AudioObjectID) {

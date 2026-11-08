@@ -77,7 +77,7 @@
   "sender.audio_source.details": "Die Systemton-Aufnahme überträgt den gesamten Ton dieses Macs. Das Gerät TargetBridge Audio überträgt nur, was du auf diese Ausgabe legst.",
   "sender.audio_source.driver_missing": "Der Treiber ist nicht installiert, daher nutzt diese Sitzung die Systemton-Aufnahme. Du kannst ihn in den Einstellungen installieren.",
   "sender.audio_source.auto_select_label": "Audioausgabe automatisch wählen",
-  "sender.audio_source.auto_select_details": "Stellt die Tonausgabe dieses Macs bei jeder Verbindung oder erneuten Verbindung dieser Sitzung auf das Gerät TargetBridge Audio um.",
+  "sender.audio_source.auto_select_details": "Stellt die Tonausgabe dieses Macs bei jeder Verbindung oder erneuten Verbindung dieser Sitzung auf das Gerät TargetBridge Audio um. Das Gerät erscheint nur, solange eine Sitzung es nutzt.",
   "sender.settings.audio_title": "Audio",
   "sender.settings.default_audio_source": "Standard-Audioquelle für neue Sitzungen",
   "sender.settings.audio_driver_installed": "Der TargetBridge-Audio-Treiber ist installiert.",
