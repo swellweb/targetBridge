@@ -37,6 +37,27 @@ and improves the project. A special thank-you for this release goes to:
 - [@preggocl](https://github.com/preggocl) for the physical Receiver display profile and the software decode fallback.
 - [@Betafer](https://github.com/Betafer) for input-queue safety, cursor work, idle audio/display handling, watchdog protection, monitor shielding, and build improvements.
 
+## TargetBridge 4.0
+
+TargetBridge 4.0 adds uncompressed video that sends only what changes on
+screen, in 8-bit or, experimentally, 10-bit colour:
+
+- four **Uncompressed** options next to Automatic, H.264 and HEVC: 8-bit,
+  8-bit with lossless LZ4, 10-bit dithered (captured in 10-bit, shown in
+  8-bit) and full 10-bit colour
+- only the changed rows of the screen are sent, so a still desktop costs almost
+  no bandwidth, and the Receiver uploads only those rows to the GPU
+- the 10-bit modes spread each frame over up to 4 parallel connections
+- a per-session **TargetBridge Audio** output device whose volume drives the
+  iMac's speakers
+- Receiver background mode with a menu bar icon and a **Performance** submenu
+  with a stats overlay
+
+Every new capability falls back on its own when the other Mac can't use it.
+See the [full 4.0 release notes](docs/releases/4.0.md) and
+[Performance](docs/Performance.md). The version number is this fork's proposal;
+the original maintainer decides how these changes ship upstream.
+
 ## TargetBridge 3.6.0
 
 TargetBridge 3.6.0 improves everyday connection setup and makes the display
@@ -99,6 +120,7 @@ It also keeps the established multi-Mac workspace features:
 - Mirror mode and Extended Desktop: [docs/Features.md#display-modes](docs/Features.md#display-modes)
 - Guided configuration check: [docs/Features.md#guided-configuration-check](docs/Features.md#guided-configuration-check)
 - Stream profiles and per-Receiver codecs: [docs/Features.md#stream-profiles-and-codecs](docs/Features.md#stream-profiles-and-codecs)
+- Uncompressed video, 10-bit modes and the Receiver's performance switches: [docs/Performance.md](docs/Performance.md)
 - Permission assistant: [docs/Features.md#permission-assistant](docs/Features.md#permission-assistant)
 - Multi-receiver layouts: [docs/Features.md#multi-receiver-workflows](docs/Features.md#multi-receiver-workflows)
 - Network Link (experimental): [docs/Features.md#network-link-experimental](docs/Features.md#network-link-experimental)
@@ -114,7 +136,7 @@ It also keeps the established multi-Mac workspace features:
 
 - Sender can stream either a mirrored desktop or an extended virtual display. See [Display Modes](docs/Features.md#display-modes).
 - One sender can drive multiple receiver Macs over separate cables. See [Multi-Receiver Workflows](docs/Features.md#multi-receiver-workflows).
-- Stream profiles range from `2560 x 1440` to `5120 x 2880` with H.264/HEVC selection based on capability. `5K 60` is an experimental profile for recent Apple Silicon; `5K 48` remains recommended for reliable daily work. See [Display Modes](docs/Features.md#display-modes).
+- Stream profiles range from `2560 x 1440` to `5120 x 2880` with H.264/HEVC selection based on capability, or uncompressed video in 8-bit or 10-bit that sends only the changed rows (see [Performance](docs/Performance.md)). `5K 60` is an experimental profile for recent Apple Silicon; `5K 48` remains recommended for reliable daily work. See [Display Modes](docs/Features.md#display-modes).
 - Receiver discovery is automatic over Bonjour. Extended-display arrangement is remembered per receiver when possible. See [Display Modes](docs/Features.md#display-modes).
 - Thunderbolt Bridge remains the primary low-latency path, with `Network Link` available as an experimental addon-gated transport. See [Network Link](docs/Features.md#network-link-experimental).
 - The Sender menu can control a connected receiver's brightness, volume, Night Shift, and True Tone when supported. See [Receiver Device Controls](docs/Features.md#receiver-device-controls).
@@ -177,6 +199,8 @@ If you build from source, app outputs go into `build/` folder.
 - Remote connection & automation: [docs/Automation.md](docs/Automation.md)
 - Addon manifests and capability model: [docs/Addons.md](docs/Addons.md)
 - Audio transport internals: [docs/audio.md](docs/audio.md)
+- Uncompressed video, parallel streams, and performance switches: [docs/Performance.md](docs/Performance.md)
+- Release notes: [docs/releases/4.0.md](docs/releases/4.0.md)
 - Hardware, cables, adapters, and Thunderbolt Bridge networking: [docs/Hardware.md](docs/Hardware.md)
 - Translation workflow: [docs/Translations.md](docs/Translations.md)
 - Testing without hardware (unit tests, mock sender, loopback smoke): [docs/Testing.md](docs/Testing.md)
