@@ -35,9 +35,10 @@ struct tb_display {
     SDL_Texture  *status_tex;
     SDL_Texture  *stats_tex;
     int           stats_w, stats_h;
-    char          last_stats[192];
+    char          last_stats[256];
     char          renderer_name[32];
     int           tex_w, tex_h;
+    int           tex_needs_full_upload; /* new texture, contents undefined */
     int           quit;
     int           window_hidden;
     int           close_hides;
@@ -675,6 +676,7 @@ int tb_disp_ensure_texture(struct tb_display *d, int w, int h) {
     }
     d->tex_w = w;
     d->tex_h = h;
+    d->tex_needs_full_upload = 1;
     fprintf(stderr, "[disp] texture %dx%d NV12\n", w, h);
     return 0;
 }
@@ -1212,6 +1214,36 @@ void tb_disp_render_nv12(struct tb_display *d,
                             uv, uv_stride) < 0) {
         fprintf(stderr, "[disp] UpdateNVTexture: %s\n", SDL_GetError());
         return;
+    }
+    d->tex_needs_full_upload = 0;
+    d->last_video_frame_time = SDL_GetTicks();
+    tb_disp_render_current(d);
+}
+
+void tb_disp_render_nv12_rows(struct tb_display *d,
+                              const uint8_t *y, const uint8_t *uv,
+                              int w, int h, int first_row, int end_row) {
+    if (tb_disp_ensure_texture(d, w, h) < 0) return;
+    tb_disp_set_connection_state(d, 1);
+
+    if (d->tex_needs_full_upload) {
+        first_row = 0;
+        end_row = h;
+    }
+    /* NV12 rectangles must start and end on even rows. */
+    first_row &= ~1;
+    end_row = (end_row + 1) & ~1;
+    if (first_row < 0) first_row = 0;
+    if (end_row > h) end_row = h;
+    if (end_row > first_row) {
+        const SDL_Rect rect = { 0, first_row, w, end_row - first_row };
+        if (SDL_UpdateNVTexture(d->tex, &rect,
+                                y + (size_t)w * (size_t)first_row, w,
+                                uv + (size_t)w * (size_t)(first_row / 2), w) < 0) {
+            fprintf(stderr, "[disp] UpdateNVTexture(rows): %s\n", SDL_GetError());
+            return;
+        }
+        d->tex_needs_full_upload = 0;
     }
     d->last_video_frame_time = SDL_GetTicks();
     tb_disp_render_current(d);

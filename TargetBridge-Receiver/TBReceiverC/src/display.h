@@ -53,6 +53,12 @@ void tb_disp_render_nv12(struct tb_display *d,
                          const uint8_t *uv, int uv_stride,
                          int w, int h);
 
+/* Upload only rows [first_row, end_row) of a tightly packed NV12 picture
+ * (stride = w), then render. A newly created texture gets the whole picture. */
+void tb_disp_render_nv12_rows(struct tb_display *d,
+                              const uint8_t *y, const uint8_t *uv,
+                              int w, int h, int first_row, int end_row);
+
 /* Update low-latency local cursor overlay in source-frame coordinates. */
 void tb_disp_set_cursor(struct tb_display *d,
                         int x, int y,

@@ -393,6 +393,11 @@ enum TBDisplayCodecPreference: String, CaseIterable, Identifiable, Codable {
     case hevc
     /// Raw NV12 frames. Falls back to automatic if the receiver lacks support.
     case uncompressed
+    /// Raw NV12 frames compressed losslessly with LZ4. Sent like
+    /// `uncompressed` (without LZ4) to receivers that cannot decode it.
+    case uncompressedLZ4
+
+    var usesRawFrames: Bool { self == .uncompressed || self == .uncompressedLZ4 }
 
     var id: String { rawValue }
 }
@@ -544,6 +549,10 @@ private final class TBVideoPipeline: @unchecked Sendable {
     private let displayName: String
     private let displayID: CGDirectDisplayID
     private let usesRawNV12: Bool
+    /// Send only the changed rows of raw frames (packet type 0x24).
+    private let usesRawRegions: Bool
+    /// Compress raw bands losslessly with LZ4.
+    private let compressesRawRegions: Bool
     private let onFirstFrame: @Sendable () -> Void
 
     // Confined to `queue`.
@@ -556,6 +565,17 @@ private final class TBVideoPipeline: @unchecked Sendable {
     private var frameRatePacer: TBFrameRatePacer
     private var ackSent: Bool
     private var running = false
+
+    // Changed-rows raw frames (confined to `queue`). Rows that changed in
+    // frames the pacer or backpressure skipped stay pending, so they go out
+    // with the next frame that is sent.
+    private var rawPendingSpans: [TBRawRowSpan] = []
+    private var rawNeedsFullFrame = true
+    private var rawFrameWidth = 0
+    private var rawFrameHeight = 0
+    private var rawLastFullFrameUptime: TimeInterval = 0
+    /// A whole frame now and then repairs anything a missed dirty rect left behind.
+    private static let rawFullFrameInterval: TimeInterval = 5
 
     // Read from the main thread (fps timer / watchdog); guarded by `lock`.
     private let lock = NSLock()
@@ -572,6 +592,8 @@ private final class TBVideoPipeline: @unchecked Sendable {
          displayName: String,
          displayID: CGDirectDisplayID,
          usesRawNV12: Bool,
+         usesRawRegions: Bool = false,
+         compressesRawRegions: Bool = false,
          ackAlreadySent: Bool,
          onFirstFrame: @escaping @Sendable () -> Void) {
         self.preset = preset
@@ -580,6 +602,8 @@ private final class TBVideoPipeline: @unchecked Sendable {
         self.displayName = displayName
         self.displayID = displayID
         self.usesRawNV12 = usesRawNV12
+        self.usesRawRegions = usesRawNV12 && usesRawRegions
+        self.compressesRawRegions = usesRawNV12 && usesRawRegions && compressesRawRegions
         self.frameRatePacer = TBFrameRatePacer(maximumFrameRate: preset.expectedFrameRate)
         self.ackSent = ackAlreadySent
         self.onFirstFrame = onFirstFrame
@@ -726,9 +750,16 @@ private final class TBVideoPipeline: @unchecked Sendable {
     func encode(_ sampleBuffer: CMSampleBuffer) {
         guard running, let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         markCaptureFrame()
+        if usesRawRegions {
+            collectRawRegions(from: sampleBuffer, pixelBuffer: pixelBuffer)
+        }
         let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
         guard frameRatePacer.shouldEmit(presentationTime: pts) else {
             droppedByFrameRatePacer += 1
+            return
+        }
+        if usesRawRegions {
+            sendRawRegions(pixelBuffer)
             return
         }
         if usesRawNV12 {
@@ -916,6 +947,88 @@ private final class TBVideoPipeline: @unchecked Sendable {
             }
         }))
         lock.lock(); _sentFrames += 1; lock.unlock()
+    }
+
+    /// Adds the rows that changed in this frame to the pending rows.
+    private func collectRawRegions(from sampleBuffer: CMSampleBuffer, pixelBuffer: CVPixelBuffer) {
+        let width = CVPixelBufferGetWidthOfPlane(pixelBuffer, 0)
+        let height = CVPixelBufferGetHeightOfPlane(pixelBuffer, 0)
+        if width != rawFrameWidth || height != rawFrameHeight {
+            rawFrameWidth = width
+            rawFrameHeight = height
+            rawNeedsFullFrame = true
+            rawPendingSpans = []
+        }
+        guard !rawNeedsFullFrame else { return }
+        guard let rects = TBRawDirtyRects.pixelRects(in: sampleBuffer, pixelWidth: width, pixelHeight: height) else {
+            // No dirty-rect information: only a whole frame is safe.
+            rawNeedsFullFrame = true
+            rawPendingSpans = []
+            return
+        }
+        rawPendingSpans = TBRawRegionPlanner.union(
+            rawPendingSpans,
+            TBRawRegionPlanner.rowSpans(for: rects, frameHeight: height)
+        )
+    }
+
+    /// Changed-rows passthrough: sends only the rows that changed since the
+    /// last frame that was sent, optionally LZ4-compressed, as packet 0x24.
+    private func sendRawRegions(_ pixelBuffer: CVPixelBuffer) {
+        guard running else { return }
+        // Backpressure: keep the changed rows pending and send them with a
+        // later frame instead of piling packets onto a saturated link.
+        if pendingVideoPackets >= preset.maxPendingVideoPackets {
+            droppedBeforeEncodeFrames += 1
+            return
+        }
+        let now = ProcessInfo.processInfo.systemUptime
+        if now - rawLastFullFrameUptime >= Self.rawFullFrameInterval {
+            rawNeedsFullFrame = true
+        }
+        let fullFrame = rawNeedsFullFrame
+        let spans = fullFrame
+            ? TBRawRegionPlanner.fullFrame(height: CVPixelBufferGetHeightOfPlane(pixelBuffer, 0))
+            : rawPendingSpans
+        // Nothing changed on screen: nothing to send.
+        guard !spans.isEmpty else { return }
+
+        guard let built = TBRawRegionPacketBuilder.makePacket(
+            pixelBuffer: pixelBuffer,
+            spans: spans,
+            fullFrame: fullFrame,
+            compress: compressesRawRegions
+        ) else { return }
+
+        sendSessionAckIfNeeded()
+        rawPendingSpans = []
+        if fullFrame {
+            rawNeedsFullFrame = false
+            rawLastFullFrameUptime = now
+        }
+
+        pendingVideoPackets += 1
+        connection.send(content: built.packet, completion: .contentProcessed({ [weak self] _ in
+            guard let self else { return }
+            self.queue.async {
+                self.pendingVideoPackets = max(0, self.pendingVideoPackets - 1)
+            }
+        }))
+        lock.lock(); _sentFrames += 1; lock.unlock()
+    }
+
+    private func sendSessionAckIfNeeded() {
+        guard !ackSent else { return }
+        ackSent = true
+        let ack = TBMonitorCreateSessionAck(
+            accepted: true,
+            displayName: displayName,
+            displayID: displayID
+        )
+        if let packet = TBMonitorProtocol.makeJSONPacket(type: .createSessionAck, value: ack) {
+            connection.send(content: packet, completion: .contentProcessed({ _ in }))
+        }
+        onFirstFrame()
     }
 
     private func buildParamSetsPacket(from format: CMVideoFormatDescription, codecType: CMVideoCodecType) -> Data? {
@@ -1500,7 +1613,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         let preferredCodec: CMVideoCodecType
 
         switch preference {
-        case .automatic, .uncompressed:
+        case .automatic, .uncompressed, .uncompressedLZ4:
             preferredCodec = preset.codecType == kCMVideoCodecType_HEVC || hevcAvailable
                 ? kCMVideoCodecType_HEVC
                 : kCMVideoCodecType_H264
@@ -2809,7 +2922,17 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
                 codecDecision = resolvedDecision
             }
             let codecType = codecDecision.codecType
-            let codecName = usesRawNV12 ? "NV12 RAW" : codecName(for: codecType)
+            // Changed rows only, when the receiver understands it. RAW_REGIONS=0
+            // turns it off for comparisons on real hardware.
+            let usesRawRegions = usesRawNV12
+                && profile.supportsRawRegions == true
+                && ProcessInfo.processInfo.environment["RAW_REGIONS"] != "0"
+            let compressesRawRegions = usesRawRegions
+                && codecPreference == .uncompressedLZ4
+                && profile.supportsRawLZ4 == true
+            let codecName = usesRawNV12
+                ? (compressesRawRegions ? "NV12 RAW LZ4" : "NV12 RAW")
+                : codecName(for: codecType)
             activeCodecType = usesRawNV12 ? nil : codecType
             activeCodecName = codecName
             if codecDecision.usedFallback {
@@ -2830,6 +2953,8 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
                 displayName: session.displayName,
                 displayID: session.displayID,
                 usesRawNV12: usesRawNV12,
+                usesRawRegions: usesRawRegions,
+                compressesRawRegions: compressesRawRegions,
                 ackAlreadySent: sessionAckSent,
                 onFirstFrame: { [weak self] in
                     Task { @MainActor in self?.handleFirstEncodedFrame() }
@@ -2837,7 +2962,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
             )
             guard pipeline.start() else { return false }
             self.pipeline = pipeline
-            TBLog.connection.info("capture: pipeline started preset=\(preset.rawValue, privacy: .public) source=\(String(describing: self.captureSource), privacy: .public) codec=\(codecName, privacy: .public) rawNV12=\(usesRawNV12, privacy: .public)")
+            TBLog.connection.info("capture: pipeline started preset=\(preset.rawValue, privacy: .public) source=\(String(describing: self.captureSource), privacy: .public) codec=\(codecName, privacy: .public) rawNV12=\(usesRawNV12, privacy: .public) rawRegions=\(usesRawRegions, privacy: .public)")
 
             let display: SCDisplay
             if captureSource == .desktopMirror {
@@ -3187,7 +3312,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         guard profile.supportsRawNV12 == true else { return false }
         // The headless path captures BGRA through CGDisplayStream, not NV12.
         guard !headlessMirrorUsesVirtualDisplay else { return false }
-        if codecPreference == .uncompressed { return true }
+        if codecPreference.usesRawFrames { return true }
         guard let value = ProcessInfo.processInfo.environment["RAW"]?.lowercased() else { return false }
         return value == "1" || value == "true"
     }

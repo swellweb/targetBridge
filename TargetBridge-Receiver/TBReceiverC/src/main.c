@@ -18,6 +18,7 @@
 #include "display.h"
 #include "idle_watchdog.h"
 #include "receiver_profile.h"
+#include "raw_regions.h"
 #include "proto.h"
 #include "tb_gesture_bridge.h"
 #include "tb_display_tweaks.h"
@@ -38,6 +39,7 @@
 #endif
 
 #include <CoreVideo/CoreVideo.h>
+#include <compression.h>
 #include <errno.h>
 #include <poll.h>
 #include <limits.h>
@@ -86,6 +88,15 @@ struct app {
     int      perf_metal;
     int      perf_show_stats;
     CVPixelBufferRef pending_pixel_buffer;
+    /* Changed-rows raw frames: the receiver's copy of the picture, and the
+     * rows patched since the last draw (drawn once per loop with
+     * "draw only the newest frame"). */
+    struct tb_raw_frame raw_frame;
+    int      raw_pending;
+    int      raw_pending_first;
+    int      raw_pending_end;
+    uint64_t stats_region_rows;
+    uint64_t stats_region_height;
     uint64_t stats_skipped;
     uint64_t stats_draw_us_total;
     uint64_t stats_draw_us_max;
@@ -1072,6 +1083,77 @@ static void handle_raw_frame(struct app *a, const uint8_t *p, size_t len) {
     a->frames++;
 }
 
+static int tb_receiver_decode_lz4(uint8_t *dst, size_t dst_len,
+                                  const uint8_t *src, size_t src_len) {
+    const size_t n = compression_decode_buffer(dst, dst_len, src, src_len,
+                                               NULL, COMPRESSION_LZ4_RAW);
+    return n == dst_len ? 0 : -1;
+}
+
+static void tb_receiver_draw_raw_rows(struct app *a, int first_row, int end_row) {
+    const uint64_t draw_start = now_us();
+    tb_disp_render_nv12_rows(a->disp, a->raw_frame.y, a->raw_frame.uv,
+                             (int)a->raw_frame.w, (int)a->raw_frame.h,
+                             first_row, end_row);
+    const uint64_t draw_us = now_us() - draw_start;
+    a->stats_draw_us_total += draw_us;
+    if (draw_us > a->stats_draw_us_max) a->stats_draw_us_max = draw_us;
+    a->stats_draw_count++;
+    a->frames++;
+}
+
+static void tb_receiver_present_pending_raw(struct app *a) {
+    if (!a->raw_pending) return;
+    a->raw_pending = 0;
+    tb_receiver_draw_raw_rows(a, a->raw_pending_first, a->raw_pending_end);
+}
+
+/* Changed rows of a raw NV12 frame (see raw_regions.h). The rows are patched
+ * into the receiver's copy of the picture and only they are uploaded. */
+static void handle_raw_regions(struct app *a, const uint8_t *p, size_t len) {
+    struct tb_raw_regions_result result;
+    memset(&result, 0, sizeof(result));
+    const int status = tb_raw_regions_apply(&a->raw_frame, p, len,
+                                            tb_receiver_decode_lz4, &result);
+    if (status == -1) {
+        fprintf(stderr, "[main] raw regions: malformed packet (%zu bytes) ignored\n", len);
+        return;
+    }
+    if (status == -2) {
+        fprintf(stderr, "[main] raw regions: LZ4 band could not be decoded\n");
+    }
+
+    if (!a->have_video_frame) {
+        char width_text[16];
+        char height_text[16];
+        struct tb_i18n_pair pairs[] = {
+            { "width", width_text },
+            { "height", height_text }
+        };
+        snprintf(width_text, sizeof(width_text), "%u", result.w);
+        snprintf(height_text, sizeof(height_text), "%u", result.h);
+        tb_copy_i18n(a->status_text, sizeof(a->status_text), "receiver.status.stream_active");
+        tb_format_i18n(a->mode_text, sizeof(a->mode_text), "receiver.mode.receiving", pairs, 2);
+    }
+    a->have_video_frame = 1;
+    a->stats_region_rows += result.rows;
+    a->stats_region_height += result.h;
+
+    if (!a->perf_newest_frame) {
+        tb_receiver_draw_raw_rows(a, (int)result.first_row, (int)result.end_row);
+        return;
+    }
+    if (a->raw_pending) {
+        a->stats_skipped++;
+        if ((int)result.first_row < a->raw_pending_first) a->raw_pending_first = (int)result.first_row;
+        if ((int)result.end_row > a->raw_pending_end) a->raw_pending_end = (int)result.end_row;
+    } else {
+        a->raw_pending = 1;
+        a->raw_pending_first = (int)result.first_row;
+        a->raw_pending_end = (int)result.end_row;
+    }
+}
+
 static void ring_read(struct app *a, Uint8 *dst, int len) {
     int first = AUDIO_BUF_CAP - a->audio_buf_tail;
     if (first >= len) {
@@ -1319,6 +1401,10 @@ static void on_packet(uint8_t type, const uint8_t *payload, size_t len, void *ud
     case TB_PKT_RAW_FRAME:
         a->session_active = 1;
         handle_raw_frame(a, payload, len);
+        break;
+    case TB_PKT_RAW_REGIONS:
+        a->session_active = 1;
+        handle_raw_regions(a, payload, len);
         break;
     case TB_PKT_CURSOR:
         {
@@ -1988,7 +2074,7 @@ static void send_receiver_info(struct app *a) {
         "{\"receiverName\":\"%s\",\"panelWidth\":%u,\"panelHeight\":%u,"
         "\"modeWidth\":%u,\"modeHeight\":%u,\"refreshRate\":60,"
         "\"hiDPI\":%s,\"captureWidth\":%u,\"captureHeight\":%u,"
-        "\"supportsHEVCDecode\":%s,\"supportsRawNV12\":true,\"inputMonitoringTrusted\":%s,\"accessibilityTrusted\":%s,"
+        "\"supportsHEVCDecode\":%s,\"supportsRawNV12\":true,\"supportsRawRegions\":true,\"supportsRawLZ4\":true,\"inputMonitoringTrusted\":%s,\"accessibilityTrusted\":%s,"
         "\"supportsNightShift\":%s,\"supportsTrueTone\":%s}",
         escaped_name,
         profile.panel_w,
@@ -2044,6 +2130,8 @@ static void close_client(struct app *a) {
     a->close_requested = 0;
     a->window_requested = 0;
     tb_receiver_drop_pending_frame(a);
+    a->raw_pending = 0;
+    tb_raw_frame_free(&a->raw_frame);
     tb_disp_set_stats_text(a->disp, NULL);
     a->have_video_frame = 0;
     snprintf(a->input_control_mode, sizeof(a->input_control_mode), "off");
@@ -2380,7 +2468,10 @@ int main(int argc, char **argv) {
             tb_receiver_send_display_tweaks_if_changed(&a);
         }
 
-        if (a.client_fd >= 0) tb_receiver_present_pending_frame(&a);
+        if (a.client_fd >= 0) {
+            tb_receiver_present_pending_frame(&a);
+            tb_receiver_present_pending_raw(&a);
+        }
 
         if (a.client_fd < 0 || !a.session_active) {
             /* No client, or a connection that hasn't started a real streaming
@@ -2465,16 +2556,23 @@ int main(int argc, char **argv) {
             uint64_t df = a.frames - a.last_fps_count;
             a.last_fps_count   = a.frames;
             a.last_fps_tick_ms = t;
-            char stats[192];
+            char stats[256];
+            char changed[32] = "";
             const double draw_avg_ms = a.stats_draw_count
                 ? (double)a.stats_draw_us_total / 1000.0 / (double)a.stats_draw_count : 0.0;
+            if (a.stats_region_height > 0) {
+                /* Share of the screen's rows that the sender had to send. */
+                snprintf(changed, sizeof(changed), " | changed %.0f%%",
+                         100.0 * (double)a.stats_region_rows / (double)a.stats_region_height);
+            }
             snprintf(stats, sizeof(stats),
-                     "%llu fps | %llu skipped | draw %.1f ms (max %.1f) | %.0f Mbit/s | %s",
+                     "%llu fps | %llu skipped | draw %.1f ms (max %.1f) | %.0f Mbit/s%s | %s",
                      (unsigned long long)df,
                      (unsigned long long)a.stats_skipped,
                      draw_avg_ms,
                      (double)a.stats_draw_us_max / 1000.0,
                      (double)a.stats_bytes * 8.0 / 1000000.0,
+                     changed,
                      tb_disp_renderer_name(a.disp));
             if (df > 0) fprintf(stderr, "[main] %s\n", stats);
             tb_disp_set_stats_text(a.disp, a.perf_show_stats && a.client_fd >= 0 ? stats : NULL);
@@ -2483,6 +2581,8 @@ int main(int argc, char **argv) {
             a.stats_draw_us_max = 0;
             a.stats_draw_count = 0;
             a.stats_bytes = 0;
+            a.stats_region_rows = 0;
+            a.stats_region_height = 0;
         }
 
         /* Yield when idle or when a nonblocking active socket had no data,
