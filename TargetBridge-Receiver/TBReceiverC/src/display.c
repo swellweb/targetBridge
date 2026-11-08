@@ -46,8 +46,9 @@ struct tb_display {
     Uint32        tex_format;
     int           tex_needs_full_upload; /* new texture, contents undefined */
     int           native_rgb10;          /* 10-bit RGB shown in 10 bits (Metal view) */
-    struct tb_metal_view *metal_view;    /* Metal renderer only */
-    int           metal_rgb10_active;    /* the picture is in the Metal view */
+    struct tb_metal_view *metal_view;    /* "TargetBridge Metal" renderer only */
+    int           video_in_view;         /* the picture is in the Metal view */
+    int           display_sync;          /* raw modes wait for the refresh */
     int           quit;
     int           window_hidden;
     int           close_hides;
@@ -584,7 +585,7 @@ static SDL_Renderer *tb_disp_create_accelerated_renderer(SDL_Window *win, int pr
     return tb_disp_try_renderer(win, NULL);
 }
 
-struct tb_display *tb_disp_create(int fullscreen, int start_hidden, int prefer_metal) {
+struct tb_display *tb_disp_create(int fullscreen, int start_hidden, int renderer) {
     /* Best-quality scaling (linear filter; Metal backend uses bilinear
      * regardless but this sets the hint correctly). "best" enables
      * anisotropic where supported. Must be set BEFORE renderer creation. */
@@ -611,7 +612,7 @@ struct tb_display *tb_disp_create(int fullscreen, int start_hidden, int prefer_m
     /* No VSYNC: lets us present as fast as decode produces frames.
      * On Intel iMac with Radeon Pro 570 + 5K display, VSYNC at 60Hz combined
      * with GPU→CPU NV12 transfer was stalling the pipeline to ~4 fps. */
-    d->ren = tb_disp_create_accelerated_renderer(d->win, prefer_metal);
+    d->ren = tb_disp_create_accelerated_renderer(d->win, renderer != TB_DISP_RENDERER_SDL_OPENGL);
     if (!d->ren) {
         fprintf(stderr, "[disp] CreateRenderer: %s\n", SDL_GetError());
         SDL_DestroyWindow(d->win); free(d); return NULL;
@@ -624,9 +625,13 @@ struct tb_display *tb_disp_create(int fullscreen, int start_hidden, int prefer_m
     if (SDL_GetRendererInfo(d->ren, &info) == 0) {
         fprintf(stderr, "[disp] renderer = %s\n", info.name);
         snprintf(d->renderer_name, sizeof(d->renderer_name), "%s", info.name);
-        /* SDL2 itself has no 10-bit textures; with the Metal renderer our own
-         * view keeps 10-bit RGB in 10 bits, otherwise SDL converts it. */
-        d->metal_view = tb_metal_view_create(d->ren);
+        /* "TargetBridge Metal": SDL keeps the window, waiting screen and
+         * overlays, our Metal view draws all video. SDL2 itself has no 10-bit
+         * textures, so only this view shows 10-bit RGB in 10 bits. */
+        if (renderer == TB_DISP_RENDERER_TARGETBRIDGE) d->metal_view = tb_metal_view_create(d->ren);
+        if (d->metal_view) snprintf(d->renderer_name, sizeof(d->renderer_name), "TargetBridge Metal");
+        else if (strcmp(info.name, "metal") == 0) snprintf(d->renderer_name, sizeof(d->renderer_name), "SDL Metal");
+        else if (strcmp(info.name, "opengl") == 0) snprintf(d->renderer_name, sizeof(d->renderer_name), "SDL OpenGL");
         d->native_rgb10 = d->metal_view != NULL;
         fprintf(stderr, "[disp] 10-bit RGB: %s\n",
                 d->native_rgb10 ? "native (Metal, 10-bit drawable)" : "converted to 8-bit by SDL");
@@ -1258,19 +1263,19 @@ const char *tb_disp_renderer_name(struct tb_display *d) {
     return d && d->renderer_name[0] ? d->renderer_name : "unknown";
 }
 
-/* Switches between SDL's texture and the 10-bit Metal view, and whether the
- * Metal layer waits for the display's refresh. Raw frames are sent at most
- * at the refresh rate, so waiting costs nothing and avoids tearing. */
-static void tb_disp_use_metal_rgb10(struct tb_display *d, int rgb10, int display_sync) {
+/* Puts the picture into the Metal view (or back to SDL's texture), with a
+ * 10-bit drawable for 10-bit RGB, and sets whether the Metal layer waits for
+ * the display's refresh. */
+static void tb_disp_use_view(struct tb_display *d, int in_view, int rgb10, int display_sync) {
     if (!d->metal_view) return;
     tb_metal_view_set_display_sync(d->metal_view, display_sync);
-    tb_metal_view_set_10bit_drawable(d->metal_view, rgb10);
-    d->metal_rgb10_active = rgb10;
+    tb_metal_view_set_10bit_drawable(d->metal_view, in_view && rgb10);
+    d->video_in_view = in_view;
 }
 
 static void tb_disp_render_current(struct tb_display *d) {
     if (!d) return;
-    if (d->metal_rgb10_active) {
+    if (d->video_in_view) {
         SDL_RenderClear(d->ren);
         if (tb_metal_view_draw(d->metal_view, d->ren) != 0) return;
     } else {
@@ -1296,12 +1301,22 @@ void tb_disp_render_nv12(struct tb_display *d,
                          const uint8_t *y, int y_stride,
                          const uint8_t *uv, int uv_stride,
                          int w, int h) {
-    if (tb_disp_ensure_texture(d, w, h) < 0) return;
+    if (!d) return;
     tb_disp_set_connection_state(d, 1);
-    /* Hardware-decoded video keeps presenting unsynchronised: waiting for the
-     * refresh stalled decoding on Intel iMacs. */
-    tb_disp_use_metal_rgb10(d, 0, 0);
 
+    /* Hardware-decoded video never waits for the refresh: that stalled
+     * decoding on Intel iMacs. */
+    if (d->metal_view) {
+        tb_disp_use_view(d, 1, 0, 0);
+        if (tb_metal_view_upload_nv12(d->metal_view, y, y_stride, uv, uv_stride, w, h) == 0) {
+            d->last_video_frame_time = SDL_GetTicks();
+            tb_disp_render_current(d);
+            return;
+        }
+        tb_disp_use_view(d, 0, 0, 0);
+    }
+
+    if (tb_disp_ensure_texture(d, w, h) < 0) return;
     if (SDL_UpdateNVTexture(d->tex, NULL,
                             y,  y_stride,
                             uv, uv_stride) < 0) {
@@ -1314,12 +1329,25 @@ void tb_disp_render_nv12(struct tb_display *d,
 }
 
 void tb_disp_render_nv12_rows(struct tb_display *d,
-                              const uint8_t *y, const uint8_t *uv,
+                              const uint8_t *y, size_t y_capacity,
+                              const uint8_t *uv, size_t uv_capacity,
                               int w, int h, int first_row, int end_row) {
-    if (tb_disp_ensure_texture(d, w, h) < 0) return;
+    if (!d) return;
     tb_disp_set_connection_state(d, 1);
-    tb_disp_use_metal_rgb10(d, 0, 1);
 
+    /* Metal: the GPU copies the changed rows straight from the frame memory. */
+    if (d->metal_view) {
+        tb_disp_use_view(d, 1, 0, d->display_sync);
+        if (tb_metal_view_upload_nv12_rows(d->metal_view, y, y_capacity, uv, uv_capacity,
+                                           w, h, first_row, end_row) == 0) {
+            d->last_video_frame_time = SDL_GetTicks();
+            tb_disp_render_current(d);
+            return;
+        }
+        tb_disp_use_view(d, 0, 0, 0);
+    }
+
+    if (tb_disp_ensure_texture(d, w, h) < 0) return;
     if (d->tex_needs_full_upload) {
         first_row = 0;
         end_row = h;
@@ -1350,14 +1378,14 @@ void tb_disp_render_rgb10_rows(struct tb_display *d, const uint8_t *pixels, size
 
     /* Metal: the GPU copies the changed rows into a 10-bit texture. */
     if (d->metal_view) {
-        tb_disp_use_metal_rgb10(d, 1, 1);
+        tb_disp_use_view(d, 1, 1, d->display_sync);
         if (tb_metal_view_upload_rgb10(d->metal_view, pixels, pixels_capacity,
                                        w, h, first_row, end_row) == 0) {
             d->last_video_frame_time = SDL_GetTicks();
             tb_disp_render_current(d);
             return;
         }
-        tb_disp_use_metal_rgb10(d, 0, 1);
+        tb_disp_use_view(d, 0, 0, 0);
     }
 
     if (tb_disp_ensure_texture_format(d, w, h, SDL_PIXELFORMAT_ARGB2101010) < 0) return;
@@ -1382,8 +1410,12 @@ void tb_disp_render_rgb10_rows(struct tb_display *d, const uint8_t *pixels, size
 
 void tb_disp_reset_video(struct tb_display *d) {
     if (!d) return;
-    tb_disp_use_metal_rgb10(d, 0, 0);
+    tb_disp_use_view(d, 0, 0, 0);
     tb_metal_view_reset(d->metal_view);
+}
+
+void tb_disp_set_display_sync(struct tb_display *d, int on) {
+    if (d) d->display_sync = on ? 1 : 0;
 }
 
 int tb_disp_native_rgb10(struct tb_display *d) {
@@ -1407,7 +1439,7 @@ void tb_disp_set_cursor(struct tb_display *d,
 
     uint32_t now = SDL_GetTicks();
     if (now - d->last_video_frame_time > 40) {
-        if (d->is_connected && d->tex) {
+        if (d->is_connected && (d->tex || d->video_in_view)) {
             tb_disp_render_current(d);
         }
     }

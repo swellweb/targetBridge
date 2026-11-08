@@ -106,7 +106,8 @@ struct app {
     /* Performance switches (Receiver menu bar > Performance). */
     int      perf_newest_frame;
     int      perf_wake_on_data;
-    int      perf_metal;
+    int      video_renderer;   /* enum tb_disp_renderer, applies at start */
+    int      display_sync;     /* Metal: raw modes wait for the refresh */
     int      perf_show_stats;
     CVPixelBufferRef pending_pixel_buffer;
     /* Changed-rows raw frames: the receiver's copy of the picture, and the
@@ -1157,7 +1158,8 @@ static void tb_receiver_draw_raw_rows(struct app *a, int first_row, int end_row)
                                   (int)a->raw_frame.w, (int)a->raw_frame.h,
                                   first_row, end_row);
     } else {
-        tb_disp_render_nv12_rows(a->disp, a->raw_frame.y, a->raw_frame.uv,
+        tb_disp_render_nv12_rows(a->disp, a->raw_frame.y, a->raw_frame.y_capacity,
+                                 a->raw_frame.uv, a->raw_frame.uv_capacity,
                                  (int)a->raw_frame.w, (int)a->raw_frame.h,
                                  first_row, end_row);
     }
@@ -2491,10 +2493,15 @@ int main(int argc, char **argv) {
     a.window_requested = a.background_mode && a.show_window_at_start;
     a.perf_newest_frame = tb_pref_get("perfNewestFrameOnly", 1);
     a.perf_wake_on_data = tb_pref_get("perfWakeOnData", 1);
-    a.perf_metal = tb_pref_get("perfMetalRenderer", 0);
+    a.video_renderer = tb_pref_get_int("videoRenderer", TB_DISP_RENDERER_TARGETBRIDGE);
+    if (a.video_renderer < TB_DISP_RENDERER_TARGETBRIDGE || a.video_renderer > TB_DISP_RENDERER_SDL_OPENGL) {
+        a.video_renderer = TB_DISP_RENDERER_TARGETBRIDGE;
+    }
+    a.display_sync = tb_pref_get("metalDisplaySync", 0);
     a.perf_show_stats = tb_pref_get("perfShowStats", 0);
-    a.disp = tb_disp_create(fullscreen, a.background_mode && !a.show_window_at_start, a.perf_metal);
+    a.disp = tb_disp_create(fullscreen, a.background_mode && !a.show_window_at_start, a.video_renderer);
     if (!a.disp) { fprintf(stderr, "tb_disp_create failed\n"); return 1; }
+    tb_disp_set_display_sync(a.disp, a.display_sync);
     tb_background_ui_install();
 
     /* SDL starts with screen-saver inhibition enabled. A Receiver that has not
@@ -2547,10 +2554,19 @@ int main(int argc, char **argv) {
             a.perf_wake_on_data = !a.perf_wake_on_data;
             tb_pref_set("perfWakeOnData", a.perf_wake_on_data);
         }
-        if (ui_actions & TB_BACKGROUND_UI_TOGGLE_METAL) {
-            /* Applies on the next launch: the renderer is chosen at startup. */
-            a.perf_metal = !a.perf_metal;
-            tb_pref_set("perfMetalRenderer", a.perf_metal);
+        /* Expert settings. The renderer applies on the next launch: it is
+         * chosen at startup. */
+        if (ui_actions & TB_BACKGROUND_UI_RENDERER_TARGETBRIDGE) a.video_renderer = TB_DISP_RENDERER_TARGETBRIDGE;
+        if (ui_actions & TB_BACKGROUND_UI_RENDERER_SDL_METAL) a.video_renderer = TB_DISP_RENDERER_SDL_METAL;
+        if (ui_actions & TB_BACKGROUND_UI_RENDERER_SDL_OPENGL) a.video_renderer = TB_DISP_RENDERER_SDL_OPENGL;
+        if (ui_actions & (TB_BACKGROUND_UI_RENDERER_TARGETBRIDGE | TB_BACKGROUND_UI_RENDERER_SDL_METAL |
+                          TB_BACKGROUND_UI_RENDERER_SDL_OPENGL)) {
+            tb_pref_set_int("videoRenderer", a.video_renderer);
+        }
+        if (ui_actions & TB_BACKGROUND_UI_TOGGLE_DISPLAY_SYNC) {
+            a.display_sync = !a.display_sync;
+            tb_pref_set("metalDisplaySync", a.display_sync);
+            tb_disp_set_display_sync(a.disp, a.display_sync);
         }
         if (ui_actions & TB_BACKGROUND_UI_TOGGLE_STATS) {
             a.perf_show_stats = !a.perf_show_stats;
@@ -2558,7 +2574,7 @@ int main(int argc, char **argv) {
             if (!a.perf_show_stats) tb_disp_set_stats_text(a.disp, NULL);
         }
         tb_background_ui_set_performance(a.perf_newest_frame, a.perf_wake_on_data,
-                                         a.perf_metal, a.perf_show_stats);
+                                         a.video_renderer, a.display_sync, a.perf_show_stats);
         if (ui_actions & TB_BACKGROUND_UI_TOGGLE_SHOW_AT_START) {
             a.show_window_at_start = !a.show_window_at_start;
             tb_show_window_at_start_save(a.show_window_at_start);

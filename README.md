@@ -44,8 +44,9 @@ screen, in 8-bit or, experimentally, 10-bit colour:
 
 - four **Uncompressed** options next to Automatic, H.264 and HEVC: 8-bit,
   8-bit with lossless LZ4, 10-bit dithered (captured in 10-bit, shown in
-  8-bit) and full 10-bit colour (shown in true 10-bit with the Receiver's
-  Metal renderer)
+  8-bit) and full 10-bit colour
+- the Receiver draws all video with its own Metal renderer, which shows full
+  10-bit colour in 10 bits; SDL's renderers remain as expert settings
 - only the changed rows of the screen are sent, so a still desktop costs almost
   no bandwidth, and the Receiver uploads only those rows to the GPU
 - the 10-bit modes spread each frame over up to 4 parallel connections

@@ -29,7 +29,14 @@ enum tb_display_action {
     TB_DISP_ACTION_HIDE_WINDOW = 1 << 2
 };
 
-struct tb_display *tb_disp_create(int fullscreen, int start_hidden, int prefer_metal);
+/* Video renderer (Receiver menu > Expert settings, applies at start). */
+enum tb_disp_renderer {
+    TB_DISP_RENDERER_TARGETBRIDGE = 0, /* SDL Metal window, our Metal video view */
+    TB_DISP_RENDERER_SDL_METAL    = 1, /* SDL draws everything with Metal */
+    TB_DISP_RENDERER_SDL_OPENGL   = 2  /* SDL draws everything with OpenGL */
+};
+
+struct tb_display *tb_disp_create(int fullscreen, int start_hidden, int renderer);
 void               tb_disp_destroy(struct tb_display *d);
 void               tb_disp_set_connection_state(struct tb_display *d, int connected);
 void               tb_disp_set_input_capture_active(struct tb_display *d, int active);
@@ -56,7 +63,8 @@ void tb_disp_render_nv12(struct tb_display *d,
 /* Upload only rows [first_row, end_row) of a tightly packed NV12 picture
  * (stride = w), then render. A newly created texture gets the whole picture. */
 void tb_disp_render_nv12_rows(struct tb_display *d,
-                              const uint8_t *y, const uint8_t *uv,
+                              const uint8_t *y, size_t y_capacity,
+                              const uint8_t *uv, size_t uv_capacity,
                               int w, int h, int first_row, int end_row);
 
 /* A notice shown at the bottom of the picture (e.g. a version mismatch);
@@ -70,8 +78,12 @@ void tb_disp_set_notice_text(struct tb_display *d, const char *text);
 void tb_disp_render_rgb10_rows(struct tb_display *d, const uint8_t *pixels, size_t pixels_capacity,
                                int w, int h, int first_row, int end_row);
 
-/* Forgets the picture of the 10-bit view, e.g. at the end of a session. */
+/* Forgets the picture of the Metal video view, e.g. at the end of a session. */
 void tb_disp_reset_video(struct tb_display *d);
+
+/* Uncompressed modes on the TargetBridge Metal renderer: 1 = present in step
+ * with the display's refresh (no tearing, but the Receiver waits for it). */
+void tb_disp_set_display_sync(struct tb_display *d, int on);
 
 /* Whether the renderer keeps 10-bit RGB textures (otherwise SDL converts
  * them to 8 bit on upload). */

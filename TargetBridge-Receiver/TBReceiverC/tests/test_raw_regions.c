@@ -76,7 +76,8 @@ int main(void) {
     CHECK(result.first_row == 0 && result.end_row == 8, "full frame row span");
     CHECK(frame.w == 8 && frame.h == 8, "frame allocated");
     CHECK(((uintptr_t)frame.y % TB_RAW_REGIONS_Y_ALIGNMENT) == 0 &&
-          frame.y_capacity % TB_RAW_REGIONS_Y_ALIGNMENT == 0 && frame.y_capacity >= 64,
+          frame.y_capacity % TB_RAW_REGIONS_Y_ALIGNMENT == 0 && frame.y_capacity >= 64 &&
+          ((uintptr_t)frame.uv % TB_RAW_REGIONS_Y_ALIGNMENT) == 0 && frame.uv_capacity >= 32,
           "picture memory page aligned for the GPU");
     CHECK(frame.y[0] == 50 && frame.y[width * 4] == 70 && frame.y[width * 8 - 1] == 70, "Y rows patched");
     CHECK(frame.uv[0] == 60 && frame.uv[width * 2] == 80, "CbCr rows patched");

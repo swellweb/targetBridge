@@ -57,8 +57,8 @@ struct tb_raw_frame {
     uint32_t w;
     uint32_t h;
     uint32_t *row_seq;  /* per row pair: sequence of the last write, 0 = none */
-    size_t   y_capacity; /* bytes allocated for y: 16 KiB aligned and rounded
-                          * up, so the GPU can read the picture in place */
+    size_t   y_capacity;  /* bytes allocated for y and uv: 16 KiB aligned and */
+    size_t   uv_capacity; /* rounded up, so the GPU reads the planes in place */
 };
 
 /* Decodes src into exactly dst_len bytes. Returns 0 on success. */

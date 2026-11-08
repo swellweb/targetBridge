@@ -48,6 +48,7 @@ void tb_raw_frame_free(struct tb_raw_frame *frame) {
     frame->uv = NULL;
     frame->row_seq = NULL;
     frame->y_capacity = 0;
+    frame->uv_capacity = 0;
     frame->format = 0;
     frame->w = 0;
     frame->h = 0;
@@ -61,19 +62,29 @@ static size_t tb_raw_uv_row_bytes(uint8_t format, size_t w) {
     return format == TB_RAW_REGIONS_FORMAT_RGB10 ? 0 : w;
 }
 
+/* Plane memory the GPU can read in place: 16 KiB aligned, size rounded up. */
+static size_t tb_raw_gpu_capacity(size_t size) {
+    return (size + TB_RAW_REGIONS_Y_ALIGNMENT - 1) & ~(size_t)(TB_RAW_REGIONS_Y_ALIGNMENT - 1);
+}
+
+static uint8_t *tb_raw_gpu_alloc(size_t capacity) {
+    void *p = NULL;
+    if (posix_memalign(&p, TB_RAW_REGIONS_Y_ALIGNMENT, capacity) != 0) return NULL;
+    return (uint8_t *)p;
+}
+
 static int tb_raw_frame_resize(struct tb_raw_frame *frame, uint8_t format, uint32_t w, uint32_t h) {
     if (frame->y && frame->row_seq && frame->format == format &&
         frame->w == w && frame->h == h) return 0;
     tb_raw_frame_free(frame);
     const size_t y_size = tb_raw_row_bytes(format, w) * h;
     const size_t uv_size = tb_raw_uv_row_bytes(format, w) * (h / 2);
-    const size_t y_capacity = (y_size + TB_RAW_REGIONS_Y_ALIGNMENT - 1) &
-                              ~(size_t)(TB_RAW_REGIONS_Y_ALIGNMENT - 1);
-    void *y = NULL;
-    if (posix_memalign(&y, TB_RAW_REGIONS_Y_ALIGNMENT, y_capacity) != 0) y = NULL;
-    frame->y = (uint8_t *)y;
-    frame->y_capacity = y ? y_capacity : 0;
-    frame->uv = uv_size ? (uint8_t *)malloc(uv_size) : NULL;
+    const size_t y_capacity = tb_raw_gpu_capacity(y_size);
+    const size_t uv_capacity = uv_size ? tb_raw_gpu_capacity(uv_size) : 0;
+    frame->y = tb_raw_gpu_alloc(y_capacity);
+    frame->y_capacity = frame->y ? y_capacity : 0;
+    frame->uv = uv_capacity ? tb_raw_gpu_alloc(uv_capacity) : NULL;
+    frame->uv_capacity = frame->uv ? uv_capacity : 0;
     frame->row_seq = (uint32_t *)calloc(h / 2, sizeof(uint32_t));
     if (!frame->y || (uv_size && !frame->uv) || !frame->row_seq) {
         tb_raw_frame_free(frame);

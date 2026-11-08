@@ -20,7 +20,12 @@ static NSString *const kShowWindowAtStartKey = @"showWindowAtStart";
 @property(nonatomic, strong) NSMenuItem *performanceItem;
 @property(nonatomic, strong) NSMenuItem *newestFrameItem;
 @property(nonatomic, strong) NSMenuItem *wakeOnDataItem;
-@property(nonatomic, strong) NSMenuItem *metalItem;
+@property(nonatomic, strong) NSMenuItem *expertItem;
+@property(nonatomic, strong) NSMenuItem *rendererHeader;
+@property(nonatomic, strong) NSMenuItem *rendererTargetBridgeItem;
+@property(nonatomic, strong) NSMenuItem *rendererSDLMetalItem;
+@property(nonatomic, strong) NSMenuItem *rendererSDLOpenGLItem;
+@property(nonatomic, strong) NSMenuItem *displaySyncItem;
 @property(nonatomic, strong) NSMenuItem *statsItem;
 @property(nonatomic, strong) NSButton *checkbox;
 @property(nonatomic, strong) NSButton *showAtStartCheckbox;
@@ -90,9 +95,25 @@ static NSWindow *tb_ui_largest_window(void) {
     performance.autoenablesItems = NO;
     _newestFrameItem = [self addItemTo:performance action:@selector(toggleNewestFrame:)];
     _wakeOnDataItem = [self addItemTo:performance action:@selector(toggleWakeOnData:)];
-    _metalItem = [self addItemTo:performance action:@selector(toggleMetal:)];
     [performance addItem:NSMenuItem.separatorItem];
     _statsItem = [self addItemTo:performance action:@selector(toggleStats:)];
+    [performance addItem:NSMenuItem.separatorItem];
+
+    /* For developers: SDL's own renderers and display sync. */
+    NSMenu *expert = [[NSMenu alloc] init];
+    expert.autoenablesItems = NO;
+    _rendererHeader = [expert addItemWithTitle:@"" action:nil keyEquivalent:@""];
+    _rendererHeader.enabled = NO;
+    _rendererTargetBridgeItem = [self addItemTo:expert action:@selector(chooseRenderer:)];
+    _rendererTargetBridgeItem.tag = 0;
+    _rendererSDLMetalItem = [self addItemTo:expert action:@selector(chooseRenderer:)];
+    _rendererSDLMetalItem.tag = 1;
+    _rendererSDLOpenGLItem = [self addItemTo:expert action:@selector(chooseRenderer:)];
+    _rendererSDLOpenGLItem.tag = 2;
+    [expert addItem:NSMenuItem.separatorItem];
+    _displaySyncItem = [self addItemTo:expert action:@selector(toggleDisplaySync:)];
+    _expertItem = [performance addItemWithTitle:@"" action:nil keyEquivalent:@""];
+    _expertItem.submenu = expert;
     _performanceItem = [menu addItemWithTitle:@"" action:nil keyEquivalent:@""];
     _performanceItem.submenu = performance;
     [menu addItem:NSMenuItem.separatorItem];
@@ -129,8 +150,16 @@ static NSWindow *tb_ui_largest_window(void) {
     self.actions |= TB_BACKGROUND_UI_TOGGLE_WAKE_ON_DATA;
 }
 
-- (void)toggleMetal:(id)sender {
-    self.actions |= TB_BACKGROUND_UI_TOGGLE_METAL;
+- (void)chooseRenderer:(NSMenuItem *)sender {
+    switch (sender.tag) {
+    case 1: self.actions |= TB_BACKGROUND_UI_RENDERER_SDL_METAL; break;
+    case 2: self.actions |= TB_BACKGROUND_UI_RENDERER_SDL_OPENGL; break;
+    default: self.actions |= TB_BACKGROUND_UI_RENDERER_TARGETBRIDGE; break;
+    }
+}
+
+- (void)toggleDisplaySync:(id)sender {
+    self.actions |= TB_BACKGROUND_UI_TOGGLE_DISPLAY_SYNC;
 }
 
 - (void)toggleStats:(id)sender {
@@ -210,7 +239,12 @@ static NSWindow *tb_ui_largest_window(void) {
     self.performanceItem.title = tb_ui_text("receiver.performance.menu");
     self.newestFrameItem.title = tb_ui_text("receiver.performance.newest_frame");
     self.wakeOnDataItem.title = tb_ui_text("receiver.performance.wake_on_data");
-    self.metalItem.title = tb_ui_text("receiver.performance.metal_renderer");
+    self.expertItem.title = tb_ui_text("receiver.expert.menu");
+    self.rendererHeader.title = tb_ui_text("receiver.expert.renderer");
+    self.rendererTargetBridgeItem.title = tb_ui_text("receiver.expert.renderer_targetbridge");
+    self.rendererSDLMetalItem.title = tb_ui_text("receiver.expert.renderer_sdl_metal");
+    self.rendererSDLOpenGLItem.title = tb_ui_text("receiver.expert.renderer_sdl_opengl");
+    self.displaySyncItem.title = tb_ui_text("receiver.expert.display_sync");
     self.statsItem.title = tb_ui_text("receiver.performance.show_stats");
     self.loginHint.stringValue = tb_ui_text("receiver.background.login_hint");
     self.checkbox.title = tb_ui_text("receiver.background.run");
@@ -285,14 +319,29 @@ void tb_pref_set(const char *key, int value) {
     [NSUserDefaults.standardUserDefaults setBool:value != 0 forKey:[NSString stringWithUTF8String:key]];
 }
 
+int tb_pref_get_int(const char *key, int default_value) {
+    NSString *name = [NSString stringWithUTF8String:key];
+    id value = [NSUserDefaults.standardUserDefaults objectForKey:name];
+    return value ? (int)[value integerValue] : default_value;
+}
+
+void tb_pref_set_int(const char *key, int value) {
+    [NSUserDefaults.standardUserDefaults setInteger:value forKey:[NSString stringWithUTF8String:key]];
+}
+
 static NSControlStateValue tb_ui_state(int on) {
     return on ? NSControlStateValueOn : NSControlStateValueOff;
 }
 
-void tb_background_ui_set_performance(int newest_frame, int wake_on_data, int metal, int stats) {
+void tb_background_ui_set_performance(int newest_frame, int wake_on_data, int renderer,
+                                      int display_sync, int stats) {
     g_background_ui.newestFrameItem.state = tb_ui_state(newest_frame);
     g_background_ui.wakeOnDataItem.state = tb_ui_state(wake_on_data);
-    g_background_ui.metalItem.state = tb_ui_state(metal);
+    g_background_ui.rendererTargetBridgeItem.state = tb_ui_state(renderer == 0);
+    g_background_ui.rendererSDLMetalItem.state = tb_ui_state(renderer == 1);
+    g_background_ui.rendererSDLOpenGLItem.state = tb_ui_state(renderer == 2);
+    g_background_ui.displaySyncItem.state = tb_ui_state(display_sync);
+    g_background_ui.displaySyncItem.enabled = renderer == 0;
     g_background_ui.statsItem.state = tb_ui_state(stats);
 }
 
