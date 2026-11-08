@@ -21,7 +21,7 @@
 #include <string.h>
 
 #ifndef TB_RECEIVER_VERSION
-#define TB_RECEIVER_VERSION "3.7.0-rc1"
+#define TB_RECEIVER_VERSION "4.0"
 #endif
 
 #ifndef TB_RECEIVER_BUILD
@@ -38,7 +38,9 @@ struct tb_display {
     char          last_stats[256];
     char          renderer_name[32];
     int           tex_w, tex_h;
+    Uint32        tex_format;
     int           tex_needs_full_upload; /* new texture, contents undefined */
+    int           native_rgb10;          /* renderer keeps 10-bit RGB textures */
     int           quit;
     int           window_hidden;
     int           close_hides;
@@ -615,6 +617,11 @@ struct tb_display *tb_disp_create(int fullscreen, int start_hidden, int prefer_m
     if (SDL_GetRendererInfo(d->ren, &info) == 0) {
         fprintf(stderr, "[disp] renderer = %s\n", info.name);
         snprintf(d->renderer_name, sizeof(d->renderer_name), "%s", info.name);
+        for (Uint32 i = 0; i < info.num_texture_formats; ++i) {
+            if (info.texture_formats[i] == SDL_PIXELFORMAT_ARGB2101010) d->native_rgb10 = 1;
+        }
+        fprintf(stderr, "[disp] 10-bit RGB textures: %s\n",
+                d->native_rgb10 ? "native" : "converted to 8-bit by SDL");
     }
 
     int win_w = 0, win_h = 0, out_w = 0, out_h = 0;
@@ -664,21 +671,25 @@ void tb_disp_destroy(struct tb_display *d) {
     free(d);
 }
 
-int tb_disp_ensure_texture(struct tb_display *d, int w, int h) {
-    if (d->tex && d->tex_w == w && d->tex_h == h) return 0;
+static int tb_disp_ensure_texture_format(struct tb_display *d, int w, int h, Uint32 format) {
+    if (d->tex && d->tex_w == w && d->tex_h == h && d->tex_format == format) return 0;
     if (d->tex) { SDL_DestroyTexture(d->tex); d->tex = NULL; }
 
-    d->tex = SDL_CreateTexture(d->ren, SDL_PIXELFORMAT_NV12,
-                               SDL_TEXTUREACCESS_STREAMING, w, h);
+    d->tex = SDL_CreateTexture(d->ren, format, SDL_TEXTUREACCESS_STREAMING, w, h);
     if (!d->tex) {
-        fprintf(stderr, "[disp] CreateTexture(NV12): %s\n", SDL_GetError());
+        fprintf(stderr, "[disp] CreateTexture(%s): %s\n", SDL_GetPixelFormatName(format), SDL_GetError());
         return -1;
     }
     d->tex_w = w;
     d->tex_h = h;
+    d->tex_format = format;
     d->tex_needs_full_upload = 1;
-    fprintf(stderr, "[disp] texture %dx%d NV12\n", w, h);
+    fprintf(stderr, "[disp] texture %dx%d %s\n", w, h, SDL_GetPixelFormatName(format));
     return 0;
+}
+
+int tb_disp_ensure_texture(struct tb_display *d, int w, int h) {
+    return tb_disp_ensure_texture_format(d, w, h, SDL_PIXELFORMAT_NV12);
 }
 
 static void tb_disp_draw_poly_outline(SDL_Renderer *ren, const SDL_Point *pts, int count) {
@@ -1247,6 +1258,34 @@ void tb_disp_render_nv12_rows(struct tb_display *d,
     }
     d->last_video_frame_time = SDL_GetTicks();
     tb_disp_render_current(d);
+}
+
+void tb_disp_render_rgb10_rows(struct tb_display *d, const uint8_t *pixels,
+                               int w, int h, int first_row, int end_row) {
+    if (tb_disp_ensure_texture_format(d, w, h, SDL_PIXELFORMAT_ARGB2101010) < 0) return;
+    tb_disp_set_connection_state(d, 1);
+
+    if (d->tex_needs_full_upload) {
+        first_row = 0;
+        end_row = h;
+    }
+    if (first_row < 0) first_row = 0;
+    if (end_row > h) end_row = h;
+    if (end_row > first_row) {
+        const SDL_Rect rect = { 0, first_row, w, end_row - first_row };
+        const int pitch = w * 4;
+        if (SDL_UpdateTexture(d->tex, &rect, pixels + (size_t)pitch * (size_t)first_row, pitch) < 0) {
+            fprintf(stderr, "[disp] UpdateTexture(RGB10 rows): %s\n", SDL_GetError());
+            return;
+        }
+        d->tex_needs_full_upload = 0;
+    }
+    d->last_video_frame_time = SDL_GetTicks();
+    tb_disp_render_current(d);
+}
+
+int tb_disp_native_rgb10(struct tb_display *d) {
+    return d ? d->native_rgb10 : 0;
 }
 
 void tb_disp_set_cursor(struct tb_display *d,

@@ -60,6 +60,22 @@
  * (5 missed heartbeats) means it died without a FIN. */
 #define TB_SENDER_IDLE_TIMEOUT_MS 10000
 
+/* Extra TCP connections a sender opens for raw frames ("Uncompressed,
+ * enhanced"). A connection only counts once its first packet carries this
+ * session's stream token. */
+#define TB_MAX_DATA_STREAMS 4
+
+struct app;
+
+struct tb_data_stream {
+    int              fd;
+    int              accepted;
+    int              rejected;
+    uint64_t         opened_ms;
+    struct tb_parser parser;
+    struct app      *app;
+};
+
 struct app {
     struct tb_display *disp;
     struct tb_decoder *dec;
@@ -92,10 +108,13 @@ struct app {
      * rows patched since the last draw (drawn once per loop with
      * "draw only the newest frame"). */
     struct tb_raw_frame raw_frame;
+    struct tb_data_stream data_streams[TB_MAX_DATA_STREAMS];
+    char     stream_token[24];
     int      raw_pending;
     int      raw_pending_first;
     int      raw_pending_end;
     uint64_t stats_region_rows;
+    uint64_t stats_rgb10_frames;
     uint64_t stats_region_height;
     uint64_t stats_skipped;
     uint64_t stats_draw_us_total;
@@ -1092,9 +1111,15 @@ static int tb_receiver_decode_lz4(uint8_t *dst, size_t dst_len,
 
 static void tb_receiver_draw_raw_rows(struct app *a, int first_row, int end_row) {
     const uint64_t draw_start = now_us();
-    tb_disp_render_nv12_rows(a->disp, a->raw_frame.y, a->raw_frame.uv,
-                             (int)a->raw_frame.w, (int)a->raw_frame.h,
-                             first_row, end_row);
+    if (a->raw_frame.format == TB_RAW_REGIONS_FORMAT_RGB10) {
+        tb_disp_render_rgb10_rows(a->disp, a->raw_frame.y,
+                                  (int)a->raw_frame.w, (int)a->raw_frame.h,
+                                  first_row, end_row);
+    } else {
+        tb_disp_render_nv12_rows(a->disp, a->raw_frame.y, a->raw_frame.uv,
+                                 (int)a->raw_frame.w, (int)a->raw_frame.h,
+                                 first_row, end_row);
+    }
     const uint64_t draw_us = now_us() - draw_start;
     a->stats_draw_us_total += draw_us;
     if (draw_us > a->stats_draw_us_max) a->stats_draw_us_max = draw_us;
@@ -1110,11 +1135,17 @@ static void tb_receiver_present_pending_raw(struct app *a) {
 
 /* Changed rows of a raw NV12 frame (see raw_regions.h). The rows are patched
  * into the receiver's copy of the picture and only they are uploaded. */
-static void handle_raw_regions(struct app *a, const uint8_t *p, size_t len) {
+static void handle_raw_regions(struct app *a, const uint8_t *p, size_t len, int is_part) {
     struct tb_raw_regions_result result;
     memset(&result, 0, sizeof(result));
-    const int status = tb_raw_regions_apply(&a->raw_frame, p, len,
-                                            tb_receiver_decode_lz4, &result);
+    const uint8_t previous_format = a->raw_frame.format;
+    const int status = is_part
+        ? tb_raw_regions_apply_part(&a->raw_frame, p, len, tb_receiver_decode_lz4, &result)
+        : tb_raw_regions_apply(&a->raw_frame, p, len, tb_receiver_decode_lz4, &result);
+    if (status != -1 && a->raw_frame.format != previous_format) {
+        /* A pending draw of the old format no longer matches the frame. */
+        a->raw_pending = 0;
+    }
     if (status == -1) {
         fprintf(stderr, "[main] raw regions: malformed packet (%zu bytes) ignored\n", len);
         return;
@@ -1137,6 +1168,7 @@ static void handle_raw_regions(struct app *a, const uint8_t *p, size_t len) {
     }
     a->have_video_frame = 1;
     a->stats_region_rows += result.rows;
+    if (result.format == TB_RAW_REGIONS_FORMAT_RGB10) a->stats_rgb10_frames++;
     a->stats_region_height += result.h;
 
     if (!a->perf_newest_frame) {
@@ -1404,7 +1436,11 @@ static void on_packet(uint8_t type, const uint8_t *payload, size_t len, void *ud
         break;
     case TB_PKT_RAW_REGIONS:
         a->session_active = 1;
-        handle_raw_regions(a, payload, len);
+        handle_raw_regions(a, payload, len, 0);
+        break;
+    case TB_PKT_RAW_REGIONS_PART:
+        a->session_active = 1;
+        handle_raw_regions(a, payload, len, 1);
         break;
     case TB_PKT_CURSOR:
         {
@@ -1519,15 +1555,16 @@ static void on_packet(uint8_t type, const uint8_t *payload, size_t len, void *ud
 
 /* ---- Networking helpers ---------------------------------------------- */
 
-static int drain_socket(struct app *a) {
-    uint8_t buf[1024 * 1024];
+static int drain_fd(struct app *a, int fd, struct tb_parser *parser) {
+    /* Shared by all connections; the receiver reads them on one thread. */
+    static uint8_t buf[1024 * 1024];
     int saw_data = 0;
     for (;;) {
-        ssize_t n = read(a->client_fd, buf, sizeof(buf));
+        ssize_t n = read(fd, buf, sizeof(buf));
         if (n > 0) {
             saw_data = 1;
             a->stats_bytes += (uint64_t)n;
-            if (tb_parser_feed(&a->parser, buf, (size_t)n) < 0) return -1;
+            if (tb_parser_feed(parser, buf, (size_t)n) < 0) return -1;
         } else if (n == 0) {
             return -1;  /* peer closed */
         } else {
@@ -1536,6 +1573,97 @@ static int drain_socket(struct app *a) {
             return -1;
         }
     }
+}
+
+static int drain_socket(struct app *a) {
+    return drain_fd(a, a->client_fd, &a->parser);
+}
+
+/* ---- Parallel data streams ------------------------------------------- */
+
+static void on_data_stream_packet(uint8_t type, const uint8_t *payload, size_t len, void *ud) {
+    struct tb_data_stream *stream = (struct tb_data_stream *)ud;
+    struct app *a = stream->app;
+    if (stream->rejected) return;
+    if (!stream->accepted) {
+        char token[40];
+        token[0] = '\0';
+        if (type == TB_PKT_DATA_STREAM_HELLO) {
+            extract_json_string_field(payload, len, "\"token\"", token, sizeof(token));
+        }
+        if (token[0] != '\0' && a->stream_token[0] != '\0' &&
+            strcmp(token, a->stream_token) == 0) {
+            stream->accepted = 1;
+            fprintf(stderr, "[main] data stream connected\n");
+        } else {
+            stream->rejected = 1;
+        }
+        return;
+    }
+    switch (type) {
+    case TB_PKT_RAW_REGIONS_PART:
+        handle_raw_regions(a, payload, len, 1);
+        break;
+    case TB_PKT_RAW_REGIONS:
+        handle_raw_regions(a, payload, len, 0);
+        break;
+    default:
+        break;
+    }
+}
+
+static void close_data_stream(struct tb_data_stream *stream) {
+    if (stream->fd >= 0) close(stream->fd);
+    stream->fd = -1;
+    stream->accepted = 0;
+    stream->rejected = 0;
+    tb_parser_free(&stream->parser);
+}
+
+static void close_data_streams(struct app *a) {
+    for (int i = 0; i < TB_MAX_DATA_STREAMS; ++i) close_data_stream(&a->data_streams[i]);
+}
+
+/* While a session runs, further connections may be data streams of the same
+ * sender. They are accepted here and dropped unless their first packet
+ * carries the session's stream token. */
+static void accept_data_streams(struct app *a, uint64_t t) {
+    for (;;) {
+        int c = tb_net_accept(a->server_fd);
+        if (c < 0) return;
+        struct tb_data_stream *slot = NULL;
+        for (int i = 0; i < TB_MAX_DATA_STREAMS; ++i) {
+            if (a->data_streams[i].fd < 0) { slot = &a->data_streams[i]; break; }
+        }
+        if (!slot) {
+            close(c);
+            continue;
+        }
+        slot->fd = c;
+        slot->accepted = 0;
+        slot->rejected = 0;
+        slot->opened_ms = t;
+        slot->app = a;
+        tb_parser_init(&slot->parser, on_data_stream_packet, slot);
+    }
+}
+
+static int drain_data_streams(struct app *a, uint64_t t) {
+    int activity = 0;
+    for (int i = 0; i < TB_MAX_DATA_STREAMS; ++i) {
+        struct tb_data_stream *stream = &a->data_streams[i];
+        if (stream->fd < 0) continue;
+        const int result = drain_fd(a, stream->fd, &stream->parser);
+        if (result < 0 || stream->rejected ||
+            (!stream->accepted && t - stream->opened_ms > 2000)) {
+            fprintf(stderr, "[main] data stream closed%s\n",
+                    stream->rejected ? " (wrong token)" : "");
+            close_data_stream(stream);
+            continue;
+        }
+        if (result > 0) activity = 1;
+    }
+    return activity;
 }
 
 static void write_be32(uint8_t *dst, uint32_t value) {
@@ -2074,7 +2202,8 @@ static void send_receiver_info(struct app *a) {
         "{\"receiverName\":\"%s\",\"panelWidth\":%u,\"panelHeight\":%u,"
         "\"modeWidth\":%u,\"modeHeight\":%u,\"refreshRate\":60,"
         "\"hiDPI\":%s,\"captureWidth\":%u,\"captureHeight\":%u,"
-        "\"supportsHEVCDecode\":%s,\"supportsRawNV12\":true,\"supportsRawRegions\":true,\"supportsRawLZ4\":true,\"inputMonitoringTrusted\":%s,\"accessibilityTrusted\":%s,"
+        "\"supportsHEVCDecode\":%s,\"supportsRawNV12\":true,\"supportsRawRegions\":true,\"supportsRawLZ4\":true,\"supportsRawRGB10\":true,"
+        "\"rawDataStreams\":%d,\"streamToken\":\"%s\",\"inputMonitoringTrusted\":%s,\"accessibilityTrusted\":%s,"
         "\"supportsNightShift\":%s,\"supportsTrueTone\":%s}",
         escaped_name,
         profile.panel_w,
@@ -2085,6 +2214,8 @@ static void send_receiver_info(struct app *a) {
         profile.capture_w,
         profile.capture_h,
         tb_dec_supports_hevc_hwdecode() ? "true" : "false",
+        TB_MAX_DATA_STREAMS,
+        a->stream_token,
         tb_receiver_input_monitoring_trusted() ? "true" : "false",
         tb_receiver_accessibility_trusted() ? "true" : "false",
         tb_night_shift_supported() ? "true" : "false",
@@ -2132,6 +2263,8 @@ static void close_client(struct app *a) {
     tb_receiver_drop_pending_frame(a);
     a->raw_pending = 0;
     tb_raw_frame_free(&a->raw_frame);
+    close_data_streams(a);
+    a->stream_token[0] = '\0';
     tb_disp_set_stats_text(a->disp, NULL);
     a->have_video_frame = 0;
     snprintf(a->input_control_mode, sizeof(a->input_control_mode), "off");
@@ -2234,6 +2367,7 @@ int main(int argc, char **argv) {
     memset(&a, 0, sizeof(a));
     a.server_fd = -1;
     a.client_fd = -1;
+    for (int i = 0; i < TB_MAX_DATA_STREAMS; ++i) a.data_streams[i].fd = -1;
     if (tb_receiver_load_or_create_id(a.receiver_id, sizeof(a.receiver_id),
                                      CFSTR("com.targetbridge.receiver")) == 0) {
         fprintf(stderr, "[identity] receiver ID ready\n");
@@ -2417,11 +2551,17 @@ int main(int argc, char **argv) {
                 fprintf(stderr, "[main] client connected\n");
                 tb_parser_free(&a.parser);
                 tb_parser_init(&a.parser, on_packet, &a);
+                snprintf(a.stream_token, sizeof(a.stream_token), "%08x%08x",
+                         arc4random(), arc4random());
                 tb_receiver_refresh_input_capture(&a);
                 send_receiver_info(&a);
             }
         } else {
+            accept_data_streams(&a, t);
             int drain_result = drain_socket(&a);
+            if (drain_result >= 0 && drain_data_streams(&a, t) > 0 && drain_result == 0) {
+                drain_result = 1;
+            }
             if (drain_result < 0) {
                 close_client(&a);
             } else {
@@ -2557,13 +2697,15 @@ int main(int argc, char **argv) {
             a.last_fps_count   = a.frames;
             a.last_fps_tick_ms = t;
             char stats[256];
-            char changed[32] = "";
+            char changed[64] = "";
             const double draw_avg_ms = a.stats_draw_count
                 ? (double)a.stats_draw_us_total / 1000.0 / (double)a.stats_draw_count : 0.0;
             if (a.stats_region_height > 0) {
                 /* Share of the screen's rows that the sender had to send. */
-                snprintf(changed, sizeof(changed), " | changed %.0f%%",
-                         100.0 * (double)a.stats_region_rows / (double)a.stats_region_height);
+                snprintf(changed, sizeof(changed), " | changed %.0f%%%s",
+                         100.0 * (double)a.stats_region_rows / (double)a.stats_region_height,
+                         a.stats_rgb10_frames == 0 ? ""
+                             : tb_disp_native_rgb10(a.disp) ? " | 10-bit RGB" : " | 10-bit RGB shown as 8-bit");
             }
             snprintf(stats, sizeof(stats),
                      "%llu fps | %llu skipped | draw %.1f ms (max %.1f) | %.0f Mbit/s%s | %s",
@@ -2583,15 +2725,29 @@ int main(int argc, char **argv) {
             a.stats_bytes = 0;
             a.stats_region_rows = 0;
             a.stats_region_height = 0;
+            a.stats_rgb10_frames = 0;
         }
 
         /* Yield when idle or when a nonblocking active socket had no data,
          * otherwise the receiver can busy-spin between incoming frame packets. */
         if (a.client_fd < 0 || !a.have_video_frame || socket_activity == 0) {
             if (a.client_fd >= 0 && a.perf_wake_on_data) {
-                /* Same 1 ms ceiling, but returns as soon as data arrives. */
-                struct pollfd pfd = { a.client_fd, POLLIN, 0 };
-                (void)poll(&pfd, 1, 1);
+                /* Same 1 ms ceiling, but returns as soon as data arrives
+                 * on the session or any of its data streams. */
+                struct pollfd pfds[1 + TB_MAX_DATA_STREAMS];
+                nfds_t count = 0;
+                pfds[count].fd = a.client_fd;
+                pfds[count].events = POLLIN;
+                pfds[count].revents = 0;
+                count++;
+                for (int i = 0; i < TB_MAX_DATA_STREAMS; ++i) {
+                    if (a.data_streams[i].fd < 0) continue;
+                    pfds[count].fd = a.data_streams[i].fd;
+                    pfds[count].events = POLLIN;
+                    pfds[count].revents = 0;
+                    count++;
+                }
+                (void)poll(pfds, count, 1);
             } else {
                 SDL_Delay(1);
             }
@@ -2599,6 +2755,7 @@ int main(int argc, char **argv) {
     }
 
     if (a.client_fd >= 0) close(a.client_fd);
+    close_data_streams(&a);
     tb_restore_system_volume();
     tb_receiver_stop_input_tap(&a);
     if (a.server_fd >= 0) close(a.server_fd);

@@ -59,6 +59,14 @@ void tb_disp_render_nv12_rows(struct tb_display *d,
                               const uint8_t *y, const uint8_t *uv,
                               int w, int h, int first_row, int end_row);
 
+/* Same for 10-bit RGB (32-bit little-endian ARGB2101010, stride = w * 4). */
+void tb_disp_render_rgb10_rows(struct tb_display *d, const uint8_t *pixels,
+                               int w, int h, int first_row, int end_row);
+
+/* Whether the renderer keeps 10-bit RGB textures (otherwise SDL converts
+ * them to 8 bit on upload). */
+int  tb_disp_native_rgb10(struct tb_display *d);
+
 /* Update low-latency local cursor overlay in source-frame coordinates. */
 void tb_disp_set_cursor(struct tb_display *d,
                         int x, int y,

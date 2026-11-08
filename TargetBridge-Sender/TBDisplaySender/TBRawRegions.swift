@@ -160,8 +160,9 @@ enum TBRawDirtyRects {
     }
 }
 
-/// Builds packet type 0x24 (changed rows of a raw NV12 frame). The wire format
-/// is documented in the Receiver's raw_regions.h.
+/// Builds packet type 0x24 (changed rows of a raw NV12 frame) and, for
+/// parallel data streams, type 0x26 parts (a frame sequence followed by a 0x24
+/// payload). The wire format is documented in the Receiver's raw_regions.h.
 enum TBRawRegionPacketBuilder {
     static let headerBytes = 14
     static let bandBytes = 13
@@ -169,6 +170,9 @@ enum TBRawRegionPacketBuilder {
     static let flagFullFrame: UInt8 = 0x01
     static let encodingRaw: UInt8 = 0
     static let encodingLZ4: UInt8 = 1
+    static let formatNV12: UInt8 = 1
+    /// 10-bit RGB as captured ('l10r'): 4 bytes per pixel, one plane.
+    static let formatRGB10: UInt8 = 2
 
     struct Summary {
         var bands: Int
@@ -187,27 +191,73 @@ enum TBRawRegionPacketBuilder {
         var encoding: UInt8
     }
 
-    /// Returns the complete packet (length prefix and type included), or nil
-    /// if the pixel buffer is not usable NV12.
+    /// One packet (type 0x24), as before parallel streams existed.
     static func makePacket(
         pixelBuffer: CVPixelBuffer,
         spans: [TBRawRowSpan],
         fullFrame: Bool,
         compress: Bool
     ) -> (packet: Data, summary: Summary)? {
-        guard CVPixelBufferGetPlaneCount(pixelBuffer) >= 2 else { return nil }
+        guard let built = makePackets(
+            pixelBuffer: pixelBuffer,
+            spans: spans,
+            fullFrame: fullFrame,
+            compress: compress,
+            parts: 1,
+            frameSequence: nil
+        ), let packet = built.packets.first else { return nil }
+        return (packet, built.summary)
+    }
+
+    /// Splits the changed rows into up to `parts` packets of similar size.
+    /// With a `frameSequence` they are type 0x26 parts for parallel streams,
+    /// otherwise a single type 0x24 packet. Accepts NV12 or 10-bit RGB
+    /// ('l10r'). Returns nil if the pixel buffer is neither.
+    static func makePackets(
+        pixelBuffer: CVPixelBuffer,
+        spans: [TBRawRowSpan],
+        fullFrame: Bool,
+        compress: Bool,
+        parts: Int,
+        frameSequence: UInt32?
+    ) -> (packets: [Data], summary: Summary)? {
         CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
         defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }
 
-        guard let yBase = CVPixelBufferGetBaseAddressOfPlane(pixelBuffer, 0),
-              let uvBase = CVPixelBufferGetBaseAddressOfPlane(pixelBuffer, 1) else { return nil }
-        let width = CVPixelBufferGetWidthOfPlane(pixelBuffer, 0)
-        let height = CVPixelBufferGetHeightOfPlane(pixelBuffer, 0)
-        let yStride = CVPixelBufferGetBytesPerRowOfPlane(pixelBuffer, 0)
-        let uvStride = CVPixelBufferGetBytesPerRowOfPlane(pixelBuffer, 1)
-        guard width > 0, height > 0, width % 2 == 0, height % 2 == 0,
-              yStride >= width, uvStride >= width,
-              CVPixelBufferGetHeightOfPlane(pixelBuffer, 1) >= height / 2 else { return nil }
+        // Main plane: Y for NV12, the pixels for RGB10. Second plane: CbCr.
+        let format: UInt8
+        let width: Int
+        let height: Int
+        let yBase: UnsafeMutableRawPointer
+        let yStride: Int
+        let rowBytes: Int
+        var uvBase: UnsafeMutableRawPointer?
+        var uvStride = 0
+        var uvRowBytes = 0
+        if CVPixelBufferGetPixelFormatType(pixelBuffer) == kCVPixelFormatType_ARGB2101010LEPacked {
+            guard let base = CVPixelBufferGetBaseAddress(pixelBuffer) else { return nil }
+            format = formatRGB10
+            width = CVPixelBufferGetWidth(pixelBuffer)
+            height = CVPixelBufferGetHeight(pixelBuffer)
+            yBase = base
+            yStride = CVPixelBufferGetBytesPerRow(pixelBuffer)
+            rowBytes = width * 4
+        } else {
+            guard CVPixelBufferGetPlaneCount(pixelBuffer) >= 2,
+                  let base = CVPixelBufferGetBaseAddressOfPlane(pixelBuffer, 0),
+                  let chroma = CVPixelBufferGetBaseAddressOfPlane(pixelBuffer, 1) else { return nil }
+            format = formatNV12
+            width = CVPixelBufferGetWidthOfPlane(pixelBuffer, 0)
+            height = CVPixelBufferGetHeightOfPlane(pixelBuffer, 0)
+            yBase = base
+            yStride = CVPixelBufferGetBytesPerRowOfPlane(pixelBuffer, 0)
+            rowBytes = width
+            uvBase = chroma
+            uvStride = CVPixelBufferGetBytesPerRowOfPlane(pixelBuffer, 1)
+            uvRowBytes = width
+            guard uvStride >= width, CVPixelBufferGetHeightOfPlane(pixelBuffer, 1) >= height / 2 else { return nil }
+        }
+        guard width > 0, height > 0, width % 2 == 0, height % 2 == 0, yStride >= rowBytes else { return nil }
 
         let clamped = spans.compactMap { span -> TBRawRowSpan? in
             let start = max(0, span.start) & ~1
@@ -217,46 +267,43 @@ enum TBRawRegionPacketBuilder {
         let chunks = TBRawRegionPlanner.chunks(clamped)
         guard !chunks.isEmpty, chunks.count <= maxBands else { return nil }
 
-        let rawSizes = chunks.map { width * $0.rows + width * ($0.rows / 2) }
-        let rawTotal = rawSizes.reduce(0, +)
-        let tableBytes = headerBytes + bandBytes * chunks.count
-
+        let rawSizes = chunks.map { rowBytes * $0.rows + uvRowBytes * ($0.rows / 2) }
         let source = Shared(value: (
-            y: UnsafeRawPointer(yBase), uv: UnsafeRawPointer(uvBase),
-            width: width, yStride: yStride, uvStride: uvStride
+            y: UnsafeRawPointer(yBase), uv: uvBase.map { UnsafeRawPointer($0) },
+            rowBytes: rowBytes, uvRowBytes: uvRowBytes, yStride: yStride, uvStride: uvStride
         ))
         let spansBox = Shared(value: chunks)
 
         // Copies the rows of chunk `index` into `destination`, tightly packed:
-        // Y rows, then CbCr rows.
+        // main-plane rows, then (NV12 only) CbCr rows.
         @Sendable func pack(_ index: Int, into destination: UnsafeMutableRawPointer) {
             let s = source.value
             let span = spansBox.value[index]
-            if s.yStride == s.width {
-                memcpy(destination, s.y + span.start * s.yStride, s.width * span.rows)
+            if s.yStride == s.rowBytes {
+                memcpy(destination, s.y + span.start * s.yStride, s.rowBytes * span.rows)
             } else {
                 for row in 0..<span.rows {
-                    memcpy(destination + row * s.width, s.y + (span.start + row) * s.yStride, s.width)
+                    memcpy(destination + row * s.rowBytes, s.y + (span.start + row) * s.yStride, s.rowBytes)
                 }
             }
-            let uvDestination = destination + s.width * span.rows
+            guard let uv = s.uv, s.uvRowBytes > 0 else { return }
+            let uvDestination = destination + s.rowBytes * span.rows
             let uvRows = span.rows / 2
-            if s.uvStride == s.width {
-                memcpy(uvDestination, s.uv + (span.start / 2) * s.uvStride, s.width * uvRows)
+            if s.uvStride == s.uvRowBytes {
+                memcpy(uvDestination, uv + (span.start / 2) * s.uvStride, s.uvRowBytes * uvRows)
             } else {
                 for row in 0..<uvRows {
-                    memcpy(uvDestination + row * s.width, s.uv + (span.start / 2 + row) * s.uvStride, s.width)
+                    memcpy(uvDestination + row * s.uvRowBytes, uv + (span.start / 2 + row) * s.uvStride, s.uvRowBytes)
                 }
             }
         }
 
+        // Compressed chunks are encoded first, because their sizes decide how
+        // they are spread over the parts.
+        var compressed: UnsafeMutableBufferPointer<Chunk>?
         var lengths = rawSizes
         var encodings = [UInt8](repeating: encodingRaw, count: chunks.count)
-        let packetBytes: Int
-        let packet: UnsafeMutableRawPointer
-
         if compress {
-            // Pack and compress every chunk in parallel, then assemble.
             let results = UnsafeMutableBufferPointer<Chunk>.allocate(capacity: chunks.count)
             results.initialize(repeating: Chunk(data: nil, length: 0, encoding: encodingRaw))
             let resultsBox = Shared(value: results)
@@ -265,22 +312,22 @@ enum TBRawRegionPacketBuilder {
                 let rawSize = sizesBox.value[index]
                 let packed = UnsafeMutableRawPointer.allocate(byteCount: rawSize, alignment: 16)
                 pack(index, into: packed)
-                let compressed = UnsafeMutableRawPointer.allocate(byteCount: rawSize, alignment: 16)
+                let output = UnsafeMutableRawPointer.allocate(byteCount: rawSize, alignment: 16)
                 let scratch = UnsafeMutableRawPointer.allocate(
                     byteCount: max(1, compression_encode_scratch_buffer_size(COMPRESSION_LZ4_RAW)),
                     alignment: 16
                 )
                 let written = compression_encode_buffer(
-                    compressed.assumingMemoryBound(to: UInt8.self), rawSize,
+                    output.assumingMemoryBound(to: UInt8.self), rawSize,
                     packed.assumingMemoryBound(to: UInt8.self), rawSize,
                     scratch, COMPRESSION_LZ4_RAW
                 )
                 scratch.deallocate()
                 if written > 0, written < rawSize {
                     packed.deallocate()
-                    resultsBox.value[index] = Chunk(data: compressed, length: written, encoding: encodingLZ4)
+                    resultsBox.value[index] = Chunk(data: output, length: written, encoding: encodingLZ4)
                 } else {
-                    compressed.deallocate()
+                    output.deallocate()
                     resultsBox.value[index] = Chunk(data: packed, length: rawSize, encoding: encodingRaw)
                 }
             }
@@ -288,71 +335,95 @@ enum TBRawRegionPacketBuilder {
                 lengths[index] = results[index].length
                 encodings[index] = results[index].encoding
             }
-            packetBytes = 5 + tableBytes + lengths.reduce(0, +)
-            packet = UnsafeMutableRawPointer.allocate(byteCount: packetBytes, alignment: 16)
-            var offset = 5 + tableBytes
+            compressed = results
+        }
+
+        // Spread the chunks over the parts, always onto the lightest one.
+        let partCount = max(1, min(parts, chunks.count))
+        var groups = [[Int]](repeating: [], count: partCount)
+        var groupBytes = [Int](repeating: 0, count: partCount)
+        for index in 0..<chunks.count {
+            let lightest = groupBytes.indices.min { groupBytes[$0] < groupBytes[$1] } ?? 0
+            groups[lightest].append(index)
+            groupBytes[lightest] += lengths[index]
+        }
+
+        let prefix = frameSequence == nil ? 5 : 9
+        var packets: [UnsafeMutableRawPointer] = []
+        var packetSizes: [Int] = []
+        var chunkTargets = [UnsafeMutableRawPointer?](repeating: nil, count: chunks.count)
+        for (groupIndex, group) in groups.enumerated() {
+            let tableBytes = headerBytes + bandBytes * group.count
+            let size = prefix + tableBytes + groupBytes[groupIndex]
+            let packet = UnsafeMutableRawPointer.allocate(byteCount: size, alignment: 16)
+            packets.append(packet)
+            packetSizes.append(size)
+
+            func put32(_ value: Int, at offset: Int) {
+                let v = UInt32(truncatingIfNeeded: value)
+                packet.storeBytes(of: UInt8(truncatingIfNeeded: v >> 24), toByteOffset: offset, as: UInt8.self)
+                packet.storeBytes(of: UInt8(truncatingIfNeeded: v >> 16), toByteOffset: offset + 1, as: UInt8.self)
+                packet.storeBytes(of: UInt8(truncatingIfNeeded: v >> 8), toByteOffset: offset + 2, as: UInt8.self)
+                packet.storeBytes(of: UInt8(truncatingIfNeeded: v), toByteOffset: offset + 3, as: UInt8.self)
+            }
+            func put8(_ value: UInt8, at offset: Int) {
+                packet.storeBytes(of: value, toByteOffset: offset, as: UInt8.self)
+            }
+            put32(size - 4, at: 0)
+            if let frameSequence {
+                put8(TBMonitorPacketType.rawRegionsPart.rawValue, at: 4)
+                put32(Int(frameSequence), at: 5)
+            } else {
+                put8(TBMonitorPacketType.rawRegions.rawValue, at: 4)
+            }
+            put8(format, at: prefix)
+            put8(fullFrame ? flagFullFrame : 0, at: prefix + 1)
+            put32(width, at: prefix + 2)
+            put32(height, at: prefix + 6)
+            put8(UInt8(truncatingIfNeeded: group.count >> 8), at: prefix + 10)
+            put8(UInt8(truncatingIfNeeded: group.count), at: prefix + 11)
+            put8(0, at: prefix + 12)
+            put8(0, at: prefix + 13)
+            var dataOffset = prefix + tableBytes
+            for (slot, index) in group.enumerated() {
+                let entry = prefix + headerBytes + slot * bandBytes
+                put32(chunks[index].start, at: entry)
+                put32(chunks[index].rows, at: entry + 4)
+                put32(lengths[index], at: entry + 8)
+                put8(encodings[index], at: entry + 12)
+                chunkTargets[index] = packet + dataOffset
+                dataOffset += lengths[index]
+            }
+        }
+
+        // Fill in the chunk data.
+        if let compressed {
             for index in 0..<chunks.count {
-                if let data = results[index].data {
-                    memcpy(packet + offset, data, results[index].length)
+                if let data = compressed[index].data, let target = chunkTargets[index] {
+                    memcpy(target, data, compressed[index].length)
                     data.deallocate()
                 }
-                offset += results[index].length
             }
-            results.deallocate()
+            compressed.deallocate()
         } else {
-            // Copy every chunk straight into its place in the packet.
-            packetBytes = 5 + tableBytes + rawTotal
-            packet = UnsafeMutableRawPointer.allocate(byteCount: packetBytes, alignment: 16)
-            var offsets: [Int] = []
-            offsets.reserveCapacity(chunks.count)
-            var offset = 5 + tableBytes
-            for size in rawSizes {
-                offsets.append(offset)
-                offset += size
-            }
-            let target = Shared(value: (packet: packet, offsets: offsets))
+            let targets = Shared(value: chunkTargets)
             DispatchQueue.concurrentPerform(iterations: chunks.count) { index in
-                pack(index, into: target.value.packet + target.value.offsets[index])
+                if let target = targets.value[index] {
+                    pack(index, into: target)
+                }
             }
         }
 
-        // Length prefix, type and table.
-        func put32(_ value: Int, at offset: Int) {
-            let v = UInt32(truncatingIfNeeded: value)
-            packet.storeBytes(of: UInt8(truncatingIfNeeded: v >> 24), toByteOffset: offset, as: UInt8.self)
-            packet.storeBytes(of: UInt8(truncatingIfNeeded: v >> 16), toByteOffset: offset + 1, as: UInt8.self)
-            packet.storeBytes(of: UInt8(truncatingIfNeeded: v >> 8), toByteOffset: offset + 2, as: UInt8.self)
-            packet.storeBytes(of: UInt8(truncatingIfNeeded: v), toByteOffset: offset + 3, as: UInt8.self)
+        let data = zip(packets, packetSizes).map { packet, size in
+            Data(bytesNoCopy: packet, count: size, deallocator: .custom { pointer, _ in
+                pointer.deallocate()
+            })
         }
-        func put8(_ value: UInt8, at offset: Int) {
-            packet.storeBytes(of: value, toByteOffset: offset, as: UInt8.self)
-        }
-        put32(packetBytes - 4, at: 0)
-        put8(TBMonitorPacketType.rawRegions.rawValue, at: 4)
-        put8(1, at: 5)                                   // format: NV12
-        put8(fullFrame ? flagFullFrame : 0, at: 6)
-        put32(width, at: 7)
-        put32(height, at: 11)
-        put8(UInt8(truncatingIfNeeded: chunks.count >> 8), at: 15)
-        put8(UInt8(truncatingIfNeeded: chunks.count), at: 16)
-        put8(0, at: 17)
-        put8(0, at: 18)
-        for (index, chunk) in chunks.enumerated() {
-            let entry = 5 + headerBytes + index * bandBytes
-            put32(chunk.start, at: entry)
-            put32(chunk.rows, at: entry + 4)
-            put32(lengths[index], at: entry + 8)
-            put8(encodings[index], at: entry + 12)
-        }
-
-        let data = Data(bytesNoCopy: packet, count: packetBytes, deallocator: .custom { pointer, _ in
-            pointer.deallocate()
-        })
         let summary = Summary(
             bands: chunks.count,
             rows: chunks.reduce(0) { $0 + $1.rows },
-            rawBytes: rawTotal,
-            wireBytes: packetBytes
+            rawBytes: rawSizes.reduce(0, +),
+            wireBytes: packetSizes.reduce(0, +)
         )
         return (data, summary)
     }

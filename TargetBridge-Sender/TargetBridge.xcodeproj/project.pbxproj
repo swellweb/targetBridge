@@ -480,7 +480,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = "3.7.0-rc1";
+				MARKETING_VERSION = "4.0";
 				PRODUCT_BUNDLE_IDENTIFIER = com.targetbridge.sender;
 				PRODUCT_NAME = TargetBridge;
 				SDKROOT = macosx;
@@ -504,7 +504,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = "3.7.0-rc1";
+				MARKETING_VERSION = "4.0";
 				PRODUCT_BUNDLE_IDENTIFIER = com.targetbridge.sender;
 				PRODUCT_NAME = TargetBridge;
 				SDKROOT = macosx;

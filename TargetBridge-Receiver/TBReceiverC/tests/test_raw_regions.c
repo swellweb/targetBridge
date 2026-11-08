@@ -130,6 +130,42 @@ int main(void) {
     header(&w, 0, width, height, 0);
     CHECK(tb_raw_regions_apply(&frame, w.buf, w.len, fake_decode, NULL) == -1, "zero bands rejected");
 
+    /* Parts over parallel streams: a newer part wins even if it arrives first. */
+    {
+        struct writer part;
+        /* Frame 7 writes rows 0-3 with 30. */
+        part.len = 0;
+        put32(&part, 7);
+        size_t base = part.len;
+        header(&w, 0, width, height, 1);
+        memcpy(part.buf + base, w.buf, w.len); part.len = base + w.len;
+        band_entry(&part, 0, 4, width * 4 + width * 2, TB_RAW_REGIONS_ENCODING_RAW);
+        band_data(&part, width, 4, 30, 31, 0);
+        CHECK(tb_raw_regions_apply_part(&frame, part.buf, part.len, fake_decode, &result) == 0,
+              "part applies");
+        CHECK(result.sequence == 7 && frame.y[0] == 30 && frame.y[width * 3] == 30, "part wrote rows 0-3");
+
+        /* An older frame 6 for rows 2-5 only fills rows 4-5. */
+        part.len = 0;
+        put32(&part, 6);
+        base = part.len;
+        memcpy(part.buf + base, w.buf, w.len); part.len = base + w.len;
+        band_entry(&part, 2, 4, width * 4 + width * 2, TB_RAW_REGIONS_ENCODING_RAW);
+        band_data(&part, width, 4, 66, 67, 0);
+        CHECK(tb_raw_regions_apply_part(&frame, part.buf, part.len, fake_decode, NULL) == 0,
+              "older part applies");
+        CHECK(frame.y[width * 2] == 30 && frame.uv[width] == 31, "older part kept away from newer rows");
+        CHECK(frame.y[width * 4] == 66 && frame.y[width * 5] == 66 && frame.uv[width * 2] == 67,
+              "older part filled rows nobody newer wrote");
+
+        /* Sequence 0 is invalid. */
+        part.buf[0] = part.buf[1] = part.buf[2] = part.buf[3] = 0;
+        CHECK(tb_raw_regions_apply_part(&frame, part.buf, part.len, fake_decode, NULL) == -1,
+              "sequence 0 rejected");
+        CHECK(tb_raw_regions_apply_part(&frame, part.buf, 3, fake_decode, NULL) == -1,
+              "part without sequence rejected");
+    }
+
     /* A size change reallocates and starts black outside the sent rows. */
     header(&w, 0, 4, 4, 1);
     band_entry(&w, 0, 2, 4 * 2 + 4, TB_RAW_REGIONS_ENCODING_RAW);
@@ -137,6 +173,32 @@ int main(void) {
     CHECK(tb_raw_regions_apply(&frame, w.buf, w.len, fake_decode, NULL) == 0, "resized frame applies");
     CHECK(frame.w == 4 && frame.h == 4, "frame resized");
     CHECK(frame.y[0] == 200 && frame.y[4 * 2] == 16 && frame.uv[4] == 128, "unsent rows start black");
+
+    /* 10-bit RGB: 4 bytes per pixel, one plane, starts opaque black. */
+    {
+        header(&w, 0, 4, 4, 1);
+        w.buf[0] = TB_RAW_REGIONS_FORMAT_RGB10;
+        band_entry(&w, 2, 2, 4 * 4 * 2, TB_RAW_REGIONS_ENCODING_RAW);
+        for (int i = 0; i < 4 * 4 * 2; ++i) put8(&w, 0x5A);
+        CHECK(tb_raw_regions_apply(&frame, w.buf, w.len, fake_decode, &result) == 0, "RGB10 frame applies");
+        CHECK(result.format == TB_RAW_REGIONS_FORMAT_RGB10 && frame.format == TB_RAW_REGIONS_FORMAT_RGB10,
+              "RGB10 format reported");
+        CHECK(frame.uv == NULL, "RGB10 has no CbCr plane");
+        const uint32_t *pixels = (const uint32_t *)frame.y;
+        CHECK(pixels[0] == 0xC0000000u && frame.y[4 * 4 * 2] == 0x5A && frame.y[4 * 4 * 4 - 1] == 0x5A,
+              "RGB10 rows patched, others black");
+
+        header(&w, 0, 4, 4, 1);
+        w.buf[0] = TB_RAW_REGIONS_FORMAT_RGB10;
+        band_entry(&w, 0, 2, 4 * 2 + 4, TB_RAW_REGIONS_ENCODING_RAW);
+        band_data(&w, 4, 2, 1, 1, 0);
+        CHECK(tb_raw_regions_apply(&frame, w.buf, w.len, fake_decode, NULL) == -1,
+              "RGB10 band with NV12 length rejected");
+
+        header(&w, 0, 4, 4, 1);
+        w.buf[0] = 3;
+        CHECK(tb_raw_regions_apply(&frame, w.buf, w.len, fake_decode, NULL) == -1, "unknown format rejected");
+    }
 
     tb_raw_frame_free(&frame);
     CHECK(frame.y == NULL && frame.uv == NULL && frame.w == 0, "frame freed");

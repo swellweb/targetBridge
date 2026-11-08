@@ -207,4 +207,78 @@ final class TBRawRegionsTests: XCTestCase {
         XCTAssertTrue(TBDisplayCodecPreference.uncompressedLZ4.usesRawFrames)
         XCTAssertFalse(TBDisplayCodecPreference.automatic.usesRawFrames)
     }
+
+    func testTenBitPreferencesUseLZ4AndParallelStreams() {
+        for preference in [TBDisplayCodecPreference.uncompressedEnhanced, .uncompressedFull10Bit] {
+            XCTAssertTrue(preference.usesRawFrames)
+            XCTAssertTrue(preference.compressesRawFrames)
+            XCTAssertTrue(preference.usesParallelStreams)
+        }
+        XCTAssertFalse(TBDisplayCodecPreference.uncompressed.compressesRawFrames)
+        XCTAssertFalse(TBDisplayCodecPreference.uncompressedLZ4.usesParallelStreams)
+    }
+
+    func testPartsSplitTheRowsEvenlyAndCarryTheSequence() throws {
+        let width = 64
+        let height = 512
+        let pixelBuffer = try makeNV12(width: width, height: height, y: { UInt8($0 & 0xFF) }, uv: { _ in 128 })
+        let built = try XCTUnwrap(TBRawRegionPacketBuilder.makePackets(
+            pixelBuffer: pixelBuffer,
+            spans: TBRawRegionPlanner.fullFrame(height: height),
+            fullFrame: true,
+            compress: false,
+            parts: 4,
+            frameSequence: 42
+        ))
+        XCTAssertEqual(built.packets.count, 4)
+        var rows = Set<Int>()
+        for packet in built.packets {
+            let bytes = [UInt8](packet)
+            XCTAssertEqual(be32(bytes, 0), bytes.count - 4)
+            XCTAssertEqual(bytes[4], TBMonitorPacketType.rawRegionsPart.rawValue)
+            XCTAssertEqual(be32(bytes, 5), 42, "frame sequence")
+            let header = 9
+            XCTAssertEqual(bytes[header], TBRawRegionPacketBuilder.formatNV12)
+            let bands = Int(bytes[header + 10]) << 8 | Int(bytes[header + 11])
+            XCTAssertEqual(bands, 2, "8 chunks of 64 rows over 4 parts")
+            for band in 0..<bands {
+                let entry = header + TBRawRegionPacketBuilder.headerBytes + band * TBRawRegionPacketBuilder.bandBytes
+                let first = be32(bytes, entry)
+                for row in first..<(first + be32(bytes, entry + 4)) {
+                    XCTAssertTrue(rows.insert(row).inserted, "row \(row) sent twice")
+                }
+            }
+        }
+        XCTAssertEqual(rows.count, height, "every row sent exactly once")
+    }
+
+    func testTenBitRGBPacketCarriesFourBytesPerPixel() throws {
+        var buffer: CVPixelBuffer?
+        XCTAssertEqual(CVPixelBufferCreate(
+            kCFAllocatorDefault, 4, 4, kCVPixelFormatType_ARGB2101010LEPacked, nil, &buffer
+        ), kCVReturnSuccess)
+        let pixelBuffer = try XCTUnwrap(buffer)
+        CVPixelBufferLockBaseAddress(pixelBuffer, [])
+        let base = CVPixelBufferGetBaseAddress(pixelBuffer)!
+        let stride = CVPixelBufferGetBytesPerRow(pixelBuffer)
+        for row in 0..<4 {
+            memset(base + row * stride, Int32(row + 1), 16)
+        }
+        CVPixelBufferUnlockBaseAddress(pixelBuffer, [])
+
+        let built = try XCTUnwrap(TBRawRegionPacketBuilder.makePacket(
+            pixelBuffer: pixelBuffer,
+            spans: [TBRawRowSpan(start: 2, end: 4)],
+            fullFrame: false,
+            compress: false
+        ))
+        let bytes = [UInt8](built.packet)
+        XCTAssertEqual(bytes[5], TBRawRegionPacketBuilder.formatRGB10)
+        let entry = 5 + TBRawRegionPacketBuilder.headerBytes
+        XCTAssertEqual(be32(bytes, entry + 8), 4 * 4 * 2, "two rows of four 4-byte pixels")
+        let data = Array(bytes[(entry + TBRawRegionPacketBuilder.bandBytes)...])
+        XCTAssertEqual(data.count, 32)
+        XCTAssertEqual(data[0], 3, "row 2")
+        XCTAssertEqual(data[31], 4, "row 3")
+    }
 }

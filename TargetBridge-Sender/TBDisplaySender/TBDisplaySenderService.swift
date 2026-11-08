@@ -396,8 +396,27 @@ enum TBDisplayCodecPreference: String, CaseIterable, Identifiable, Codable {
     /// Raw NV12 frames compressed losslessly with LZ4. Sent like
     /// `uncompressed` (without LZ4) to receivers that cannot decode it.
     case uncompressedLZ4
+    /// LZ4 plus 10-bit capture dithered to 8 bit on the GPU and parallel data
+    /// streams. Each part falls back on its own if the receiver or the GPU
+    /// cannot use it.
+    case uncompressedEnhanced
+    /// Full 10-bit RGB, 4 bytes per pixel, with LZ4 and parallel data streams.
+    /// About 30 frames per second at 5K. Falls back to `uncompressedEnhanced`
+    /// if the receiver cannot show it.
+    case uncompressedFull10Bit
 
-    var usesRawFrames: Bool { self == .uncompressed || self == .uncompressedLZ4 }
+    var usesRawFrames: Bool {
+        switch self {
+        case .uncompressed, .uncompressedLZ4, .uncompressedEnhanced, .uncompressedFull10Bit: return true
+        case .automatic, .h264, .hevc: return false
+        }
+    }
+
+    var compressesRawFrames: Bool {
+        self == .uncompressedLZ4 || self == .uncompressedEnhanced || self == .uncompressedFull10Bit
+    }
+
+    var usesParallelStreams: Bool { self == .uncompressedEnhanced || self == .uncompressedFull10Bit }
 
     var id: String { rawValue }
 }
@@ -540,6 +559,72 @@ private final class TBDirectDisplayStreamCapture {
 /// state is confined to `queue`; the two values the main thread polls
 /// (`sentFrames`, capture health) are guarded by a small lock instead of
 /// a per-frame hop back to main.
+/// Starts connections and waits until each is ready (then sends `hello`) or
+/// has failed, at most `timeout` seconds. Returns the indexes that are ready.
+private final class TBDataStreamOpener: @unchecked Sendable {
+    private let lock = NSLock()
+    private var pending: Int
+    private var ready: Set<Int> = []
+    private var settledIndexes: Set<Int> = []
+    private var finished = false
+    private let continuation: CheckedContinuation<Set<Int>, Never>
+
+    private init(count: Int, continuation: CheckedContinuation<Set<Int>, Never>) {
+        self.pending = count
+        self.continuation = continuation
+    }
+
+    private func settle(_ index: Int?, isReady: Bool, force: Bool = false) {
+        lock.lock()
+        if finished { lock.unlock(); return }
+        if let index {
+            guard settledIndexes.insert(index).inserted else { lock.unlock(); return }
+            if isReady { ready.insert(index) }
+            pending -= 1
+        }
+        let done = force || pending <= 0
+        if done { finished = true }
+        let result = ready
+        lock.unlock()
+        if done { continuation.resume(returning: result) }
+    }
+
+    static func open(
+        _ connections: [NWConnection],
+        hello: Data,
+        queue: DispatchQueue,
+        timeout: TimeInterval
+    ) async -> Set<Int> {
+        guard !connections.isEmpty else { return [] }
+        return await withCheckedContinuation { continuation in
+            let opener = TBDataStreamOpener(count: connections.count, continuation: continuation)
+            for (index, connection) in connections.enumerated() {
+                connection.stateUpdateHandler = { [weak connection] state in
+                    switch state {
+                    case .ready:
+                        connection?.send(content: hello, completion: .contentProcessed({ _ in }))
+                        opener.settle(index, isReady: true)
+                    case .failed, .cancelled:
+                        opener.settle(index, isReady: false)
+                    default:
+                        break
+                    }
+                }
+                connection.start(queue: queue)
+            }
+            queue.asyncAfter(deadline: .now() + timeout) {
+                opener.settle(nil, isReady: false, force: true)
+            }
+        }
+    }
+}
+
+/// Parts of one frame still in flight; only touched on the pipeline queue.
+private final class TBPendingParts: @unchecked Sendable {
+    var count: Int
+    init(count: Int) { self.count = count }
+}
+
 private final class TBVideoPipeline: @unchecked Sendable {
     let queue = DispatchQueue(label: "fd.tbmonitor.sender.pipeline", qos: .userInteractive)
 
@@ -553,6 +638,12 @@ private final class TBVideoPipeline: @unchecked Sendable {
     private let usesRawRegions: Bool
     /// Compress raw bands losslessly with LZ4.
     private let compressesRawRegions: Bool
+    /// Send 10-bit captures as they are (4 bytes per pixel) instead of NV12.
+    private let sendsRawRGB10: Bool
+    /// Extra connections that carry raw frames in parallel parts.
+    private let dataConnections: [NWConnection]
+    /// Converts 10-bit captures to dithered 8-bit NV12; nil captures NV12 directly.
+    private let tenBitConverter: TBTenBitConverter?
     private let onFirstFrame: @Sendable () -> Void
 
     // Confined to `queue`.
@@ -574,6 +665,8 @@ private final class TBVideoPipeline: @unchecked Sendable {
     private var rawFrameWidth = 0
     private var rawFrameHeight = 0
     private var rawLastFullFrameUptime: TimeInterval = 0
+    /// Sequence of frames split over data streams; never 0 on the wire.
+    private var rawFrameSequence: UInt32 = 0
     /// A whole frame now and then repairs anything a missed dirty rect left behind.
     private static let rawFullFrameInterval: TimeInterval = 5
 
@@ -594,6 +687,9 @@ private final class TBVideoPipeline: @unchecked Sendable {
          usesRawNV12: Bool,
          usesRawRegions: Bool = false,
          compressesRawRegions: Bool = false,
+         sendsRawRGB10: Bool = false,
+         dataConnections: [NWConnection] = [],
+         tenBitConverter: TBTenBitConverter? = nil,
          ackAlreadySent: Bool,
          onFirstFrame: @escaping @Sendable () -> Void) {
         self.preset = preset
@@ -604,6 +700,9 @@ private final class TBVideoPipeline: @unchecked Sendable {
         self.usesRawNV12 = usesRawNV12
         self.usesRawRegions = usesRawNV12 && usesRawRegions
         self.compressesRawRegions = usesRawNV12 && usesRawRegions && compressesRawRegions
+        self.sendsRawRGB10 = usesRawNV12 && usesRawRegions && sendsRawRGB10
+        self.dataConnections = usesRawNV12 && usesRawRegions ? dataConnections : []
+        self.tenBitConverter = usesRawNV12 && usesRawRegions ? tenBitConverter : nil
         self.frameRatePacer = TBFrameRatePacer(maximumFrameRate: preset.expectedFrameRate)
         self.ackSent = ackAlreadySent
         self.onFirstFrame = onFirstFrame
@@ -951,8 +1050,9 @@ private final class TBVideoPipeline: @unchecked Sendable {
 
     /// Adds the rows that changed in this frame to the pending rows.
     private func collectRawRegions(from sampleBuffer: CMSampleBuffer, pixelBuffer: CVPixelBuffer) {
-        let width = CVPixelBufferGetWidthOfPlane(pixelBuffer, 0)
-        let height = CVPixelBufferGetHeightOfPlane(pixelBuffer, 0)
+        // Plain width/height: 10-bit captures are not planar.
+        let width = CVPixelBufferGetWidth(pixelBuffer)
+        let height = CVPixelBufferGetHeight(pixelBuffer)
         if width != rawFrameWidth || height != rawFrameHeight {
             rawFrameWidth = width
             rawFrameHeight = height
@@ -988,16 +1088,41 @@ private final class TBVideoPipeline: @unchecked Sendable {
         }
         let fullFrame = rawNeedsFullFrame
         let spans = fullFrame
-            ? TBRawRegionPlanner.fullFrame(height: CVPixelBufferGetHeightOfPlane(pixelBuffer, 0))
+            ? TBRawRegionPlanner.fullFrame(height: CVPixelBufferGetHeight(pixelBuffer))
             : rawPendingSpans
         // Nothing changed on screen: nothing to send.
         guard !spans.isEmpty else { return }
 
-        guard let built = TBRawRegionPacketBuilder.makePacket(
-            pixelBuffer: pixelBuffer,
+        // 10-bit captures are either sent as they are or converted (only the
+        // rows to send) to dithered NV12.
+        let nv12: CVPixelBuffer
+        if CVPixelBufferGetPixelFormatType(pixelBuffer) == TBTenBitConverter.sourcePixelFormat, !sendsRawRGB10 {
+            guard let converted = tenBitConverter?.convert(pixelBuffer, spans: spans) else {
+                rawNeedsFullFrame = true
+                return
+            }
+            nv12 = converted
+        } else {
+            nv12 = pixelBuffer
+        }
+
+        // Parallel data streams when at least one is up, otherwise the session connection.
+        let streams = dataConnections.filter { $0.state == .ready }
+        let frameSequence: UInt32?
+        if streams.isEmpty {
+            frameSequence = nil
+        } else {
+            rawFrameSequence &+= 1
+            if rawFrameSequence == 0 { rawFrameSequence = 1 }
+            frameSequence = rawFrameSequence
+        }
+        guard let built = TBRawRegionPacketBuilder.makePackets(
+            pixelBuffer: nv12,
             spans: spans,
             fullFrame: fullFrame,
-            compress: compressesRawRegions
+            compress: compressesRawRegions,
+            parts: max(1, streams.count),
+            frameSequence: frameSequence
         ) else { return }
 
         sendSessionAckIfNeeded()
@@ -1007,13 +1132,21 @@ private final class TBVideoPipeline: @unchecked Sendable {
             rawLastFullFrameUptime = now
         }
 
+        // Backpressure counts frames: a frame is done when all its parts are.
         pendingVideoPackets += 1
-        connection.send(content: built.packet, completion: .contentProcessed({ [weak self] _ in
-            guard let self else { return }
-            self.queue.async {
-                self.pendingVideoPackets = max(0, self.pendingVideoPackets - 1)
-            }
-        }))
+        let remaining = TBPendingParts(count: built.packets.count)
+        for (index, packet) in built.packets.enumerated() {
+            let target = streams.isEmpty ? connection : streams[index % streams.count]
+            target.send(content: packet, completion: .contentProcessed({ [weak self] _ in
+                guard let self else { return }
+                self.queue.async {
+                    remaining.count -= 1
+                    if remaining.count == 0 {
+                        self.pendingVideoPackets = max(0, self.pendingVideoPackets - 1)
+                    }
+                }
+            }))
+        }
         lock.lock(); _sentFrames += 1; lock.unlock()
     }
 
@@ -1453,6 +1586,9 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     @Published var inputBindings: [TBInputBinding] = []
 
     private var connection: NWConnection?
+    /// Extra connections for raw frames ("enhanced" and full 10-bit modes).
+    /// Kept across capture restarts, closed with the session.
+    private var dataConnections: [NWConnection] = []
     private let connectionQueue = DispatchQueue(label: "fd.tbmonitor.sender.connection", qos: .userInteractive)
     private var recvBuffer = Data()
 
@@ -1613,7 +1749,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         let preferredCodec: CMVideoCodecType
 
         switch preference {
-        case .automatic, .uncompressed, .uncompressedLZ4:
+        case .automatic, .uncompressed, .uncompressedLZ4, .uncompressedEnhanced, .uncompressedFull10Bit:
             preferredCodec = preset.codecType == kCMVideoCodecType_HEVC || hevcAvailable
                 ? kCMVideoCodecType_HEVC
                 : kCMVideoCodecType_H264
@@ -1747,14 +1883,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         lastConnectionStateDetail = nil
         setStatus(.connecting(receiverDisplayName))
 
-        let tcpOptions = NWProtocolTCP.Options()
-        tcpOptions.noDelay = true
-        let params = NWParameters(tls: nil, tcp: tcpOptions)
-        params.allowLocalEndpointReuse = true
-        params.serviceClass = .interactiveVideo
-        if let localPort = NWEndpoint.Port(rawValue: 0) {
-            params.requiredLocalEndpoint = .hostPort(host: NWEndpoint.Host(localInterfaceIP), port: localPort)
-        }
+        let params = makeConnectionParameters()
 
         // Scope link-local dials to the interface that owns the local IP.
         // requiredLocalEndpoint pins the source address but NOT the egress
@@ -2016,6 +2145,11 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         endCaptureActivity()
         pipeline?.stop()
         pipeline = nil
+        for dataConnection in dataConnections {
+            dataConnection.stateUpdateHandler = nil
+            dataConnection.cancel()
+        }
+        dataConnections = []
         releaseInjectedModifiersIfNeeded()
         remoteHeldModifierKeyCodes.removeAll()
         injectedLeftClickTracker.reset()
@@ -2928,11 +3062,31 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
                 && profile.supportsRawRegions == true
                 && ProcessInfo.processInfo.environment["RAW_REGIONS"] != "0"
             let compressesRawRegions = usesRawRegions
-                && codecPreference == .uncompressedLZ4
+                && codecPreference.compressesRawFrames
                 && profile.supportsRawLZ4 == true
-            let codecName = usesRawNV12
-                ? (compressesRawRegions ? "NV12 RAW LZ4" : "NV12 RAW")
-                : codecName(for: codecType)
+            // Full 10-bit RGB needs a receiver that can show it; otherwise the
+            // 10-bit capture is dithered to 8-bit NV12 like "enhanced".
+            let sendsRawRGB10 = usesRawRegions
+                && codecPreference == .uncompressedFull10Bit
+                && profile.supportsRawRGB10 == true
+            let tenBitConverter: TBTenBitConverter? =
+                usesRawRegions && !sendsRawRGB10
+                && (codecPreference == .uncompressedEnhanced || codecPreference == .uncompressedFull10Bit)
+                ? TBTenBitConverter() : nil
+            let capturesTenBit = sendsRawRGB10 || tenBitConverter != nil
+            let dataStreams = usesRawRegions && codecPreference.usesParallelStreams
+                ? await openDataStreams(for: profile)
+                : []
+            let codecName: String
+            if usesRawNV12 {
+                var parts = [sendsRawRGB10 ? "RGB 10-bit RAW" : "NV12 RAW"]
+                if compressesRawRegions { parts.append("LZ4") }
+                if tenBitConverter != nil { parts.append("10-bit dithered") }
+                if !dataStreams.isEmpty { parts.append("\(dataStreams.count) streams") }
+                codecName = parts.joined(separator: ", ")
+            } else {
+                codecName = self.codecName(for: codecType)
+            }
             activeCodecType = usesRawNV12 ? nil : codecType
             activeCodecName = codecName
             if codecDecision.usedFallback {
@@ -2955,6 +3109,9 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
                 usesRawNV12: usesRawNV12,
                 usesRawRegions: usesRawRegions,
                 compressesRawRegions: compressesRawRegions,
+                sendsRawRGB10: sendsRawRGB10,
+                dataConnections: dataStreams,
+                tenBitConverter: tenBitConverter,
                 ackAlreadySent: sessionAckSent,
                 onFirstFrame: { [weak self] in
                     Task { @MainActor in self?.handleFirstEncodedFrame() }
@@ -2995,7 +3152,9 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
             configuration.height = preset.height
             configuration.minimumFrameInterval = CMTime(value: 1, timescale: Int32(preset.captureRequestFrameRate))
             configuration.queueDepth = preset.queueDepth
-            configuration.pixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
+            configuration.pixelFormat = capturesTenBit
+                ? TBTenBitConverter.sourcePixelFormat
+                : kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
             configuration.shouldBeOpaque = true
             configuration.showsCursor = !usesCursorOverlay
             configuration.scalesToFit = true
@@ -3069,6 +3228,50 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
 
     /// Waking a headless graphical session is asynchronous. Poll briefly for a
     /// receiver-native ScreenCaptureKit surface before using the direct fallback.
+    /// Opens extra connections to the receiver for raw frames, each starting
+    /// with the receiver's stream token. Returns the ones that came up within
+    /// two seconds; an empty list means raw frames use the session connection.
+    private func openDataStreams(for profile: TBMonitorDisplayProfile) async -> [NWConnection] {
+        let alive = dataConnections.filter { $0.state == .ready }
+        if !alive.isEmpty { return alive }
+        for dataConnection in dataConnections { dataConnection.cancel() }
+        dataConnections = []
+
+        guard let token = profile.streamToken, !token.isEmpty,
+              let available = profile.rawDataStreams, available > 0,
+              let endpoint = connection?.endpoint,
+              let hello = TBMonitorProtocol.makeJSONPacket(
+                type: .dataStreamHello,
+                value: TBMonitorDataStreamHello(token: token)
+              ) else { return [] }
+
+        let count = min(4, available)
+        let candidates = (0..<count).map { _ in
+            NWConnection(to: endpoint, using: makeConnectionParameters())
+        }
+        let ready = await TBDataStreamOpener.open(candidates, hello: hello, queue: connectionQueue, timeout: 2)
+        for (index, candidate) in candidates.enumerated() where !ready.contains(index) {
+            candidate.stateUpdateHandler = nil
+            candidate.cancel()
+        }
+        let opened = ready.sorted().map { candidates[$0] }
+        TBLog.connection.info("capture: \(opened.count, privacy: .public) of \(count, privacy: .public) data streams ready")
+        dataConnections = opened
+        return opened
+    }
+
+    private func makeConnectionParameters() -> NWParameters {
+        let tcpOptions = NWProtocolTCP.Options()
+        tcpOptions.noDelay = true
+        let params = NWParameters(tls: nil, tcp: tcpOptions)
+        params.allowLocalEndpointReuse = true
+        params.serviceClass = .interactiveVideo
+        if let localPort = NWEndpoint.Port(rawValue: 0) {
+            params.requiredLocalEndpoint = .hostPort(host: NWEndpoint.Host(localInterfaceIP), port: localPort)
+        }
+        return params
+    }
+
     private func resolveMirrorCaptureDisplay() async throws -> SCDisplay? {
         for attempt in 0..<30 {
             let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
