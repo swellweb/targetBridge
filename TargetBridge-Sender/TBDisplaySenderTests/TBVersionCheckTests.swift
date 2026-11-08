@@ -1,6 +1,7 @@
 import XCTest
 @testable import TargetBridge
 
+@MainActor
 final class TBVersionCheckTests: XCTestCase {
     func testVersionsCompareNumerically() {
         XCTAssertEqual(TBVersionCheck.compare("4.0", "4.0.0"), .orderedSame)

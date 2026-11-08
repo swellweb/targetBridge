@@ -48,6 +48,12 @@ screen, in 8-bit or, experimentally, 10-bit colour:
 - only the changed rows of the screen are sent, so a still desktop costs almost
   no bandwidth, and the Receiver uploads only those rows to the GPU
 - the 10-bit modes spread each frame over up to 4 parallel connections
+- one-click **5K 60** stream profiles for each uncompressed mode
+- a version check: both apps point out when the other one needs an update,
+  with a download link
+- CI and release builds can sign with one persistent certificate, so macOS
+  keeps privacy permissions across updates (see
+  [Sender signing](docs/Sender-Signing.md))
 - a per-session **TargetBridge Audio** output device whose volume drives the
   iMac's speakers
 - Receiver background mode with a menu bar icon and a **Performance** submenu
