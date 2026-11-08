@@ -36,6 +36,9 @@ struct tb_display {
     SDL_Texture  *stats_tex;
     int           stats_w, stats_h;
     char          last_stats[256];
+    SDL_Texture  *notice_tex;
+    int           notice_w, notice_h;
+    char          last_notice[512];
     char          renderer_name[32];
     int           tex_w, tex_h;
     Uint32        tex_format;
@@ -1152,6 +1155,51 @@ static void tb_disp_draw_cursor(struct tb_display *d) {
     SDL_SetRenderDrawBlendMode(d->ren, old_blend);
 }
 
+/* A one-line text label on a dark rounded box, as a blended texture. */
+static SDL_Texture *tb_disp_make_label(struct tb_display *d, const char *text,
+                                       const char *font, CGFloat size, int w, int h,
+                                       CGFloat r, CGFloat g, CGFloat b) {
+    const size_t bytes_per_row = (size_t)w * 4u;
+    uint32_t *pixels = (uint32_t *)calloc((size_t)w * (size_t)h, sizeof(uint32_t));
+    if (!pixels) return NULL;
+    CGColorSpaceRef color_space = CGColorSpaceCreateDeviceRGB();
+    CGContextRef ctx = CGBitmapContextCreate(pixels, (size_t)w, (size_t)h, 8, bytes_per_row, color_space,
+                                             kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Little);
+    CGColorSpaceRelease(color_space);
+    if (!ctx) {
+        free(pixels);
+        return NULL;
+    }
+    CGContextTranslateCTM(ctx, 0, (CGFloat)h);
+    CGContextScaleCTM(ctx, 1.0, -1.0);
+    tb_disp_fill_rounded_rect(ctx, 0, 0, (CGFloat)w, (CGFloat)h, 10.0, 0.0, 0.0, 0.0, 0.72);
+    tb_disp_draw_text(ctx, text, font, size, 20, (CGFloat)h * 0.68, r, g, b);
+    CGContextRelease(ctx);
+    SDL_Texture *tex = SDL_CreateTexture(d->ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STATIC, w, h);
+    if (tex) {
+        SDL_UpdateTexture(tex, NULL, pixels, (int)bytes_per_row);
+        SDL_SetTextureBlendMode(tex, SDL_BLENDMODE_BLEND);
+    }
+    free(pixels);
+    return tex;
+}
+
+void tb_disp_set_notice_text(struct tb_display *d, const char *text) {
+    if (!d) return;
+    if (!text) text = "";
+    if (strcmp(d->last_notice, text) == 0) return;
+    snprintf(d->last_notice, sizeof(d->last_notice), "%s", text);
+    if (d->notice_tex) {
+        SDL_DestroyTexture(d->notice_tex);
+        d->notice_tex = NULL;
+    }
+    if (!*text) return;
+    d->notice_w = 2400;
+    d->notice_h = 56;
+    d->notice_tex = tb_disp_make_label(d, text, "Helvetica Neue", 26, d->notice_w, d->notice_h,
+                                       1.0, 0.82, 0.35);
+}
+
 static void tb_disp_rebuild_stats_texture(struct tb_display *d, const char *text) {
     if (d->stats_tex) {
         SDL_DestroyTexture(d->stats_tex);
@@ -1209,6 +1257,12 @@ static void tb_disp_render_current(struct tb_display *d) {
     if (d->stats_tex) {
         SDL_Rect stats_rect = { 24, 24, d->stats_w, d->stats_h };
         SDL_RenderCopy(d->ren, d->stats_tex, NULL, &stats_rect);
+    }
+    if (d->notice_tex) {
+        int out_w = 0, out_h = 0;
+        SDL_GetRendererOutputSize(d->ren, &out_w, &out_h);
+        SDL_Rect notice_rect = { 24, out_h - d->notice_h - 24, d->notice_w, d->notice_h };
+        SDL_RenderCopy(d->ren, d->notice_tex, NULL, &notice_rect);
     }
     SDL_RenderPresent(d->ren);
 }

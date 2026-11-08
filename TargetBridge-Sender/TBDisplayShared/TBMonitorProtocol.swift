@@ -37,6 +37,8 @@ struct TBMonitorHelloReceiver: Codable {
     var captureWidth: Int?
     var captureHeight: Int?
     var codec: String?
+    /// Sender app version, so the Receiver can point out a mismatch.
+    var appVersion: String?
 }
 
 struct TBMonitorDisplayProfile: Codable {
@@ -61,6 +63,8 @@ struct TBMonitorDisplayProfile: Codable {
     var rawDataStreams: Int?
     /// Token a data connection must present in its first packet.
     var streamToken: String?
+    /// Receiver app version (4.0 and later).
+    var appVersion: String?
     var inputMonitoringTrusted: Bool?
     var accessibilityTrusted: Bool?
     /// Optional so older receivers still decode; absent means "cannot".

@@ -19,6 +19,7 @@
 #include "idle_watchdog.h"
 #include "receiver_profile.h"
 #include "raw_regions.h"
+#include "version_check.h"
 #include "proto.h"
 #include "tb_gesture_bridge.h"
 #include "tb_display_tweaks.h"
@@ -40,6 +41,10 @@
 
 #include <CoreVideo/CoreVideo.h>
 #include <compression.h>
+
+#ifndef TB_RECEIVER_VERSION
+#define TB_RECEIVER_VERSION "4.0"
+#endif
 #include <errno.h>
 #include <poll.h>
 #include <limits.h>
@@ -110,6 +115,7 @@ struct app {
     struct tb_raw_frame raw_frame;
     struct tb_data_stream data_streams[TB_MAX_DATA_STREAMS];
     char     stream_token[24];
+    uint64_t version_notice_until_ms; /* overlay hides then; menu item stays */
     int      raw_pending;
     int      raw_pending_first;
     int      raw_pending_end;
@@ -987,6 +993,36 @@ static void tb_receiver_apply_input_control_mode(struct app *a, const uint8_t *p
     tb_receiver_refresh_input_capture(a);
 }
 
+/* ---- Version check ---------------------------------------------------- */
+
+/* Sender and Receiver should run the same version: newer performance
+ * features need both. A mismatch is shown on the picture for a while and in
+ * the menu bar with a download link until the session ends. */
+static void tb_receiver_update_version_notice(struct app *a, const char *sender_version) {
+    const char *receiver_version = TB_RECEIVER_VERSION;
+    const int order = tb_version_compare(sender_version, receiver_version);
+    if (order == 0) {
+        tb_disp_set_notice_text(a->disp, NULL);
+        tb_background_ui_set_update_notice(NULL);
+        a->version_notice_until_ms = 0;
+        return;
+    }
+    const char *key = order > 0
+        ? "receiver.version.receiver_older"
+        : (sender_version && *sender_version ? "receiver.version.sender_older"
+                                             : "receiver.version.sender_unknown");
+    struct tb_i18n_pair pairs[] = {
+        { "sender", sender_version ? sender_version : "" },
+        { "receiver", receiver_version }
+    };
+    char text[512];
+    tb_format_i18n(text, sizeof(text), key, pairs, 2);
+    fprintf(stderr, "[main] version mismatch: %s\n", text);
+    tb_disp_set_notice_text(a->disp, text);
+    tb_background_ui_set_update_notice(text);
+    a->version_notice_until_ms = now_ms() + 20000;
+}
+
 /* ---- Callbacks: decoder → display ------------------------------------ */
 
 static void on_frame(const uint8_t *y, int y_stride,
@@ -1393,6 +1429,12 @@ static void on_packet(uint8_t type, const uint8_t *payload, size_t len, void *ud
         }
         if (a->sender_text[0] == '\0') {
             tb_copy_i18n(a->sender_text, sizeof(a->sender_text), "receiver.status.sender_connected");
+        }
+        {
+            char sender_version[32];
+            sender_version[0] = '\0';
+            extract_json_string_field(payload, len, "\"appVersion\"", sender_version, sizeof(sender_version));
+            tb_receiver_update_version_notice(a, sender_version);
         }
         {
             char preset[64];
@@ -2203,7 +2245,7 @@ static void send_receiver_info(struct app *a) {
         "\"modeWidth\":%u,\"modeHeight\":%u,\"refreshRate\":60,"
         "\"hiDPI\":%s,\"captureWidth\":%u,\"captureHeight\":%u,"
         "\"supportsHEVCDecode\":%s,\"supportsRawNV12\":true,\"supportsRawRegions\":true,\"supportsRawLZ4\":true,\"supportsRawRGB10\":true,"
-        "\"rawDataStreams\":%d,\"streamToken\":\"%s\",\"inputMonitoringTrusted\":%s,\"accessibilityTrusted\":%s,"
+        "\"appVersion\":\"" TB_RECEIVER_VERSION "\",\"rawDataStreams\":%d,\"streamToken\":\"%s\",\"inputMonitoringTrusted\":%s,\"accessibilityTrusted\":%s,"
         "\"supportsNightShift\":%s,\"supportsTrueTone\":%s}",
         escaped_name,
         profile.panel_w,
@@ -2265,6 +2307,9 @@ static void close_client(struct app *a) {
     tb_raw_frame_free(&a->raw_frame);
     close_data_streams(a);
     a->stream_token[0] = '\0';
+    a->version_notice_until_ms = 0;
+    tb_disp_set_notice_text(a->disp, NULL);
+    tb_background_ui_set_update_notice(NULL);
     tb_disp_set_stats_text(a->disp, NULL);
     a->have_video_frame = 0;
     snprintf(a->input_control_mode, sizeof(a->input_control_mode), "off");
@@ -2689,6 +2734,11 @@ int main(int argc, char **argv) {
                     break;
                 }
             }
+        }
+
+        if (a.version_notice_until_ms != 0 && t >= a.version_notice_until_ms) {
+            a.version_notice_until_ms = 0;
+            tb_disp_set_notice_text(a.disp, NULL);
         }
 
         /* FPS log */

@@ -254,6 +254,9 @@ private struct TBDisplaySenderSessionCard: View {
         SurfaceCard {
             VStack(alignment: .leading, spacing: 16) {
                 topBar
+                if let notice = session.versionNotice {
+                    versionNoticeBanner(notice)
+                }
                 summaryGrid
                 if session.isConnected {
                     brightnessCard
@@ -264,6 +267,21 @@ private struct TBDisplaySenderSessionCard: View {
                 monitorDetailsCard
             }
         }
+    }
+
+    private func versionNoticeBanner(_ notice: String) -> some View {
+        HStack(alignment: .center, spacing: 12) {
+            Image(systemName: "exclamationmark.arrow.triangle.2.circlepath")
+                .foregroundStyle(.orange)
+            Text(notice)
+                .font(.callout)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 8)
+            Link(TBDisplaySenderL10n.downloadUpdate(service.language), destination: TBVersionCheck.downloadURL)
+                .buttonStyle(.bordered)
+        }
+        .padding(12)
+        .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
     }
 
     private var topBar: some View {
@@ -696,17 +714,24 @@ private struct TBDisplaySenderSessionSettingsSheet: View {
                         .disabled(session.isConnected || session.isStreaming)
                     }
 
+                    // Profiles for the uncompressed modes set the compression themselves.
                     settingRow(
                         TBDisplaySenderL10n.videoCompression(service.language),
-                        details: TBDisplaySenderL10n.codecPreferenceHint(
-                            session.codecPreference,
-                            language: service.language
-                        )
+                        details: session.capturePreset.forcedCodecPreference == nil
+                            ? TBDisplaySenderL10n.codecPreferenceHint(
+                                session.codecPreference,
+                                language: service.language
+                            )
+                            : TBDisplaySenderL10n.codecSetByProfile(service.language) + " "
+                                + TBDisplaySenderL10n.codecPreferenceHint(
+                                    session.effectiveCodecPreference,
+                                    language: service.language
+                                )
                     ) {
                         Picker(
                             TBDisplaySenderL10n.videoCompression(service.language),
                             selection: Binding(
-                                get: { session.codecPreference },
+                                get: { session.effectiveCodecPreference },
                                 set: { service.setCodecPreference($0, for: session) }
                             )
                         ) {
@@ -719,7 +744,8 @@ private struct TBDisplaySenderSessionSettingsSheet: View {
                             }
                         }
                         .pickerStyle(.menu)
-                        .disabled(session.isConnected || session.isStreaming)
+                        .disabled(session.isConnected || session.isStreaming
+                            || session.capturePreset.forcedCodecPreference != nil)
                     }
 
                     // A native-scale profile already renders the desktop 1:1 with the

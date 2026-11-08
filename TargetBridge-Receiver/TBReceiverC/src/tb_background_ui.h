@@ -14,6 +14,9 @@ enum tb_background_ui_action {
     TB_BACKGROUND_UI_TOGGLE_STATS = 1 << 7
 };
 
+/* Where "Download update" in the menu bar points. */
+#define TB_RECEIVER_DOWNLOAD_URL "https://github.com/mjfrank/targetBridge/releases/latest"
+
 int  tb_background_mode_load(void);
 void tb_background_mode_save(int enabled);
 int  tb_show_window_at_start_load(void);
@@ -33,6 +36,10 @@ void tb_background_ui_update(int background_mode,
                              int window_visible,
                              int session_active,
                              const char *status);
+
+/* Shows a version notice and a "Download update" item in the menu bar;
+ * NULL or "" hides both. */
+void tb_background_ui_set_update_notice(const char *text);
 
 /* Returns and clears the actions requested since the last call. */
 unsigned int tb_background_ui_take_actions(void);

@@ -32,8 +32,24 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
     case retina4k60
     case native5k
     case native5k60Experimental
+    case native5k60Uncompressed
+    case native5k60UncompressedLZ4
+    case native5k60Enhanced10Bit
+    case native5k60Full10Bit
 
     var id: String { rawValue }
+
+    /// Profiles for the uncompressed modes choose their video compression
+    /// themselves; the session's own setting applies to all other profiles.
+    var forcedCodecPreference: TBDisplayCodecPreference? {
+        switch self {
+        case .native5k60Uncompressed: return .uncompressed
+        case .native5k60UncompressedLZ4: return .uncompressedLZ4
+        case .native5k60Enhanced10Bit: return .uncompressedEnhanced
+        case .native5k60Full10Bit: return .uncompressedFull10Bit
+        default: return nil
+        }
+    }
 
     var title: String {
         switch self {
@@ -55,6 +71,14 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
             return "5K"
         case .native5k60Experimental:
             return "5K 60 Experimental"
+        case .native5k60Uncompressed:
+            return "5K 60 Uncompressed (8-bit)"
+        case .native5k60UncompressedLZ4:
+            return "5K 60 LZ4, lossless (8-bit)"
+        case .native5k60Enhanced10Bit:
+            return "5K 60 10-bit dithered"
+        case .native5k60Full10Bit:
+            return "5K 60 Full 10-bit"
         }
     }
 
@@ -78,6 +102,14 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
             return "5120 × 2880 @ 48"
         case .native5k60Experimental:
             return "5120 × 2880 @ 60"
+        case .native5k60Uncompressed:
+            return "5120 × 2880 @ 60"
+        case .native5k60UncompressedLZ4:
+            return "5120 × 2880 @ 60"
+        case .native5k60Enhanced10Bit:
+            return "5120 × 2880 @ 60"
+        case .native5k60Full10Bit:
+            return "5120 × 2880 @ 60, ~30 for video"
         }
     }
 
@@ -93,7 +125,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
             return 3840
         case .retina4k60:
             return 4096
-        case .native5k, .native5k60Experimental:
+        case .native5k, .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit:
             return 5120
         }
     }
@@ -110,7 +142,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
             return 2160
         case .retina4k60:
             return 2304
-        case .native5k, .native5k60Experimental:
+        case .native5k, .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit:
             return 2880
         }
     }
@@ -133,7 +165,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
             return 120_000_000
         case .native5k:
             return 120_000_000
-        case .native5k60Experimental:
+        case .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit:
             return 150_000_000
         }
     }
@@ -144,6 +176,14 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
             return "H.264"
         case .crisp2160p60, .retina4k60, .native5k, .native5k60Experimental:
             return "HEVC"
+        case .native5k60Uncompressed:
+            return "Uncompressed 8-bit"
+        case .native5k60UncompressedLZ4:
+            return "LZ4 8-bit"
+        case .native5k60Enhanced10Bit:
+            return "10-bit dithered"
+        case .native5k60Full10Bit:
+            return "Full 10-bit"
         }
     }
 
@@ -151,7 +191,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
         switch self {
         case .standard1080p, .smooth1080p60, .standard1440p, .smooth1440p60, .smooth1800p60:
             return kCMVideoCodecType_H264
-        case .crisp2160p60, .retina4k60, .native5k, .native5k60Experimental:
+        case .crisp2160p60, .retina4k60, .native5k, .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit:
             return kCMVideoCodecType_HEVC
         }
     }
@@ -164,7 +204,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
         case .standard1080p, .standard1440p:
             return 3
         case .smooth1080p60, .smooth1440p60, .smooth1800p60, .crisp2160p60, .retina4k60,
-             .native5k, .native5k60Experimental:
+             .native5k, .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit:
             // Five surfaces protect WindowServer from starvation during
             // high-frame-rate 4K capture while the serial pipeline prevents an
             // application-side frame backlog.
@@ -188,7 +228,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
             return 60
         case .native5k:
             return 48
-        case .native5k60Experimental:
+        case .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit:
             return 60
         }
     }
@@ -214,7 +254,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
             return 60
         case .native5k:
             return 48
-        case .native5k60Experimental:
+        case .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit:
             return 60
         }
     }
@@ -231,7 +271,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
             return 1
         case .smooth1800p60, .crisp2160p60, .retina4k60:
             return 1
-        case .native5k, .native5k60Experimental:
+        case .native5k, .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit:
             return 1
         }
     }
@@ -240,7 +280,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
         switch self {
         case .standard1080p, .standard1440p:
             return false
-        case .smooth1080p60, .smooth1440p60, .smooth1800p60, .crisp2160p60, .retina4k60, .native5k, .native5k60Experimental:
+        case .smooth1080p60, .smooth1440p60, .smooth1800p60, .crisp2160p60, .retina4k60, .native5k, .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit:
             return true
         }
     }
@@ -256,7 +296,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
         switch self {
         case .standard1080p, .standard1440p:
             return 1
-        case .smooth1080p60, .smooth1440p60, .smooth1800p60, .crisp2160p60, .retina4k60, .native5k, .native5k60Experimental:
+        case .smooth1080p60, .smooth1440p60, .smooth1800p60, .crisp2160p60, .retina4k60, .native5k, .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit:
             return 0
         }
     }
@@ -265,7 +305,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
         switch self {
         case .standard1080p, .standard1440p:
             return false
-        case .smooth1080p60, .smooth1440p60, .smooth1800p60, .crisp2160p60, .retina4k60, .native5k, .native5k60Experimental:
+        case .smooth1080p60, .smooth1440p60, .smooth1800p60, .crisp2160p60, .retina4k60, .native5k, .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit:
             return true
         }
     }
@@ -281,7 +321,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
         switch self {
         case .standard1080p, .smooth1080p60, .standard1440p, .smooth1440p60, .smooth1800p60:
             return .nominal
-        case .crisp2160p60, .retina4k60, .native5k, .native5k60Experimental:
+        case .crisp2160p60, .retina4k60, .native5k, .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit:
             return .best
         }
     }
@@ -298,7 +338,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
             return 60
         case .native5k:
             return 48
-        case .native5k60Experimental:
+        case .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit:
             return 60
         }
     }
@@ -340,7 +380,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
         case .standard1080p, .smooth1080p60:
             return true
         case .standard1440p, .smooth1440p60, .smooth1800p60, .crisp2160p60, .retina4k60,
-             .native5k, .native5k60Experimental:
+             .native5k, .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit:
             return false
         }
     }
@@ -1536,6 +1576,16 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
             }
         }
     }
+    /// Set when Sender and Receiver run different versions; shown with a
+    /// download button until the next connection.
+    @Published var versionNotice: String?
+
+    /// The compression actually used: a profile for an uncompressed mode
+    /// overrides the session's own setting.
+    var effectiveCodecPreference: TBDisplayCodecPreference {
+        capturePreset.forcedCodecPreference ?? codecPreference
+    }
+
     @Published var codecPreference: TBDisplayCodecPreference = .automatic {
         didSet {
             if !isStreaming {
@@ -1783,7 +1833,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
             ?? receiverSupportsHEVCDecodeHint
             ?? false
         return Self.chooseCodec(
-            preference: codecPreference,
+            preference: effectiveCodecPreference,
             preset: preset,
             receiverSupportsHEVC: receiverSupportsHEVC,
             senderSupportsH264: Self.probeHardwareEncoderSupport(
@@ -1874,6 +1924,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     func connect() {
         guard connection == nil, !receiverIP.isEmpty, !localInterfaceIP.isEmpty else { return }
         autoConnectSuspended = false
+        versionNotice = nil
         connectTimeoutWorkItem?.cancel()
         connectTimeoutWorkItem = nil
         recvBuffer.removeAll(keepingCapacity: false)
@@ -2315,7 +2366,8 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
                 captureSource: captureSource.title(language),
                 captureWidth: preset.width,
                 captureHeight: preset.height,
-                codec: codecName(for: helloCodecType)
+                codec: codecName(for: helloCodecType),
+                appVersion: TBDisplaySenderBuildInfo.marketingVersion
             )
         ) else { return }
         send(packet)
@@ -2896,6 +2948,19 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         receiverSupportsNightShift = profile.supportsNightShift ?? false
         receiverSupportsTrueTone = profile.supportsTrueTone ?? false
         receiverPanelText = TBDisplaySenderL10n.receiverSummary(profile, language: language)
+        versionNotice = TBVersionCheck.mismatch(
+            sender: TBDisplaySenderBuildInfo.marketingVersion,
+            receiver: profile.appVersion
+        ).map {
+            TBDisplaySenderL10n.versionNotice(
+                $0,
+                senderVersion: TBDisplaySenderBuildInfo.marketingVersion,
+                language: language
+            )
+        }
+        if let versionNotice {
+            TBLog.connection.notice("version mismatch: \(versionNotice, privacy: .public)")
+        }
         sendHello()
         sendInputControlModeUpdate()
         sendBrightnessUpdate()
@@ -3049,7 +3114,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
                 guard let resolvedDecision = resolvedCodecDecision(for: preset, profile: profile) else {
                     setStatus(.captureError(TBDisplaySenderL10n.codecUnavailable(language)))
                     TBLog.connection.error(
-                        "capture: no compatible hardware codec preset=\(preset.rawValue, privacy: .public) preference=\(self.codecPreference.rawValue, privacy: .public)"
+                        "capture: no compatible hardware codec preset=\(preset.rawValue, privacy: .public) preference=\(self.effectiveCodecPreference.rawValue, privacy: .public)"
                     )
                     return false
                 }
@@ -3062,19 +3127,20 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
                 && profile.supportsRawRegions == true
                 && ProcessInfo.processInfo.environment["RAW_REGIONS"] != "0"
             let compressesRawRegions = usesRawRegions
-                && codecPreference.compressesRawFrames
+                && effectiveCodecPreference.compressesRawFrames
                 && profile.supportsRawLZ4 == true
             // Full 10-bit RGB needs a receiver that can show it; otherwise the
             // 10-bit capture is dithered to 8-bit NV12 like "enhanced".
             let sendsRawRGB10 = usesRawRegions
-                && codecPreference == .uncompressedFull10Bit
+                && effectiveCodecPreference == .uncompressedFull10Bit
                 && profile.supportsRawRGB10 == true
             let tenBitConverter: TBTenBitConverter? =
                 usesRawRegions && !sendsRawRGB10
-                && (codecPreference == .uncompressedEnhanced || codecPreference == .uncompressedFull10Bit)
+                && (effectiveCodecPreference == .uncompressedEnhanced
+                    || effectiveCodecPreference == .uncompressedFull10Bit)
                 ? TBTenBitConverter() : nil
             let capturesTenBit = sendsRawRGB10 || tenBitConverter != nil
-            let dataStreams = usesRawRegions && codecPreference.usesParallelStreams
+            let dataStreams = usesRawRegions && effectiveCodecPreference.usesParallelStreams
                 ? await openDataStreams(for: profile)
                 : []
             let codecName: String
@@ -3091,7 +3157,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
             activeCodecName = codecName
             if codecDecision.usedFallback {
                 TBLog.connection.notice(
-                    "capture: codec fallback preference=\(self.codecPreference.rawValue, privacy: .public) selected=\(codecName, privacy: .public)"
+                    "capture: codec fallback preference=\(self.effectiveCodecPreference.rawValue, privacy: .public) selected=\(codecName, privacy: .public)"
                 )
             }
             guard let connection else { return false }
@@ -3515,7 +3581,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         guard profile.supportsRawNV12 == true else { return false }
         // The headless path captures BGRA through CGDisplayStream, not NV12.
         guard !headlessMirrorUsesVirtualDisplay else { return false }
-        if codecPreference.usesRawFrames { return true }
+        if effectiveCodecPreference.usesRawFrames { return true }
         guard let value = ProcessInfo.processInfo.environment["RAW"]?.lowercased() else { return false }
         return value == "1" || value == "true"
     }

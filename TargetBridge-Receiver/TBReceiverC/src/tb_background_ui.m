@@ -11,6 +11,8 @@ static NSString *const kShowWindowAtStartKey = @"showWindowAtStart";
 @interface TBBackgroundUI : NSObject
 @property(nonatomic, strong) NSStatusItem *statusItem;
 @property(nonatomic, strong) NSMenuItem *statusLine;
+@property(nonatomic, strong) NSMenuItem *noticeLine;
+@property(nonatomic, strong) NSMenuItem *downloadItem;
 @property(nonatomic, strong) NSMenuItem *showWindowItem;
 @property(nonatomic, strong) NSMenuItem *backgroundItem;
 @property(nonatomic, strong) NSMenuItem *showAtStartItem;
@@ -69,6 +71,12 @@ static NSWindow *tb_ui_largest_window(void) {
     menu.autoenablesItems = NO;
     _statusLine = [menu addItemWithTitle:@"" action:nil keyEquivalent:@""];
     _statusLine.enabled = NO;
+    _noticeLine = [menu addItemWithTitle:@"" action:nil keyEquivalent:@""];
+    _noticeLine.enabled = NO;
+    _noticeLine.hidden = YES;
+    _downloadItem = [menu addItemWithTitle:@"" action:@selector(openDownload:) keyEquivalent:@""];
+    _downloadItem.target = self;
+    _downloadItem.hidden = YES;
     [menu addItem:NSMenuItem.separatorItem];
     _showWindowItem = [menu addItemWithTitle:@"" action:@selector(showWindow:) keyEquivalent:@""];
     _showWindowItem.target = self;
@@ -92,6 +100,11 @@ static NSWindow *tb_ui_largest_window(void) {
     _quitItem.target = self;
     _statusItem.menu = menu;
     return self;
+}
+
+- (void)openDownload:(id)sender {
+    NSURL *url = [NSURL URLWithString:@TB_RECEIVER_DOWNLOAD_URL];
+    if (url) [NSWorkspace.sharedWorkspace openURL:url];
 }
 
 - (void)showWindow:(id)sender {
@@ -193,6 +206,7 @@ static NSWindow *tb_ui_largest_window(void) {
     self.backgroundItem.title = tb_ui_text("receiver.background.run");
     self.showAtStartItem.title = tb_ui_text("receiver.background.show_main_window_at_start");
     self.quitItem.title = tb_ui_text("receiver.background.quit");
+    self.downloadItem.title = tb_ui_text("receiver.version.download");
     self.performanceItem.title = tb_ui_text("receiver.performance.menu");
     self.newestFrameItem.title = tb_ui_text("receiver.performance.newest_frame");
     self.wakeOnDataItem.title = tb_ui_text("receiver.performance.wake_on_data");
@@ -280,6 +294,15 @@ void tb_background_ui_set_performance(int newest_frame, int wake_on_data, int me
     g_background_ui.wakeOnDataItem.state = tb_ui_state(wake_on_data);
     g_background_ui.metalItem.state = tb_ui_state(metal);
     g_background_ui.statsItem.state = tb_ui_state(stats);
+}
+
+void tb_background_ui_set_update_notice(const char *text) {
+    if (!g_background_ui) return;
+    const BOOL show = text && *text;
+    g_background_ui.noticeLine.title = show ? [NSString stringWithUTF8String:text] : @"";
+    g_background_ui.noticeLine.hidden = !show;
+    g_background_ui.downloadItem.title = tb_ui_text("receiver.version.download");
+    g_background_ui.downloadItem.hidden = !show;
 }
 
 void tb_background_ui_install(void) {

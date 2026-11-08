@@ -516,6 +516,29 @@ enum TBDisplaySenderL10n {
         text("sender.codec.hint.\(preference.rawValue)", language)
     }
 
+    static func versionNotice(
+        _ mismatch: TBVersionCheck.Mismatch,
+        senderVersion: String,
+        language: TBDisplaySenderLanguage
+    ) -> String {
+        switch mismatch {
+        case .receiverOlder(let receiver?):
+            return text("sender.version.receiver_older", language, ["sender": senderVersion, "receiver": receiver])
+        case .receiverOlder(nil):
+            return text("sender.version.receiver_unknown", language, ["sender": senderVersion])
+        case .senderOlder(let receiver):
+            return text("sender.version.sender_older", language, ["sender": senderVersion, "receiver": receiver])
+        }
+    }
+
+    static func downloadUpdate(_ language: TBDisplaySenderLanguage) -> String {
+        text("sender.version.download", language)
+    }
+
+    static func codecSetByProfile(_ language: TBDisplaySenderLanguage) -> String {
+        text("sender.codec.set_by_profile", language)
+    }
+
     static func codecUnavailable(_ language: TBDisplaySenderLanguage) -> String {
         text("sender.codec.unavailable", language)
     }
@@ -609,6 +632,14 @@ extension TBDisplayCapturePreset {
             return TBDisplaySenderL10n.text("sender.profile.native_5k", language)
         case .native5k60Experimental:
             return TBDisplaySenderL10n.text("sender.profile.native_5k_60_experimental", language)
+        case .native5k60Uncompressed:
+            return TBDisplaySenderL10n.text("sender.profile.native_5k_60_uncompressed", language)
+        case .native5k60UncompressedLZ4:
+            return TBDisplaySenderL10n.text("sender.profile.native_5k_60_lz4", language)
+        case .native5k60Enhanced10Bit:
+            return TBDisplaySenderL10n.text("sender.profile.native_5k_60_10bit_dithered", language)
+        case .native5k60Full10Bit:
+            return TBDisplaySenderL10n.text("sender.profile.native_5k_60_full_10bit", language)
         }
     }
 }

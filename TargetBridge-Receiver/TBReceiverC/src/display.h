@@ -59,6 +59,10 @@ void tb_disp_render_nv12_rows(struct tb_display *d,
                               const uint8_t *y, const uint8_t *uv,
                               int w, int h, int first_row, int end_row);
 
+/* A notice shown at the bottom of the picture (e.g. a version mismatch);
+ * NULL or "" removes it. */
+void tb_disp_set_notice_text(struct tb_display *d, const char *text);
+
 /* Same for 10-bit RGB (32-bit little-endian ARGB2101010, stride = w * 4). */
 void tb_disp_render_rgb10_rows(struct tb_display *d, const uint8_t *pixels,
                                int w, int h, int first_row, int end_row);
