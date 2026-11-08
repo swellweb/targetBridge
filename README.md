@@ -51,9 +51,8 @@ screen, in 8-bit or, experimentally, 10-bit colour:
 - one-click **5K 60** stream profiles for each uncompressed mode
 - a version check: both apps point out when the other one needs an update,
   with a download link
-- CI and release builds can sign with one persistent certificate, so macOS
-  keeps privacy permissions across updates (see
-  [Sender signing](docs/Sender-Signing.md))
+- a guide and a small script to sign the apps on your own Mac with one
+  certificate, so macOS keeps privacy permissions across updates
 - a per-session **TargetBridge Audio** output device whose volume drives the
   iMac's speakers
 - Receiver background mode with a menu bar icon and a **Performance** submenu
@@ -182,6 +181,24 @@ If you build from source, app outputs go into `build/` folder.
 > xattr -cr ~/Downloads/TargetBridge-Receiver-arm64.app
 > xattr -cr ~/Downloads/TargetBridge-Receiver-x86_64.app
 > ```
+
+### Keep permissions across updates
+
+Downloaded builds are signed ad-hoc, so macOS asks for Screen Recording,
+Accessibility and Input Monitoring again after every update. To avoid that,
+sign the installed apps with your own certificate after each install, before
+the first launch:
+
+1. Once per Mac: import your code-signing certificate (`.p12`) into the login
+   keychain and set it to *Always Trust* for code signing.
+2. After each update: copy the apps to `/Applications`, then run
+   [`scripts/sign-local.sh`](scripts/sign-local.sh):
+   ```bash
+   bash sign-local.sh
+   ```
+
+The step-by-step guide, including how to create a certificate, is in
+[Sender signing](docs/Sender-Signing.md#keep-permissions-on-your-own-macs-sign-after-installing).
 
 ## Permissions
 

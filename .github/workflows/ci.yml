@@ -17,8 +17,6 @@ jobs:
           - os: macos-15
             arch: arm64
     runs-on: ${{ matrix.os }}
-    env:
-      TARGETBRIDGE_SIGNING_CONFIGURED: ${{ secrets.TARGETBRIDGE_CODESIGN_P12_BASE64 != '' }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v6
@@ -26,15 +24,6 @@ jobs:
       - name: Install Tools
         run: |
           brew install cmake jq xcodegen
-
-      # With the certificate secrets set, CI builds keep one signing identity,
-      # so macOS keeps privacy permissions across updates.
-      - name: Import signing certificate
-        if: ${{ env.TARGETBRIDGE_SIGNING_CONFIGURED == 'true' }}
-        uses: ./.github/actions/import-macos-signing-certificate
-        with:
-          certificate-base64: ${{ secrets.TARGETBRIDGE_CODESIGN_P12_BASE64 }}
-          certificate-password: ${{ secrets.TARGETBRIDGE_CODESIGN_P12_PASSWORD }}
 
       - name: Check Localizations
         run: |
@@ -80,8 +69,6 @@ jobs:
           - os: macos-15
             arch: arm64
     runs-on: ${{ matrix.os }}
-    env:
-      TARGETBRIDGE_SIGNING_CONFIGURED: ${{ secrets.TARGETBRIDGE_CODESIGN_P12_BASE64 != '' }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v6
@@ -89,13 +76,6 @@ jobs:
       - name: Install Dependencies
         run: |
           brew install ffmpeg jq sdl2 sdl3 dylibbundler
-
-      - name: Import signing certificate
-        if: ${{ env.TARGETBRIDGE_SIGNING_CONFIGURED == 'true' }}
-        uses: ./.github/actions/import-macos-signing-certificate
-        with:
-          certificate-base64: ${{ secrets.TARGETBRIDGE_CODESIGN_P12_BASE64 }}
-          certificate-password: ${{ secrets.TARGETBRIDGE_CODESIGN_P12_PASSWORD }}
 
       - name: Check Localizations
         run: |

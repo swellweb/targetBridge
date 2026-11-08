@@ -24,15 +24,6 @@ runs:
         security import "$certificate_path" -k "$keychain_path" -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign
         security list-keychain -d user -s "$keychain_path"
         security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain_path"
-        # A self-signed certificate (fine for keeping privacy permissions across
-        # updates on your own Macs) is only a valid signing identity once it is
-        # trusted. Trust it for code signing on this throwaway runner only.
-        certificate_pem="$RUNNER_TEMP/targetbridge-signing.pem"
-        security find-certificate -a -p "$keychain_path" > "$certificate_pem"
-        if [[ "$(openssl x509 -in "$certificate_pem" -noout -subject | sed 's/^subject= *//')" == \
-              "$(openssl x509 -in "$certificate_pem" -noout -issuer | sed 's/^issuer= *//')" ]]; then
-          sudo security add-trusted-cert -d -r trustRoot -p codeSign -k /Library/Keychains/System.keychain "$certificate_pem"
-        fi
         identity="$(security find-identity -v -p codesigning "$keychain_path" | sed -nE 's/.* ([A-F0-9]{40}) .*/\1/p' | head -n1)"
         test -n "$identity"
         echo "TARGETBRIDGE_CODESIGN_IDENTITY=$identity" >> "$GITHUB_ENV"

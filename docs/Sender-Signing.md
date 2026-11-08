@@ -10,25 +10,54 @@ Receiver (`com.targetbridge.receiver`). Both must retain their respective
 bundle ID, installation path, and signing identity. This matters whenever the
 app has been granted a macOS privacy permission.
 
-## Fork setup: one self-signed certificate for CI
+## Keep permissions on your own Macs: sign after installing
 
-For builds you only install on your own Macs, a self-signed code-signing
-certificate is enough to keep privacy permissions across updates:
+Pre-built downloads are signed ad-hoc, so each update looks like a new app to
+macOS. Signing the installed apps yourself with one certificate fixes that.
+No Apple Developer account is needed for your own Macs.
 
-1. Keep `TargetBridge-CodeSigning.p12` and its password somewhere safe (for
-   example a password manager). The same certificate must sign every build;
-   a new one means approving the permissions again.
-2. In the repository's Settings → Secrets and variables → Actions, add
-   `TARGETBRIDGE_CODESIGN_P12_BASE64` (the base64 text of the .p12) and
-   `TARGETBRIDGE_CODESIGN_P12_PASSWORD`.
-3. CI and release builds then import it and sign both apps with it. On the
-   throwaway build machine the certificate is trusted for code signing only.
+**Once per Mac:**
 
-The first install of a build signed this way replaces the ad-hoc identity, so
-macOS asks for the permissions once more. Later updates keep them, as long as
-the apps stay in `/Applications` under the same names. Downloaded builds still
-need `xattr -cr` before the first launch; that needs Developer ID and
-notarization.
+1. You need a code-signing certificate with its private key as a `.p12` file
+   (for example `TargetBridge-CodeSigning.p12`) and its password. Keep both
+   safe, for example in a password manager: every Mac and every update must use
+   the same certificate. A new certificate means approving the permissions
+   again. To make your own instead, use Keychain Access → Certificate
+   Assistant → Create a Certificate, with the type *Code Signing*.
+2. Double-click the `.p12` file and enter its password. It's added to your
+   login keychain.
+3. Trust it for code signing: in Keychain Access, open the certificate (it's
+   under *My Certificates*), expand *Trust*, set *Code Signing* to
+   *Always Trust*, and confirm with your Mac password. Leave the other
+   settings as they are.
+4. Check it in Terminal; the certificate should appear in the list:
+   ```bash
+   security find-identity -v -p codesigning
+   ```
+
+**After every install or update, before the first launch:**
+
+Copy the app to `/Applications`, then run
+[`sign-local.sh`](../scripts/sign-local.sh) in Terminal:
+
+```bash
+bash ~/Downloads/sign-local.sh
+```
+
+It signs `TargetBridge.app` and `TargetBridge Receiver.app` in
+`/Applications` with your certificate (nested code first), removes the download
+quarantine, and verifies the result. To sign other copies, pass their paths;
+for a certificate with another name, set `TB_SIGN_IDENTITY`. Without the
+script, the same in two commands:
+
+```bash
+xattr -cr /Applications/TargetBridge.app
+codesign --force --deep --sign "TargetBridge Code Signing" /Applications/TargetBridge.app
+```
+
+The first launch after switching from an ad-hoc build asks for the permissions
+one last time. After that, updates keep them, as long as each one is signed
+with the same certificate and stays in `/Applications` under the same name.
 
 ## Build and sign
 
