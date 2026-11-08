@@ -382,7 +382,8 @@ enum TBRawRegionPacketBuilder {
             put32(height, at: prefix + 6)
             put8(UInt8(truncatingIfNeeded: group.count >> 8), at: prefix + 10)
             put8(UInt8(truncatingIfNeeded: group.count), at: prefix + 11)
-            put8(0, at: prefix + 12)
+            // Part count, so the Receiver draws the frame only once all parts arrived.
+            put8(frameSequence == nil ? 0 : UInt8(clamping: partCount), at: prefix + 12)
             put8(0, at: prefix + 13)
             var dataOffset = prefix + tableBytes
             for (slot, index) in group.enumerated() {

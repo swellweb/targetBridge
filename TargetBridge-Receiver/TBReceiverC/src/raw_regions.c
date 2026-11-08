@@ -1,5 +1,9 @@
 /* raw_regions.c — see raw_regions.h for the wire format. */
 
+#if !defined(__APPLE__) && !defined(_POSIX_C_SOURCE)
+#define _POSIX_C_SOURCE 200112L /* posix_memalign under -std=c11 */
+#endif
+
 #include "raw_regions.h"
 
 #include <stdlib.h>
@@ -43,6 +47,7 @@ void tb_raw_frame_free(struct tb_raw_frame *frame) {
     frame->y = NULL;
     frame->uv = NULL;
     frame->row_seq = NULL;
+    frame->y_capacity = 0;
     frame->format = 0;
     frame->w = 0;
     frame->h = 0;
@@ -62,7 +67,12 @@ static int tb_raw_frame_resize(struct tb_raw_frame *frame, uint8_t format, uint3
     tb_raw_frame_free(frame);
     const size_t y_size = tb_raw_row_bytes(format, w) * h;
     const size_t uv_size = tb_raw_uv_row_bytes(format, w) * (h / 2);
-    frame->y = (uint8_t *)malloc(y_size);
+    const size_t y_capacity = (y_size + TB_RAW_REGIONS_Y_ALIGNMENT - 1) &
+                              ~(size_t)(TB_RAW_REGIONS_Y_ALIGNMENT - 1);
+    void *y = NULL;
+    if (posix_memalign(&y, TB_RAW_REGIONS_Y_ALIGNMENT, y_capacity) != 0) y = NULL;
+    frame->y = (uint8_t *)y;
+    frame->y_capacity = y ? y_capacity : 0;
     frame->uv = uv_size ? (uint8_t *)malloc(uv_size) : NULL;
     frame->row_seq = (uint32_t *)calloc(h / 2, sizeof(uint32_t));
     if (!frame->y || (uv_size && !frame->uv) || !frame->row_seq) {
@@ -234,6 +244,7 @@ static int tb_raw_regions_apply_seq(struct tb_raw_frame *frame,
         out->full = (flags & TB_RAW_REGIONS_FLAG_FULL) != 0;
         out->compressed = compressed;
         out->sequence = seq;
+        out->parts = payload[12];
     }
     return job.failed ? -2 : 0;
 }

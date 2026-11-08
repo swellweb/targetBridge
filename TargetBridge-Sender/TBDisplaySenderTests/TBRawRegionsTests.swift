@@ -241,6 +241,7 @@ final class TBRawRegionsTests: XCTestCase {
             XCTAssertEqual(bytes[header], TBRawRegionPacketBuilder.formatNV12)
             let bands = Int(bytes[header + 10]) << 8 | Int(bytes[header + 11])
             XCTAssertEqual(bands, 2, "8 chunks of 64 rows over 4 parts")
+            XCTAssertEqual(bytes[header + 12], 4, "part count")
             for band in 0..<bands {
                 let entry = header + TBRawRegionPacketBuilder.headerBytes + band * TBRawRegionPacketBuilder.bandBytes
                 let first = be32(bytes, entry)

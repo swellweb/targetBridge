@@ -709,6 +709,9 @@ private final class TBVideoPipeline: @unchecked Sendable {
     private var rawFrameSequence: UInt32 = 0
     /// A whole frame now and then repairs anything a missed dirty rect left behind.
     private static let rawFullFrameInterval: TimeInterval = 5
+    /// Full 10-bit colour compresses changed rows only while they cover less
+    /// than this share of the screen.
+    private static let rgb10CompressMaxPercent = 25
 
     // Read from the main thread (fps timer / watchdog); guarded by `lock`.
     private let lock = NSLock()
@@ -1156,11 +1159,20 @@ private final class TBVideoPipeline: @unchecked Sendable {
             if rawFrameSequence == 0 { rawFrameSequence = 1 }
             frameSequence = rawFrameSequence
         }
+        // Full 10-bit colour: LZ4 only pays off for small changes (text,
+        // cursor). Video and scrolling change most of the screen, where LZ4
+        // costs more time than it saves at 4 bytes per pixel, so those rows
+        // go out raw, like DisplayBridge does.
+        var compress = compressesRawRegions
+        if compress, CVPixelBufferGetPixelFormatType(nv12) == TBTenBitConverter.sourcePixelFormat {
+            let changedRows = spans.reduce(0) { $0 + $1.rows }
+            compress = changedRows * 100 < CVPixelBufferGetHeight(nv12) * Self.rgb10CompressMaxPercent
+        }
         guard let built = TBRawRegionPacketBuilder.makePackets(
             pixelBuffer: nv12,
             spans: spans,
             fullFrame: fullFrame,
-            compress: compressesRawRegions,
+            compress: compress,
             parts: max(1, streams.count),
             frameSequence: frameSequence
         ) else { return }

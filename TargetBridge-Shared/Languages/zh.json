@@ -79,7 +79,7 @@
   "sender.codec.uncompressedEnhanced": "无压缩，增强（10 位抖动，实验性）",
   "sender.codec.hint.uncompressedEnhanced": "以 10 位采集，以 8 位显示：发送前由图形芯片将每帧转换为 8 位 4:2:0 色彩，并叠加细微、固定的抖动图案，使渐变不出现可见色阶。同时使用 LZ4 和最多 4 个并行连接。带宽与 8 位模式相同，5K 下 60 Hz。实验性功能。",
   "sender.codec.uncompressedFull10Bit": "无压缩，全色彩（10 位，实验性）",
-  "sender.codec.hint.uncompressedFull10Bit": "以 10 位采集并原样发送，保留完整色彩分辨率（4:4:4），使用 LZ4 和最多 4 个并行连接。数据量约为 8 位模式的 2.7 倍：5K 下视频和滚动约为每秒 30 帧。iMac 是否真正显示 10 位取决于其渲染器，接收端的性能统计会显示。如果接收端不支持，将使用增强模式。实验性功能。",
+  "sender.codec.hint.uncompressedFull10Bit": "以完整色彩分辨率（4:4:4）原样采集并发送 10 位色彩，最多使用 4 个并行连接；仅对小范围变化使用 LZ4 压缩。所需数据量约为 8 位模式的 2.7 倍：在 5K 下，视频和滚动约为每秒 30 帧。需要接收端的 Metal 渲染器（接收端菜单 > 性能），可显示真正的 10 位；否则使用增强模式。实验性功能。",
   "sender.session.name_label": "会话名称",
   "sender.session.name_details": "留空则使用默认名称。",
   "sender.session.display_name_label": "显示器名称",

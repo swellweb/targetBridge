@@ -63,9 +63,15 @@ void tb_disp_render_nv12_rows(struct tb_display *d,
  * NULL or "" removes it. */
 void tb_disp_set_notice_text(struct tb_display *d, const char *text);
 
-/* Same for 10-bit RGB (32-bit little-endian ARGB2101010, stride = w * 4). */
-void tb_disp_render_rgb10_rows(struct tb_display *d, const uint8_t *pixels,
+/* Same for 10-bit RGB (32-bit little-endian ARGB2101010, stride = w * 4).
+ * With the Metal renderer `pixels` is read by the GPU in place, so it must
+ * be 16 KiB aligned with `pixels_capacity` a multiple of 16 KiB (see
+ * tb_raw_frame); the picture is then shown in 10 bits. */
+void tb_disp_render_rgb10_rows(struct tb_display *d, const uint8_t *pixels, size_t pixels_capacity,
                                int w, int h, int first_row, int end_row);
+
+/* Forgets the picture of the 10-bit view, e.g. at the end of a session. */
+void tb_disp_reset_video(struct tb_display *d);
 
 /* Whether the renderer keeps 10-bit RGB textures (otherwise SDL converts
  * them to 8 bit on upload). */

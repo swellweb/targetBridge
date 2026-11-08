@@ -75,6 +75,9 @@ int main(void) {
     CHECK(result.full == 1 && result.bands == 2 && result.rows == 8, "full frame result");
     CHECK(result.first_row == 0 && result.end_row == 8, "full frame row span");
     CHECK(frame.w == 8 && frame.h == 8, "frame allocated");
+    CHECK(((uintptr_t)frame.y % TB_RAW_REGIONS_Y_ALIGNMENT) == 0 &&
+          frame.y_capacity % TB_RAW_REGIONS_Y_ALIGNMENT == 0 && frame.y_capacity >= 64,
+          "picture memory page aligned for the GPU");
     CHECK(frame.y[0] == 50 && frame.y[width * 4] == 70 && frame.y[width * 8 - 1] == 70, "Y rows patched");
     CHECK(frame.uv[0] == 60 && frame.uv[width * 2] == 80, "CbCr rows patched");
 
@@ -144,6 +147,7 @@ int main(void) {
         CHECK(tb_raw_regions_apply_part(&frame, part.buf, part.len, fake_decode, &result) == 0,
               "part applies");
         CHECK(result.sequence == 7 && frame.y[0] == 30 && frame.y[width * 3] == 30, "part wrote rows 0-3");
+        CHECK(result.parts == 0, "unknown part count reported as 0");
 
         /* An older frame 6 for rows 2-5 only fills rows 4-5. */
         part.len = 0;
@@ -157,6 +161,12 @@ int main(void) {
         CHECK(frame.y[width * 2] == 30 && frame.uv[width] == 31, "older part kept away from newer rows");
         CHECK(frame.y[width * 4] == 66 && frame.y[width * 5] == 66 && frame.uv[width * 2] == 67,
               "older part filled rows nobody newer wrote");
+
+        /* The part count byte is reported. */
+        part.buf[4 + 12] = 3;
+        memset(&result, 0, sizeof(result));
+        CHECK(tb_raw_regions_apply_part(&frame, part.buf, part.len, fake_decode, &result) == 0 &&
+              result.parts == 3, "part count reported");
 
         /* Sequence 0 is invalid. */
         part.buf[0] = part.buf[1] = part.buf[2] = part.buf[3] = 0;

@@ -9,6 +9,7 @@
 #include "display.h"
 #include "tb_i18n.h"
 #include "tb_gesture_bridge.h"
+#include "tb_metal_view.h"
 
 #include <CoreFoundation/CoreFoundation.h>
 #include <CoreGraphics/CoreGraphics.h>
@@ -43,7 +44,9 @@ struct tb_display {
     int           tex_w, tex_h;
     Uint32        tex_format;
     int           tex_needs_full_upload; /* new texture, contents undefined */
-    int           native_rgb10;          /* renderer keeps 10-bit RGB textures */
+    int           native_rgb10;          /* 10-bit RGB shown in 10 bits (Metal view) */
+    struct tb_metal_view *metal_view;    /* Metal renderer only */
+    int           metal_rgb10_active;    /* the picture is in the Metal view */
     int           quit;
     int           window_hidden;
     int           close_hides;
@@ -620,11 +623,12 @@ struct tb_display *tb_disp_create(int fullscreen, int start_hidden, int prefer_m
     if (SDL_GetRendererInfo(d->ren, &info) == 0) {
         fprintf(stderr, "[disp] renderer = %s\n", info.name);
         snprintf(d->renderer_name, sizeof(d->renderer_name), "%s", info.name);
-        for (Uint32 i = 0; i < info.num_texture_formats; ++i) {
-            if (info.texture_formats[i] == SDL_PIXELFORMAT_ARGB2101010) d->native_rgb10 = 1;
-        }
-        fprintf(stderr, "[disp] 10-bit RGB textures: %s\n",
-                d->native_rgb10 ? "native" : "converted to 8-bit by SDL");
+        /* SDL2 itself has no 10-bit textures; with the Metal renderer our own
+         * view keeps 10-bit RGB in 10 bits, otherwise SDL converts it. */
+        d->metal_view = tb_metal_view_create(d->ren);
+        d->native_rgb10 = d->metal_view != NULL;
+        fprintf(stderr, "[disp] 10-bit RGB: %s\n",
+                d->native_rgb10 ? "native (Metal, 10-bit drawable)" : "converted to 8-bit by SDL");
     }
 
     int win_w = 0, win_h = 0, out_w = 0, out_h = 0;
@@ -667,6 +671,8 @@ void tb_disp_destroy(struct tb_display *d) {
     }
     tb_disp_destroy_status_texture(d);
     if (d->tex) SDL_DestroyTexture(d->tex);
+    tb_metal_view_destroy(d->metal_view);
+    d->metal_view = NULL;
     if (d->ren) SDL_DestroyRenderer(d->ren);
     if (d->win) SDL_DestroyWindow(d->win);
     SDL_EnableScreenSaver();
@@ -1249,10 +1255,26 @@ const char *tb_disp_renderer_name(struct tb_display *d) {
     return d && d->renderer_name[0] ? d->renderer_name : "unknown";
 }
 
+/* Switches between SDL's texture and the 10-bit Metal view, and whether the
+ * Metal layer waits for the display's refresh. Raw frames are sent at most
+ * at the refresh rate, so waiting costs nothing and avoids tearing. */
+static void tb_disp_use_metal_rgb10(struct tb_display *d, int rgb10, int display_sync) {
+    if (!d->metal_view) return;
+    tb_metal_view_set_display_sync(d->metal_view, display_sync);
+    tb_metal_view_set_10bit_drawable(d->metal_view, rgb10);
+    d->metal_rgb10_active = rgb10;
+}
+
 static void tb_disp_render_current(struct tb_display *d) {
-    if (!d || !d->tex) return;
-    SDL_RenderClear(d->ren);
-    SDL_RenderCopy(d->ren, d->tex, NULL, NULL);
+    if (!d) return;
+    if (d->metal_rgb10_active) {
+        SDL_RenderClear(d->ren);
+        if (tb_metal_view_draw(d->metal_view, d->ren) != 0) return;
+    } else {
+        if (!d->tex) return;
+        SDL_RenderClear(d->ren);
+        SDL_RenderCopy(d->ren, d->tex, NULL, NULL);
+    }
     tb_disp_draw_cursor(d);
     if (d->stats_tex) {
         SDL_Rect stats_rect = { 24, 24, d->stats_w, d->stats_h };
@@ -1273,6 +1295,9 @@ void tb_disp_render_nv12(struct tb_display *d,
                          int w, int h) {
     if (tb_disp_ensure_texture(d, w, h) < 0) return;
     tb_disp_set_connection_state(d, 1);
+    /* Hardware-decoded video keeps presenting unsynchronised: waiting for the
+     * refresh stalled decoding on Intel iMacs. */
+    tb_disp_use_metal_rgb10(d, 0, 0);
 
     if (SDL_UpdateNVTexture(d->tex, NULL,
                             y,  y_stride,
@@ -1290,6 +1315,7 @@ void tb_disp_render_nv12_rows(struct tb_display *d,
                               int w, int h, int first_row, int end_row) {
     if (tb_disp_ensure_texture(d, w, h) < 0) return;
     tb_disp_set_connection_state(d, 1);
+    tb_disp_use_metal_rgb10(d, 0, 1);
 
     if (d->tex_needs_full_upload) {
         first_row = 0;
@@ -1314,11 +1340,24 @@ void tb_disp_render_nv12_rows(struct tb_display *d,
     tb_disp_render_current(d);
 }
 
-void tb_disp_render_rgb10_rows(struct tb_display *d, const uint8_t *pixels,
+void tb_disp_render_rgb10_rows(struct tb_display *d, const uint8_t *pixels, size_t pixels_capacity,
                                int w, int h, int first_row, int end_row) {
-    if (tb_disp_ensure_texture_format(d, w, h, SDL_PIXELFORMAT_ARGB2101010) < 0) return;
+    if (!d) return;
     tb_disp_set_connection_state(d, 1);
 
+    /* Metal: the GPU copies the changed rows into a 10-bit texture. */
+    if (d->metal_view) {
+        tb_disp_use_metal_rgb10(d, 1, 1);
+        if (tb_metal_view_upload_rgb10(d->metal_view, pixels, pixels_capacity,
+                                       w, h, first_row, end_row) == 0) {
+            d->last_video_frame_time = SDL_GetTicks();
+            tb_disp_render_current(d);
+            return;
+        }
+        tb_disp_use_metal_rgb10(d, 0, 1);
+    }
+
+    if (tb_disp_ensure_texture_format(d, w, h, SDL_PIXELFORMAT_ARGB2101010) < 0) return;
     if (d->tex_needs_full_upload) {
         first_row = 0;
         end_row = h;
@@ -1336,6 +1375,12 @@ void tb_disp_render_rgb10_rows(struct tb_display *d, const uint8_t *pixels,
     }
     d->last_video_frame_time = SDL_GetTicks();
     tb_disp_render_current(d);
+}
+
+void tb_disp_reset_video(struct tb_display *d) {
+    if (!d) return;
+    tb_disp_use_metal_rgb10(d, 0, 0);
+    tb_metal_view_reset(d->metal_view);
 }
 
 int tb_disp_native_rgb10(struct tb_display *d) {

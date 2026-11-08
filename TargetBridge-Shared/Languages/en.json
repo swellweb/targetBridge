@@ -79,7 +79,7 @@
   "sender.codec.uncompressedEnhanced": "Uncompressed, enhanced (10-bit dithered, experimental)",
   "sender.codec.hint.uncompressedEnhanced": "Captures in 10-bit, displays in 8-bit: before sending, the graphics chip converts each picture to 8-bit 4:2:0 colour with a fine, fixed dither pattern, so gradients stay smooth without visible steps. Also uses LZ4 and up to 4 parallel connections. Same bandwidth as the 8-bit modes, 60 Hz at 5K. Experimental.",
   "sender.codec.uncompressedFull10Bit": "Uncompressed, full colour (10-bit, experimental)",
-  "sender.codec.hint.uncompressedFull10Bit": "Captures and sends 10-bit colour unchanged, at full colour resolution (4:4:4), with LZ4 and up to 4 parallel connections. Needs about 2.7 times the data of the 8-bit modes: at 5K, video and scrolling run at about 30 frames per second. Whether the iMac shows true 10-bit depends on its renderer; the Receiver's performance stats show it. Uses Enhanced if the receiver cannot use it. Experimental.",
+  "sender.codec.hint.uncompressedFull10Bit": "Captures and sends 10-bit colour unchanged, at full colour resolution (4:4:4), over up to 4 parallel connections; only small changes are compressed with LZ4. Needs about 2.7 times the data of the 8-bit modes: at 5K, video and scrolling run at about 30 frames per second. Needs the Receiver's Metal renderer (Receiver menu > Performance), which shows true 10-bit; otherwise Enhanced is used. Experimental.",
   "sender.session.name_label": "Session name",
   "sender.session.name_details": "Leave empty to use the default name.",
   "sender.session.display_name_label": "Display name",

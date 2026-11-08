@@ -7,7 +7,7 @@
  *
  * Payload (all integers big endian):
  *   [1 byte format: 1=NV12, 2=RGB10][1 byte flags: bit0 = full frame]
- *   [4 width][4 height][2 band count][2 reserved]
+ *   [4 width][4 height][2 band count][1 part count][1 reserved]
  *   band table, count entries of 13 bytes:
  *     [4 first row][4 row count][4 encoded length][1 encoding: 0=raw, 1=LZ4]
  *   band data, in table order.
@@ -21,7 +21,9 @@
  * data streams: [4 frame sequence, never 0][the 0x24 payload above]. Parts
  * of different frames can arrive in any order across streams, so every pair
  * of rows remembers the sequence it was last written by, and an older part
- * never overwrites rows that a newer one already delivered.
+ * never overwrites rows that a newer one already delivered. The part count
+ * byte says how many parts the frame was split into (0 = unknown, sent by
+ * 4.0 betas), so the receiver can draw a frame only once all of it arrived.
  *
  * Pure C with no SDL or system codec dependency, so it is unit tested in CI.
  * LZ4 decoding is passed in as a function pointer. */
@@ -36,6 +38,7 @@
 #define TB_RAW_REGIONS_BAND_BYTES     13
 #define TB_RAW_REGIONS_MAX_BANDS      4096
 #define TB_RAW_REGIONS_MAX_DIMENSION  8192
+#define TB_RAW_REGIONS_Y_ALIGNMENT    16384
 
 #define TB_RAW_REGIONS_FLAG_FULL      0x01
 
@@ -54,6 +57,8 @@ struct tb_raw_frame {
     uint32_t w;
     uint32_t h;
     uint32_t *row_seq;  /* per row pair: sequence of the last write, 0 = none */
+    size_t   y_capacity; /* bytes allocated for y: 16 KiB aligned and rounded
+                          * up, so the GPU can read the picture in place */
 };
 
 /* Decodes src into exactly dst_len bytes. Returns 0 on success. */
@@ -71,6 +76,7 @@ struct tb_raw_regions_result {
     int      full;          /* sender marked it as a whole frame */
     int      compressed;    /* at least one band used LZ4 */
     uint32_t sequence;      /* frame sequence of a 0x26 part, else 0 */
+    uint32_t parts;         /* parts of that frame, 0 = unknown */
 };
 
 /* Validates the whole payload first, then patches it into the frame. Nothing

@@ -116,9 +116,14 @@ struct app {
     struct tb_data_stream data_streams[TB_MAX_DATA_STREAMS];
     char     stream_token[24];
     uint64_t version_notice_until_ms; /* overlay hides then; menu item stays */
-    int      raw_pending;
+    int      raw_pending;       /* rows patched but not drawn yet */
     int      raw_pending_first;
     int      raw_pending_end;
+    int      raw_ready;         /* a whole frame is in the pending rows */
+    uint64_t raw_pending_since_ms;
+    uint32_t raw_newest_seq;    /* newest frame seen over the data streams */
+    uint32_t raw_newest_parts;  /* its part count, 0 = unknown */
+    uint32_t raw_newest_got;    /* its parts received so far */
     uint64_t stats_region_rows;
     uint64_t stats_rgb10_frames;
     uint64_t stats_region_height;
@@ -1148,7 +1153,7 @@ static int tb_receiver_decode_lz4(uint8_t *dst, size_t dst_len,
 static void tb_receiver_draw_raw_rows(struct app *a, int first_row, int end_row) {
     const uint64_t draw_start = now_us();
     if (a->raw_frame.format == TB_RAW_REGIONS_FORMAT_RGB10) {
-        tb_disp_render_rgb10_rows(a->disp, a->raw_frame.y,
+        tb_disp_render_rgb10_rows(a->disp, a->raw_frame.y, a->raw_frame.y_capacity,
                                   (int)a->raw_frame.w, (int)a->raw_frame.h,
                                   first_row, end_row);
     } else {
@@ -1163,10 +1168,39 @@ static void tb_receiver_draw_raw_rows(struct app *a, int first_row, int end_row)
     a->frames++;
 }
 
+static void tb_receiver_reset_pending_raw(struct app *a) {
+    a->raw_pending = 0;
+    a->raw_ready = 0;
+    a->raw_newest_seq = 0;
+    a->raw_newest_parts = 0;
+    a->raw_newest_got = 0;
+}
+
+/* Draws the pending rows once a whole frame is in them. A frame whose parts
+ * never all arrive (the sender gave up on a stream) is drawn after 100 ms. */
 static void tb_receiver_present_pending_raw(struct app *a) {
     if (!a->raw_pending) return;
+    if (!a->raw_ready && now_ms() - a->raw_pending_since_ms < 100) return;
     a->raw_pending = 0;
+    a->raw_ready = 0;
     tb_receiver_draw_raw_rows(a, a->raw_pending_first, a->raw_pending_end);
+}
+
+/* Counts a part of a frame sent over parallel data streams and returns 1 once
+ * every part of the newest frame has arrived. Parts of older frames only
+ * fill rows the newer one didn't touch, so they never complete a frame. */
+static int tb_receiver_count_part(struct app *a, const struct tb_raw_regions_result *result) {
+    const uint32_t seq = result->sequence;
+    if (a->raw_newest_seq == 0 || (int32_t)(seq - a->raw_newest_seq) > 0) {
+        a->raw_newest_seq = seq;
+        a->raw_newest_parts = result->parts;
+        a->raw_newest_got = 1;
+    } else if (seq == a->raw_newest_seq) {
+        a->raw_newest_got++;
+    } else {
+        return 0;
+    }
+    return a->raw_newest_parts == 0 || a->raw_newest_got >= a->raw_newest_parts;
 }
 
 /* Changed rows of a raw NV12 frame (see raw_regions.h). The rows are patched
@@ -1180,7 +1214,7 @@ static void handle_raw_regions(struct app *a, const uint8_t *p, size_t len, int 
         : tb_raw_regions_apply(&a->raw_frame, p, len, tb_receiver_decode_lz4, &result);
     if (status != -1 && a->raw_frame.format != previous_format) {
         /* A pending draw of the old format no longer matches the frame. */
-        a->raw_pending = 0;
+        tb_receiver_reset_pending_raw(a);
     }
     if (status == -1) {
         fprintf(stderr, "[main] raw regions: malformed packet (%zu bytes) ignored\n", len);
@@ -1207,19 +1241,21 @@ static void handle_raw_regions(struct app *a, const uint8_t *p, size_t len, int 
     if (result.format == TB_RAW_REGIONS_FORMAT_RGB10) a->stats_rgb10_frames++;
     a->stats_region_height += result.h;
 
-    if (!a->perf_newest_frame) {
-        tb_receiver_draw_raw_rows(a, (int)result.first_row, (int)result.end_row);
-        return;
-    }
     if (a->raw_pending) {
-        a->stats_skipped++;
         if ((int)result.first_row < a->raw_pending_first) a->raw_pending_first = (int)result.first_row;
         if ((int)result.end_row > a->raw_pending_end) a->raw_pending_end = (int)result.end_row;
     } else {
         a->raw_pending = 1;
         a->raw_pending_first = (int)result.first_row;
         a->raw_pending_end = (int)result.end_row;
+        a->raw_pending_since_ms = now_ms();
     }
+    const int complete = is_part ? tb_receiver_count_part(a, &result) : 1;
+    if (!complete) return;
+    /* A whole frame that is replaced before it was drawn counts as skipped. */
+    if (a->raw_ready) a->stats_skipped++;
+    a->raw_ready = 1;
+    if (!a->perf_newest_frame) tb_receiver_present_pending_raw(a);
 }
 
 static void ring_read(struct app *a, Uint8 *dst, int len) {
@@ -2244,7 +2280,7 @@ static void send_receiver_info(struct app *a) {
         "{\"receiverName\":\"%s\",\"panelWidth\":%u,\"panelHeight\":%u,"
         "\"modeWidth\":%u,\"modeHeight\":%u,\"refreshRate\":60,"
         "\"hiDPI\":%s,\"captureWidth\":%u,\"captureHeight\":%u,"
-        "\"supportsHEVCDecode\":%s,\"supportsRawNV12\":true,\"supportsRawRegions\":true,\"supportsRawLZ4\":true,\"supportsRawRGB10\":true,"
+        "\"supportsHEVCDecode\":%s,\"supportsRawNV12\":true,\"supportsRawRegions\":true,\"supportsRawLZ4\":true,\"supportsRawRGB10\":%s,"
         "\"appVersion\":\"" TB_RECEIVER_VERSION "\",\"rawDataStreams\":%d,\"streamToken\":\"%s\",\"inputMonitoringTrusted\":%s,\"accessibilityTrusted\":%s,"
         "\"supportsNightShift\":%s,\"supportsTrueTone\":%s}",
         escaped_name,
@@ -2256,6 +2292,9 @@ static void send_receiver_info(struct app *a) {
         profile.capture_w,
         profile.capture_h,
         tb_dec_supports_hevc_hwdecode() ? "true" : "false",
+        /* Full 10-bit colour only where it is shown in 10 bits (Metal);
+         * otherwise the Sender uses the 10-bit dithered mode instead. */
+        tb_disp_native_rgb10(a->disp) ? "true" : "false",
         TB_MAX_DATA_STREAMS,
         a->stream_token,
         tb_receiver_input_monitoring_trusted() ? "true" : "false",
@@ -2303,7 +2342,8 @@ static void close_client(struct app *a) {
     a->close_requested = 0;
     a->window_requested = 0;
     tb_receiver_drop_pending_frame(a);
-    a->raw_pending = 0;
+    tb_receiver_reset_pending_raw(a);
+    tb_disp_reset_video(a->disp);
     tb_raw_frame_free(&a->raw_frame);
     close_data_streams(a);
     a->stream_token[0] = '\0';

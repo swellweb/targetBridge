@@ -79,7 +79,7 @@
   "sender.codec.uncompressedEnhanced": "Unkomprimiert, erweitert (10 Bit mit Dithering, experimentell)",
   "sender.codec.hint.uncompressedEnhanced": "Aufnahme in 10 Bit, Anzeige in 8 Bit: Vor dem Senden rechnet der Grafikchip jedes Bild in 8-Bit-Farbe (4:2:0) um und legt ein feines, festes Dither-Muster darüber, damit Verläufe ohne sichtbare Stufen bleiben. Nutzt zusätzlich LZ4 und bis zu 4 parallele Verbindungen. Gleiche Bandbreite wie die 8-Bit-Modi, 60 Hz bei 5K. Experimentell.",
   "sender.codec.uncompressedFull10Bit": "Unkomprimiert, volle Farbe (10 Bit, experimentell)",
-  "sender.codec.hint.uncompressedFull10Bit": "Nimmt 10-Bit-Farbe auf und sendet sie unverändert, mit voller Farbauflösung (4:4:4), LZ4 und bis zu 4 parallelen Verbindungen. Braucht etwa 2,7-mal so viele Daten wie die 8-Bit-Modi: Bei 5K laufen Videos und Scrollen mit etwa 30 Bildern pro Sekunde. Ob der iMac echte 10 Bit zeigt, hängt von seinem Renderer ab; die Leistungsstatistik des Empfängers zeigt es an. Nutzt Erweitert, wenn der Empfänger es nicht unterstützt. Experimentell.",
+  "sender.codec.hint.uncompressedFull10Bit": "Erfasst und sendet 10-Bit-Farbe unverändert, mit voller Farbauflösung (4:4:4), über bis zu 4 parallele Verbindungen; nur kleine Änderungen werden mit LZ4 komprimiert. Braucht etwa 2,7-mal so viele Daten wie die 8-Bit-Modi: bei 5K laufen Video und Scrollen mit etwa 30 Bildern pro Sekunde. Braucht den Metal-Renderer des Receivers (Receiver-Menü > Leistung), der echtes 10-Bit anzeigt; sonst wird Erweitert verwendet. Experimentell.",
   "sender.session.name_label": "Sitzungsname",
   "sender.session.name_details": "Leer lassen, um den Standardnamen zu verwenden.",
   "sender.session.display_name_label": "Anzeigename",
