@@ -219,6 +219,10 @@ final class TBRawRegionsTests: XCTestCase {
         XCTAssertTrue(TBDisplayCodecPreference.uncompressedLZ4.usesParallelStreams)
         XCTAssertTrue(TBDisplayCodecPreference.uncompressed.usesParallelStreams)
         XCTAssertFalse(TBDisplayCodecPreference.hevc.usesParallelStreams)
+        // Only the 10-bit modes switch parallel connections on by themselves.
+        XCTAssertTrue(TBDisplayCodecPreference.uncompressedEnhanced.needsParallelStreams)
+        XCTAssertTrue(TBDisplayCodecPreference.uncompressedFull10Bit.needsParallelStreams)
+        XCTAssertFalse(TBDisplayCodecPreference.uncompressedLZ4.needsParallelStreams)
     }
 
     func testPartsSplitTheRowsEvenlyAndCarryTheSequence() throws {

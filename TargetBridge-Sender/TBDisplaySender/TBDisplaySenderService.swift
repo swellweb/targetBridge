@@ -468,6 +468,10 @@ enum TBDisplayCodecPreference: String, CaseIterable, Identifiable, Codable {
     /// (session setting "Parallel connections").
     var usesParallelStreams: Bool { usesRawFrames }
 
+    /// The 10-bit modes need parallel connections to keep up at 5K; choosing
+    /// them turns the session setting on.
+    var needsParallelStreams: Bool { self == .uncompressedEnhanced || self == .uncompressedFull10Bit }
+
     var id: String { rawValue }
 }
 
@@ -1633,7 +1637,13 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
 
     @Published var capturePreset: TBDisplayCapturePreset = .standard1440p {
         didSet {
-            if capturePreset != oldValue { profileCodecPreference = nil }
+            if capturePreset != oldValue {
+                profileCodecPreference = nil
+                // The 10-bit profiles depend on parallel connections.
+                if capturePreset.defaultCodecPreference?.needsParallelStreams == true {
+                    parallelStreams = true
+                }
+            }
             if !isStreaming {
                 streamResolutionText = TBDisplaySenderL10n.streamSummary(preset: capturePreset, source: captureSource, language: language)
             }

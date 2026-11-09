@@ -45,7 +45,7 @@
   "sender.codec.unavailable": "Nessun formato video hardware compatibile è disponibile per questa risoluzione.",
   "sender.codec.set_by_profile": "In questo profilo solo modalità non compresse; parte con questa.",
   "sender.parallel_streams.title": "Connessioni parallele",
-  "sender.parallel_streams.hint": "Distribuisce ogni fotogramma su un massimo di 4 connessioni aggiuntive verso il Receiver. Utile con velocità di trasmissione elevate (spostamento di finestre, video). Richiede il Receiver 4.0.",
+  "sender.parallel_streams.hint": "Distribuisce ogni fotogramma su un massimo di 4 connessioni aggiuntive verso il Receiver. Utile con velocità di trasmissione elevate (spostamento di finestre, video). Richiede il Receiver 4.0. I profili e le modalità a 10 bit la attivano.",
   "sender.version.receiver_older": "Il receiver usa TargetBridge %{receiver}, questo sender %{sender}. Aggiorna il receiver per usare tutte le funzioni di prestazione.",
   "sender.version.receiver_unknown": "Il receiver usa una versione di TargetBridge precedente alla %{sender}. Aggiorna il receiver per usare tutte le funzioni di prestazione.",
   "sender.version.sender_older": "Questo sender usa TargetBridge %{sender}, il receiver %{receiver}. Aggiorna questo sender per usare tutte le funzioni di prestazione.",

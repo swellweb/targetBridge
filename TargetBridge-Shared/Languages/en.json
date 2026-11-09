@@ -45,7 +45,7 @@
   "sender.codec.unavailable": "No compatible hardware video codec is available for this resolution.",
   "sender.codec.set_by_profile": "Uncompressed modes only in this profile; it starts with this one.",
   "sender.parallel_streams.title": "Parallel connections",
-  "sender.parallel_streams.hint": "Spreads each frame over up to 4 extra connections to the Receiver. Helps at high data rates (moving windows, video). Needs Receiver 4.0.",
+  "sender.parallel_streams.hint": "Spreads each frame over up to 4 extra connections to the Receiver. Helps at high data rates (moving windows, video). Needs Receiver 4.0. The 10-bit profiles and modes turn it on.",
   "sender.version.receiver_older": "The Receiver runs TargetBridge %{receiver}, this Sender %{sender}. Update the Receiver to use all performance features.",
   "sender.version.receiver_unknown": "The Receiver runs a TargetBridge version older than %{sender}. Update the Receiver to use all performance features.",
   "sender.version.sender_older": "This Sender runs TargetBridge %{sender}, the Receiver %{receiver}. Update this Sender to use all performance features.",

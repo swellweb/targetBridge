@@ -9,9 +9,18 @@ that you install and remove from the Receiver's menu.
 
 ## Requirements
 
-- TargetBridge Receiver 4.0 in **Applications**, signed with your own
-  certificate (see [Sender signing](Sender-Signing.md#keep-permissions-on-your-own-macs-sign-after-installing)).
-  Otherwise the macOS firewall may block connections at the sign-in window.
+- TargetBridge Receiver 4.0 in **Applications**, opened there at least once
+  while logged in, so macOS has cleared the download quarantine.
+- **Signing with your own certificate** (see
+  [Sender signing](Sender-Signing.md#keep-permissions-on-your-own-macs-sign-after-installing))
+  is recommended, and needed if the macOS firewall is on (System Settings →
+  Network → Firewall). The mode itself needs no privacy permissions, because
+  the iMac's keyboard and mouse aren't used. But the firewall asks whether to
+  allow incoming connections for a new app, and nobody can answer that at the
+  sign-in window, so connections are blocked. With the downloaded ad-hoc
+  signature every update counts as a new app; with your own certificate the
+  firewall keeps the answer you gave once while logged in. With the firewall
+  off, the mode works without your own signing.
 - An administrator account on the iMac, for installing and removing the mode.
 - **FileVault:** after a restart, FileVault asks for the password before
   macOS starts and then logs you in directly, so the mode can't run then. It

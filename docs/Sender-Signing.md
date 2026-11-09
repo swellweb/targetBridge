@@ -118,8 +118,8 @@ again with **+**. From the next update on, the permissions stay.
   `bash ~/sign-local.sh "/Users/me/Apps/TargetBridge.app"`. Keep them in the
   same place for every update, or macOS treats them as different apps.
 
-The Receiver's sign-in screen mode also needs the signed Receiver in
-Applications: the macOS firewall only keeps allowing connections at the
+If the macOS firewall is on, the Receiver's sign-in screen mode also needs
+the signed Receiver: the firewall only keeps allowing connections at the
 sign-in window for an app whose signature doesn't change with every update.
 
 ## Build and sign

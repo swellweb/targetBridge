@@ -45,7 +45,7 @@
   "sender.codec.unavailable": "Für diese Auflösung ist kein kompatibler Hardware-Videocodec verfügbar.",
   "sender.codec.set_by_profile": "In diesem Profil nur unkomprimierte Modi; es startet mit diesem.",
   "sender.parallel_streams.title": "Parallele Verbindungen",
-  "sender.parallel_streams.hint": "Verteilt jedes Bild auf bis zu 4 zusätzliche Verbindungen zum Receiver. Hilft bei hohen Datenraten (Fenster verschieben, Video). Braucht Receiver 4.0.",
+  "sender.parallel_streams.hint": "Verteilt jedes Bild auf bis zu 4 zusätzliche Verbindungen zum Receiver. Hilft bei hohen Datenraten (Fenster verschieben, Video). Braucht Receiver 4.0. Die 10-Bit-Profile und -Modi schalten sie ein.",
   "sender.version.receiver_older": "Der Empfänger nutzt TargetBridge %{receiver}, dieser Sender %{sender}. Aktualisiere den Empfänger, um alle Leistungsfunktionen zu nutzen.",
   "sender.version.receiver_unknown": "Der Empfänger nutzt eine TargetBridge-Version älter als %{sender}. Aktualisiere den Empfänger, um alle Leistungsfunktionen zu nutzen.",
   "sender.version.sender_older": "Dieser Sender nutzt TargetBridge %{sender}, der Empfänger %{receiver}. Aktualisiere diesen Sender, um alle Leistungsfunktionen zu nutzen.",

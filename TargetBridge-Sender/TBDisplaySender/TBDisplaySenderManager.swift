@@ -621,9 +621,11 @@ final class TBDisplaySenderService: ObservableObject {
         if session.capturePreset.defaultCodecPreference != nil {
             guard session.capturePreset.allowedCodecPreferences.contains(preference) else { return }
             session.profileCodecPreference = preference
+            if preference.needsParallelStreams { session.parallelStreams = true }
             return
         }
         session.codecPreference = preference
+        if preference.needsParallelStreams { session.parallelStreams = true }
         guard let key = receiverCodecPreferenceKey(for: session) else { return }
         var preferences = persistedCodecPreferences
         preferences[key] = preference.rawValue
