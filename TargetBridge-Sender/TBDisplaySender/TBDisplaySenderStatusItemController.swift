@@ -31,9 +31,10 @@ final class TBDisplaySenderStatusItemController: NSObject {
 
     private func bind() {
         service.$showsMenuBarIcon
-            .sink { [weak self] _ in
+            .sink { [weak self] isVisible in
                 guard let self, self.hasActivated else { return }
-                self.syncVisibility()
+                // @Published emits before the stored service property changes.
+                self.syncVisibility(isVisible)
             }
             .store(in: &cancellables)
 
@@ -55,11 +56,11 @@ final class TBDisplaySenderStatusItemController: NSObject {
     func activate() {
         guard !hasActivated else { return }
         hasActivated = true
-        syncVisibility()
+        syncVisibility(service.showsMenuBarIcon)
     }
 
-    private func syncVisibility() {
-        if service.showsMenuBarIcon {
+    private func syncVisibility(_ isVisible: Bool) {
+        if isVisible {
             ensureStatusItem()
             refreshStatusItem()
         } else {

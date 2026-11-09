@@ -58,7 +58,9 @@ final class TBDisplaySenderService: ObservableObject {
             objectWillChange.send()
         }
     }
-    @Published var showsMenuBarIcon = true
+    @Published var showsMenuBarIcon = TBMenuBarIconPreference.load() {
+        didSet { TBMenuBarIconPreference.save(showsMenuBarIcon) }
+    }
     @Published var largeCursor: Bool = UserDefaults.standard.bool(forKey: "fd.tbdisplaysender.largeCursor") {
         didSet {
             UserDefaults.standard.set(largeCursor, forKey: "fd.tbdisplaysender.largeCursor")
@@ -524,6 +526,7 @@ final class TBDisplaySenderService: ObservableObject {
         session.selectedReceiverID = receiver.stableIdentity
         session.receiverIP = receiver.ip(for: session.transportKind)
         session.receiverSupportsHEVCDecodeHint = receiver.supportsHEVCDecode
+        session.receiverSupportsHEVCSoftwareDecodeHint = receiver.supportsHEVCSoftwareDecode
         restoreCodecPreference(for: receiver, to: session, defaultToAutomatic: true)
         if session.localInterfaceIP.isEmpty {
             session.localInterfaceIP = suggestedInterfaceForNewSession(transportKind: session.transportKind)?.ip
@@ -552,6 +555,7 @@ final class TBDisplaySenderService: ObservableObject {
             session.selectedReceiverID = receiver.stableIdentity
             session.receiverIP = receiver.ip(for: session.transportKind)
             session.receiverSupportsHEVCDecodeHint = receiver.supportsHEVCDecode
+            session.receiverSupportsHEVCSoftwareDecodeHint = receiver.supportsHEVCSoftwareDecode
             restoreCodecPreference(for: receiver, to: session, defaultToAutomatic: false)
         }
     }

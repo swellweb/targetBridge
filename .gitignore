@@ -19,6 +19,7 @@ tbreceiver
 
 # C test outputs
 test_net_parser
+test_parser_yield
 test_input_queue
 test_idle_watchdog
 test_receiver_profile

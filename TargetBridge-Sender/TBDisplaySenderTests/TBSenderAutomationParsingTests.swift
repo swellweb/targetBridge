@@ -251,7 +251,8 @@ final class TBSenderAutomationParsingTests: XCTestCase {
             preset: .native5k,
             receiverSupportsHEVC: false,
             senderSupportsH264: false,
-            senderSupportsHEVC: true
+            senderSupportsHEVC: true,
+            receiverSupportsHEVCSoftware: true
         )
         XCTAssertEqual(decision?.codecType, kCMVideoCodecType_HEVC)
         XCTAssertEqual(decision?.usedFallback, true)
@@ -262,7 +263,8 @@ final class TBSenderAutomationParsingTests: XCTestCase {
             preset: .retina4k60,
             receiverSupportsHEVC: false,
             senderSupportsH264: true,
-            senderSupportsHEVC: true
+            senderSupportsHEVC: true,
+            receiverSupportsHEVCSoftware: true
         )
         XCTAssertEqual(at4k?.codecType, kCMVideoCodecType_H264)
     }

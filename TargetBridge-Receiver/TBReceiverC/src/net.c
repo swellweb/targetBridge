@@ -55,11 +55,19 @@ static uint32_t read_be32(const uint8_t *p) {
 }
 
 int tb_parser_feed(struct tb_parser *p, const uint8_t *data, size_t n) {
-    if (parser_reserve(p, p->len + n + 1) < 0) return -1;  /* +1 for NUL sentinel */
-    memcpy(p->buf + p->len, data, n);
-    p->len += n;
+    return tb_parser_feed_until(p, data, n, NULL, NULL);
+}
+
+int tb_parser_feed_until(struct tb_parser *p, const uint8_t *data, size_t n,
+                         tb_parser_yield_cb should_yield, void *yield_ud) {
+    if (n > 0) {
+        if (parser_reserve(p, p->len + n + 1) < 0) return -1;
+        memcpy(p->buf + p->len, data, n);
+        p->len += n;
+    }
 
     size_t off = 0;
+    int yielded = 0;
     while (p->len - off >= TB_HDR_BYTES) {
         uint32_t pkt_len = read_be32(p->buf + off);
         if (pkt_len < 1 || pkt_len > 64 * 1024 * 1024) {  /* sanity */
@@ -83,6 +91,10 @@ int tb_parser_feed(struct tb_parser *p, const uint8_t *data, size_t n) {
         p->cb(type, payload, plen, p->ud);
         *sentinel = saved;
         off += 4 + pkt_len;
+        if (should_yield && should_yield(yield_ud)) {
+            yielded = 1;
+            break;
+        }
     }
 
     /* shift remainder to front */
@@ -91,7 +103,7 @@ int tb_parser_feed(struct tb_parser *p, const uint8_t *data, size_t n) {
         if (rem > 0) memmove(p->buf, p->buf + off, rem);
         p->len = rem;
     }
-    return 0;
+    return yielded;
 }
 
 /* ---- Server ----------------------------------------------------------- */

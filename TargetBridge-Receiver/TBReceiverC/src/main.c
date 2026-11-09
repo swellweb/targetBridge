@@ -669,6 +669,7 @@ static void bonjour_update(struct app *a, uint16_t port) {
     TXTRecordSetValue(&txt, "panel", (uint8_t)strlen(a->panel_text), a->panel_text);
     TXTRecordSetValue(&txt, "version", (uint8_t)strlen(TB_RECEIVER_VERSION), TB_RECEIVER_VERSION);
     TXTRecordSetValue(&txt, "supportsHEVCDecode", 1, tb_dec_supports_hevc_hwdecode() ? "1" : "0");
+    TXTRecordSetValue(&txt, "supportsHEVCSoftwareDecode", 1, tb_dec_supports_hevc_softwaredecode() ? "1" : "0");
     TXTRecordSetValue(&txt, "supportsRawNV12", 1, "1");
 
     struct tb_display_info info;
@@ -1366,25 +1367,42 @@ static void on_packet(uint8_t type, const uint8_t *payload, size_t len, void *ud
 
 /* ---- Networking helpers ---------------------------------------------- */
 
-/* Max time one drain pass may spend reading + decoding before returning to
- * the main loop to present. Kept under one 60 Hz frame so the newest frame
- * reaches the screen even while the socket is still full. The loop re-enters
- * immediately (no SDL_Delay) when data was seen. */
+/* Yield between packets after this budget. A single synchronous decode may
+ * take longer; never discard encoded frames to meet the deadline. */
 #define TB_DRAIN_BUDGET_MS 8
+
+struct tb_drain_budget {
+    struct app *app;
+    uint64_t deadline_ms;
+};
+
+static int drain_should_yield(void *ud) {
+    struct tb_drain_budget *budget = ud;
+    return budget->app->close_requested || now_ms() >= budget->deadline_ms;
+}
 
 static int drain_socket(struct app *a) {
     uint8_t buf[1024 * 1024];
     int saw_data = 0;
-    const uint64_t drain_deadline_ms = now_ms() + TB_DRAIN_BUDGET_MS;
+    struct tb_drain_budget budget = { a, now_ms() + TB_DRAIN_BUDGET_MS };
+    if (a->close_requested) return 0;
+    size_t buffered = a->parser.len;
+    int parsed = tb_parser_feed_until(&a->parser, NULL, 0, drain_should_yield, &budget);
+    if (parsed < 0) return -1;
+    if (a->parser.len < buffered) saw_data = 1;
+    if (parsed > 0) return saw_data;
     for (;;) {
-        if (saw_data && now_ms() >= drain_deadline_ms) return saw_data;
+        if (drain_should_yield(&budget)) return saw_data;
         ssize_t n = read(a->client_fd, buf, sizeof(buf));
         if (n > 0) {
             saw_data = 1;
-            if (tb_parser_feed(&a->parser, buf, (size_t)n) < 0) return -1;
+            parsed = tb_parser_feed_until(&a->parser, buf, (size_t)n, drain_should_yield, &budget);
+            if (parsed < 0) return -1;
+            if (parsed > 0) return saw_data;
         } else if (n == 0) {
             return -1;  /* peer closed */
         } else {
+            if (errno == EINTR) continue;
             if (errno == EAGAIN || errno == EWOULDBLOCK) return saw_data;
             perror("[main] read");
             return -1;
@@ -1928,7 +1946,7 @@ static void send_receiver_info(struct app *a) {
         "{\"receiverName\":\"%s\",\"panelWidth\":%u,\"panelHeight\":%u,"
         "\"modeWidth\":%u,\"modeHeight\":%u,\"refreshRate\":60,"
         "\"hiDPI\":%s,\"captureWidth\":%u,\"captureHeight\":%u,"
-        "\"supportsHEVCDecode\":%s,\"supportsRawNV12\":true,\"inputMonitoringTrusted\":%s,\"accessibilityTrusted\":%s,"
+        "\"supportsHEVCDecode\":%s,\"supportsHEVCSoftwareDecode\":%s,\"supportsRawNV12\":true,\"inputMonitoringTrusted\":%s,\"accessibilityTrusted\":%s,"
         "\"supportsNightShift\":%s,\"supportsTrueTone\":%s}",
         escaped_name,
         profile.panel_w,
@@ -1939,6 +1957,7 @@ static void send_receiver_info(struct app *a) {
         profile.capture_w,
         profile.capture_h,
         tb_dec_supports_hevc_hwdecode() ? "true" : "false",
+        tb_dec_supports_hevc_softwaredecode() ? "true" : "false",
         tb_receiver_input_monitoring_trusted() ? "true" : "false",
         tb_receiver_accessibility_trusted() ? "true" : "false",
         tb_night_shift_supported() ? "true" : "false",

@@ -107,6 +107,10 @@ void tb_dec_set_pixbuf_cb(struct tb_decoder *d, tb_pixbuf_cb cb) {
     if (d) d->pixbuf_cb = cb;
 }
 
+int tb_dec_supports_hevc_softwaredecode(void) {
+    return avcodec_find_decoder(AV_CODEC_ID_HEVC) != NULL;
+}
+
 int tb_dec_supports_hevc_hwdecode(void) {
     const AVCodec *codec = avcodec_find_decoder(AV_CODEC_ID_HEVC);
     if (!codec) return 0;

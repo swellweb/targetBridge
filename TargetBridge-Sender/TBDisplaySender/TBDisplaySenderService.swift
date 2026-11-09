@@ -1182,8 +1182,9 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     @Published var localInterfaceIP = ""
     @Published var selectedReceiverID = "" {
         didSet {
-            if selectedReceiverID.isEmpty {
+            if selectedReceiverID != oldValue {
                 receiverSupportsHEVCDecodeHint = nil
+                receiverSupportsHEVCSoftwareDecodeHint = nil
                 receiverInputMonitoringTrustedHint = nil
                 receiverAccessibilityTrustedHint = nil
             }
@@ -1197,6 +1198,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
             UserDefaults.standard.set(receiverIP, forKey: Self.receiverIPDefaultsKey)
             if receiverIP != oldValue {
                 receiverSupportsHEVCDecodeHint = nil
+                receiverSupportsHEVCSoftwareDecodeHint = nil
                 receiverInputMonitoringTrustedHint = nil
                 receiverAccessibilityTrustedHint = nil
             }
@@ -1260,6 +1262,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     @Published var receiverSupportsTrueTone = false
     var audioAddonAvailable = true
     var receiverSupportsHEVCDecodeHint: Bool?
+    var receiverSupportsHEVCSoftwareDecodeHint: Bool?
     var receiverInputMonitoringTrustedHint: Bool?
     var receiverAccessibilityTrustedHint: Bool?
     @Published var senderFPS = 0
@@ -1498,7 +1501,8 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         preset: TBDisplayCapturePreset,
         receiverSupportsHEVC: Bool,
         senderSupportsH264: Bool,
-        senderSupportsHEVC: Bool
+        senderSupportsHEVC: Bool,
+        receiverSupportsHEVCSoftware: Bool = false
     ) -> TBDisplayCodecDecision? {
         let h264Available = senderSupportsH264
         let hevcAvailable = receiverSupportsHEVC && senderSupportsHEVC
@@ -1527,11 +1531,8 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         if preferredCodec == kCMVideoCodecType_H264, hevcAvailable {
             return TBDisplayCodecDecision(codecType: kCMVideoCodecType_HEVC, usedFallback: true)
         }
-        // The receiver has no HEVC hardware decoder, but there is no hardware H.264
-        // encoder for this size either (e.g. 5K on Apple Silicon). The receiver can
-        // still decode HEVC in software, which is slow but keeps the session usable,
-        // as it was before supportsHEVCDecode reflected hardware support.
-        if senderSupportsHEVC {
+        // Software HEVC is a last resort, and requires an explicit receiver capability.
+        if receiverSupportsHEVCSoftware && senderSupportsHEVC {
             return TBDisplayCodecDecision(codecType: kCMVideoCodecType_HEVC, usedFallback: true)
         }
 
@@ -1558,7 +1559,9 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
                 codecType: kCMVideoCodecType_HEVC,
                 width: preset.width,
                 height: preset.height
-            )
+            ),
+            receiverSupportsHEVCSoftware: profile.map { $0.supportsHEVCSoftwareDecode ?? false }
+                ?? receiverSupportsHEVCSoftwareDecodeHint ?? false
         )
     }
 
@@ -2632,6 +2635,8 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         else { return }
 
         activeProfile = profile
+        // The connected peer is authoritative, including legacy profiles without this field.
+        receiverSupportsHEVCSoftwareDecodeHint = profile.supportsHEVCSoftwareDecode
         if let supportsHEVCDecode = profile.supportsHEVCDecode {
             receiverSupportsHEVCDecodeHint = supportsHEVCDecode
         }
