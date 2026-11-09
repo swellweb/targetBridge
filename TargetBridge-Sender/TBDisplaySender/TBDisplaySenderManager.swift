@@ -59,6 +59,22 @@ final class TBDisplaySenderService: ObservableObject {
         }
     }
     @Published var showsMenuBarIcon = true
+    /// Standard, Background or Faceless (see `TBAppPresentation`).
+    @Published var appPresentation: TBAppPresentation = .load() {
+        didSet {
+            UserDefaults.standard.set(appPresentation.rawValue, forKey: TBAppPresentation.defaultsKey)
+            TBAppPresentationController.apply(appPresentation)
+        }
+    }
+    /// Background always shows the menu bar icon, Faceless never; Standard
+    /// follows "Show icon in top bar".
+    var menuBarIconVisible: Bool {
+        switch appPresentation {
+        case .standard: return showsMenuBarIcon
+        case .background: return true
+        case .faceless: return false
+        }
+    }
     @Published var largeCursor: Bool = UserDefaults.standard.bool(forKey: "fd.tbdisplaysender.largeCursor") {
         didSet {
             UserDefaults.standard.set(largeCursor, forKey: "fd.tbdisplaysender.largeCursor")

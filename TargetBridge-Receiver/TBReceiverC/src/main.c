@@ -106,7 +106,8 @@ struct app {
 
     uint64_t last_recv_ms;      /* idle watchdog: last time the sender sent anything */
     int      close_requested;
-    int      background_mode;
+    int      background_mode;   /* background or faceless: window only on demand */
+    int      presentation;      /* enum tb_app_presentation */
     /* Performance switches (Receiver menu bar > Performance). */
     int      perf_newest_frame;
     int      perf_wake_on_data;
@@ -2354,11 +2355,14 @@ static void send_receiver_info(struct app *a) {
 
 static void tb_receiver_update_window_visibility(struct app *a) {
     const int session = a->client_fd >= 0 && a->session_active;
-    const int visible = session || !a->background_mode || a->window_requested;
+    /* The window shows during a session and when requested: at start
+     * ("Always show this window at start", in every app mode), from the menu,
+     * or by opening the app again (Finder, Dock). */
+    const int visible = session || a->window_requested;
 
     tb_disp_set_close_hides(a->disp, a->background_mode && !session);
     if (visible) {
-        tb_background_ui_update(a->background_mode, a->show_window_at_start, 1, session, a->status_text);
+        tb_background_ui_update(a->presentation, a->show_window_at_start, 1, session, a->status_text);
         tb_disp_set_window_visible(a->disp, 1);
         if (a->signin_mode && !a->signin_window_shown) {
             tb_signin_prepare_windows();
@@ -2367,7 +2371,7 @@ static void tb_receiver_update_window_visibility(struct app *a) {
     } else {
         a->signin_window_shown = 0;
         tb_disp_set_window_visible(a->disp, 0);
-        tb_background_ui_update(a->background_mode, a->show_window_at_start, 0, session, a->status_text);
+        tb_background_ui_update(a->presentation, a->show_window_at_start, 0, session, a->status_text);
     }
 }
 
@@ -2377,7 +2381,9 @@ static void close_client(struct app *a) {
     tb_restore_system_volume();
     a->session_active = 0;
     a->close_requested = 0;
-    a->window_requested = 0;
+    /* Standard mode returns to the waiting window; background and faceless
+     * hide it. */
+    a->window_requested = !a->background_mode;
     tb_receiver_drop_pending_frame(a);
     tb_receiver_reset_pending_raw(a);
     tb_disp_reset_video(a->disp);
@@ -2525,19 +2531,21 @@ int main(int argc, char **argv) {
     tb_gesture_bridge_install(tb_receiver_space_switch_callback, &a);
     tb_gesture_bridge_set_active(0);
 
-    a.background_mode = tb_background_mode_load();
+    a.presentation = tb_app_presentation_load();
+    a.background_mode = a.presentation != TB_APP_PRESENTATION_STANDARD;
     a.show_window_at_start = tb_show_window_at_start_load();
     a.signin_mode = signin_mode;
     if (a.signin_mode) {
         /* No waiting screen and no menu bar icon: the window exists only
          * while a Mac streams, above the sign-in window. */
         tb_signin_set_active(1);
+        a.presentation = TB_APP_PRESENTATION_FACELESS;
         a.background_mode = 1;
         a.show_window_at_start = 0;
         SDL_SetHint(SDL_HINT_VIDEO_MAC_FULLSCREEN_SPACES, "0");
         fprintf(stderr, "[signin] sign-in screen mode (experimental)\n");
     }
-    a.window_requested = a.background_mode && a.show_window_at_start;
+    a.window_requested = a.show_window_at_start;
     a.perf_newest_frame = tb_pref_get("perfNewestFrameOnly", 1);
     a.perf_wake_on_data = tb_pref_get("perfWakeOnData", 1);
     a.video_renderer = tb_pref_get_int("videoRenderer", TB_DISP_RENDERER_TARGETBRIDGE);
@@ -2546,7 +2554,8 @@ int main(int argc, char **argv) {
     }
     a.display_sync = tb_pref_get("metalDisplaySync", 0);
     a.perf_show_stats = tb_pref_get("perfShowStats", 0);
-    a.disp = tb_disp_create(fullscreen, a.background_mode && !a.show_window_at_start, a.video_renderer);
+    if (a.signin_mode) a.perf_show_stats = 0;   /* never on the sign-in screen */
+    a.disp = tb_disp_create(fullscreen, !a.window_requested, a.video_renderer);
     if (!a.disp) { fprintf(stderr, "tb_disp_create failed\n"); return 1; }
     tb_disp_set_display_sync(a.disp, a.display_sync);
     if (a.signin_mode) {
@@ -2614,9 +2623,14 @@ int main(int argc, char **argv) {
         if (ui_actions & TB_BACKGROUND_UI_QUIT) break;
         if (ui_actions & TB_BACKGROUND_UI_SHOW_WINDOW) a.window_requested = 1;
         if (ui_actions & TB_BACKGROUND_UI_TOGGLE) {
-            a.background_mode = !a.background_mode;
-            a.window_requested = 0;
-            tb_background_mode_save(a.background_mode);
+            const int requested = tb_background_ui_take_presentation_request();
+            if (requested >= TB_APP_PRESENTATION_STANDARD && requested <= TB_APP_PRESENTATION_FACELESS) {
+                a.presentation = requested;
+                a.background_mode = requested != TB_APP_PRESENTATION_STANDARD;
+                /* Keep the window open after the change; it hides when closed. */
+                a.window_requested = 1;
+                tb_app_presentation_save(a.presentation);
+            }
         }
         if (ui_actions & TB_BACKGROUND_UI_TOGGLE_NEWEST_FRAME) {
             a.perf_newest_frame = !a.perf_newest_frame;

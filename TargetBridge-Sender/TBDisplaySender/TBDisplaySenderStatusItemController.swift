@@ -33,7 +33,15 @@ final class TBDisplaySenderStatusItemController: NSObject {
         service.$showsMenuBarIcon
             .sink { [weak self] _ in
                 guard let self, self.hasActivated else { return }
-                self.syncVisibility()
+                // Published values change after willSet; read them next tick.
+                DispatchQueue.main.async { self.syncVisibility() }
+            }
+            .store(in: &cancellables)
+
+        service.$appPresentation
+            .sink { [weak self] _ in
+                guard let self, self.hasActivated else { return }
+                DispatchQueue.main.async { self.syncVisibility() }
             }
             .store(in: &cancellables)
 
@@ -59,7 +67,7 @@ final class TBDisplaySenderStatusItemController: NSObject {
     }
 
     private func syncVisibility() {
-        if service.showsMenuBarIcon {
+        if service.menuBarIconVisible {
             ensureStatusItem()
             refreshStatusItem()
         } else {
@@ -218,7 +226,10 @@ final class TBDisplaySenderStatusItemController: NSObject {
             keyEquivalent: ""
         )
         hideItem.target = self
-        menu.addItem(hideItem)
+        // Background mode always shows the icon; hiding it is Faceless mode.
+        if service.appPresentation == .standard {
+            menu.addItem(hideItem)
+        }
 
         menu.addItem(.separator())
 
@@ -372,10 +383,7 @@ final class TBDisplaySenderStatusItemController: NSObject {
     @objc
     private func showMainWindow() {
         runAfterMenuDismissal {
-            NSApp.activate(ignoringOtherApps: true)
-            for window in NSApp.windows {
-                window.makeKeyAndOrderFront(nil)
-            }
+            TBAppPresentationController.showMainWindow()
         }
     }
 

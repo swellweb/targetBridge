@@ -5,7 +5,8 @@
 
 #include "tb_i18n.h"
 
-static NSString *const kBackgroundModeKey = @"backgroundMode";
+static NSString *const kBackgroundModeKey = @"backgroundMode";   /* before 4.0 */
+static NSString *const kAppPresentationKey = @"appPresentation";
 static NSString *const kShowWindowAtStartKey = @"showWindowAtStart";
 
 @interface TBBackgroundUI : NSObject
@@ -14,7 +15,12 @@ static NSString *const kShowWindowAtStartKey = @"showWindowAtStart";
 @property(nonatomic, strong) NSMenuItem *noticeLine;
 @property(nonatomic, strong) NSMenuItem *downloadItem;
 @property(nonatomic, strong) NSMenuItem *showWindowItem;
-@property(nonatomic, strong) NSMenuItem *backgroundItem;
+@property(nonatomic, strong) NSMenuItem *backgroundItem;      /* "App mode" submenu */
+@property(nonatomic, strong) NSMenuItem *presentationStandardItem;
+@property(nonatomic, strong) NSMenuItem *presentationBackgroundItem;
+@property(nonatomic, strong) NSMenuItem *presentationFacelessItem;
+@property(nonatomic, strong) NSTextField *presentationLabel;
+@property(nonatomic) int requestedPresentation;              /* -1: none */
 @property(nonatomic, strong) NSMenuItem *showAtStartItem;
 @property(nonatomic, strong) NSMenuItem *quitItem;
 @property(nonatomic, strong) NSMenuItem *performanceItem;
@@ -33,7 +39,7 @@ static NSString *const kShowWindowAtStartKey = @"showWindowAtStart";
 @property(nonatomic, strong) NSMenuItem *rendererSDLOpenGLItem;
 @property(nonatomic, strong) NSMenuItem *displaySyncItem;
 @property(nonatomic, strong) NSMenuItem *statsItem;
-@property(nonatomic, strong) NSButton *checkbox;
+@property(nonatomic, strong) NSPopUpButton *checkbox;        /* app mode */
 @property(nonatomic, strong) NSButton *showAtStartCheckbox;
 @property(nonatomic, strong) NSTextField *loginHint;
 @property(nonatomic, copy) NSString *language;
@@ -68,6 +74,7 @@ static NSWindow *tb_ui_largest_window(void) {
     if (!self) return nil;
 
     _policyVisible = -1;
+    _requestedPresentation = -1;
     _statusItem = [NSStatusBar.systemStatusBar statusItemWithLength:NSSquareStatusItemLength];
     NSImage *icon = [NSImage imageWithSystemSymbolName:@"display"
                               accessibilityDescription:@"TargetBridge Receiver"];
@@ -91,8 +98,16 @@ static NSWindow *tb_ui_largest_window(void) {
     [menu addItem:NSMenuItem.separatorItem];
     _showWindowItem = [menu addItemWithTitle:@"" action:@selector(showWindow:) keyEquivalent:@""];
     _showWindowItem.target = self;
-    _backgroundItem = [menu addItemWithTitle:@"" action:@selector(toggleBackground:) keyEquivalent:@""];
-    _backgroundItem.target = self;
+    NSMenu *presentation = [[NSMenu alloc] init];
+    presentation.autoenablesItems = NO;
+    _presentationStandardItem = [self addItemTo:presentation action:@selector(choosePresentationItem:)];
+    _presentationStandardItem.tag = TB_APP_PRESENTATION_STANDARD;
+    _presentationBackgroundItem = [self addItemTo:presentation action:@selector(choosePresentationItem:)];
+    _presentationBackgroundItem.tag = TB_APP_PRESENTATION_BACKGROUND;
+    _presentationFacelessItem = [self addItemTo:presentation action:@selector(choosePresentationItem:)];
+    _presentationFacelessItem.tag = TB_APP_PRESENTATION_FACELESS;
+    _backgroundItem = [menu addItemWithTitle:@"" action:nil keyEquivalent:@""];
+    _backgroundItem.submenu = presentation;
     _showAtStartItem = [menu addItemWithTitle:@"" action:@selector(toggleShowAtStart:) keyEquivalent:@""];
     _showAtStartItem.target = self;
     [menu addItem:NSMenuItem.separatorItem];
@@ -171,8 +186,20 @@ static NSWindow *tb_ui_largest_window(void) {
     self.actions |= TB_BACKGROUND_UI_SHOW_WINDOW;
 }
 
-- (void)toggleBackground:(id)sender {
+- (void)choosePresentationItem:(NSMenuItem *)sender {
+    self.requestedPresentation = (int)sender.tag;
     self.actions |= TB_BACKGROUND_UI_TOGGLE;
+}
+
+- (void)choosePresentationPopup:(NSPopUpButton *)sender {
+    self.requestedPresentation = (int)sender.selectedTag;
+    self.actions |= TB_BACKGROUND_UI_TOGGLE;
+}
+
+/* Opening the app again (Finder, Launchpad, `open`) while it runs: show the
+ * window. This is the way back to the settings in faceless mode. */
+- (void)handleReopen:(NSAppleEventDescriptor *)event withReplyEvent:(NSAppleEventDescriptor *)reply {
+    self.actions |= TB_BACKGROUND_UI_SHOW_WINDOW;
 }
 
 - (NSMenuItem *)addItemTo:(NSMenu *)menu action:(SEL)action {
@@ -222,9 +249,22 @@ static NSWindow *tb_ui_largest_window(void) {
     self.showAtStartCheckbox = [self addCheckboxTo:content
                                                key:"receiver.background.show_at_start"
                                             action:@selector(toggleShowAtStart:)];
-    self.checkbox = [self addCheckboxTo:content
-                                    key:"receiver.background.run"
-                                 action:@selector(toggleBackground:)];
+    NSPopUpButton *popup = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+    popup.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
+    popup.autoresizingMask = NSViewMinXMargin | NSViewMaxYMargin;
+    popup.target = self;
+    popup.action = @selector(choosePresentationPopup:);
+    for (int mode = TB_APP_PRESENTATION_STANDARD; mode <= TB_APP_PRESENTATION_FACELESS; ++mode) {
+        [popup addItemWithTitle:[NSString stringWithFormat:@"%d", mode]];
+        popup.lastItem.tag = mode;
+    }
+    [content addSubview:popup positioned:NSWindowAbove relativeTo:nil];
+    self.checkbox = popup;
+    NSTextField *label = [NSTextField labelWithString:tb_ui_text("receiver.app_mode.label")];
+    label.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
+    label.autoresizingMask = NSViewMinXMargin | NSViewMaxYMargin;
+    [content addSubview:label positioned:NSWindowAbove relativeTo:nil];
+    self.presentationLabel = label;
     [self layoutCheckboxes];
 
     NSTextField *hint = [NSTextField labelWithString:tb_ui_text("receiver.background.login_hint")];
@@ -256,7 +296,7 @@ static NSWindow *tb_ui_largest_window(void) {
     if (!content) return;
 
     CGFloat right = NSWidth(content.bounds) - 24.0;
-    for (NSButton *checkbox in @[ self.showAtStartCheckbox, self.checkbox ]) {
+    for (NSControl *checkbox in @[ self.showAtStartCheckbox, self.checkbox, self.presentationLabel ]) {
         [checkbox sizeToFit];
         NSSize size = checkbox.frame.size;
         checkbox.frame = NSMakeRect(right - size.width, 42.0, size.width, size.height);
@@ -271,7 +311,10 @@ static NSWindow *tb_ui_largest_window(void) {
     self.language = language;
 
     self.showWindowItem.title = tb_ui_text("receiver.background.show_window");
-    self.backgroundItem.title = tb_ui_text("receiver.background.run");
+    self.backgroundItem.title = tb_ui_text("receiver.app_mode.label");
+    self.presentationStandardItem.title = tb_ui_text("receiver.app_mode.standard");
+    self.presentationBackgroundItem.title = tb_ui_text("receiver.app_mode.background");
+    self.presentationFacelessItem.title = tb_ui_text("receiver.app_mode.faceless");
     self.showAtStartItem.title = tb_ui_text("receiver.background.show_main_window_at_start");
     self.quitItem.title = tb_ui_text("receiver.background.quit");
     self.downloadItem.title = tb_ui_text("receiver.version.download");
@@ -291,37 +334,47 @@ static NSWindow *tb_ui_largest_window(void) {
     self.displaySyncItem.title = tb_ui_text("receiver.expert.display_sync");
     self.statsItem.title = tb_ui_text("receiver.performance.show_stats");
     self.loginHint.stringValue = tb_ui_text("receiver.background.login_hint");
-    self.checkbox.title = tb_ui_text("receiver.background.run");
+    [self.checkbox itemWithTag:TB_APP_PRESENTATION_STANDARD].title = tb_ui_text("receiver.app_mode.standard");
+    [self.checkbox itemWithTag:TB_APP_PRESENTATION_BACKGROUND].title = tb_ui_text("receiver.app_mode.background");
+    [self.checkbox itemWithTag:TB_APP_PRESENTATION_FACELESS].title = tb_ui_text("receiver.app_mode.faceless");
+    self.presentationLabel.stringValue = tb_ui_text("receiver.app_mode.label");
     self.showAtStartCheckbox.title = tb_ui_text("receiver.background.show_at_start");
     [self layoutCheckboxes];
 }
 
-- (void)updateBackground:(int)background
+- (void)updateBackground:(int)presentation
              showAtStart:(int)showAtStart
                  visible:(int)visible
                  session:(int)session
                   status:(const char *)status {
-    if (visible != self.policyVisible) {
-        self.policyVisible = visible;
-        [NSApp setActivationPolicy:visible ? NSApplicationActivationPolicyRegular
+    /* A Dock icon in standard mode only; clicking it shows the window. */
+    const int regular = presentation == TB_APP_PRESENTATION_STANDARD;
+    const int policy = regular * 2 + visible;
+    if (policy != self.policyVisible) {
+        self.policyVisible = policy;
+        [NSApp setActivationPolicy:regular ? NSApplicationActivationPolicyRegular
                                            : NSApplicationActivationPolicyAccessory];
         if (visible) [NSApp activateIgnoringOtherApps:YES];
     }
+    /* Faceless: no menu bar icon either. */
+    self.statusItem.visible = presentation != TB_APP_PRESENTATION_FACELESS;
 
     [self installCheckboxIfNeeded];
     [self refreshTextsIfNeeded];
 
-    NSControlStateValue state = background ? NSControlStateValueOn : NSControlStateValueOff;
-    self.backgroundItem.state = state;
-    self.checkbox.state = state;
+    self.presentationStandardItem.state = presentation == TB_APP_PRESENTATION_STANDARD ? NSControlStateValueOn : NSControlStateValueOff;
+    self.presentationBackgroundItem.state = presentation == TB_APP_PRESENTATION_BACKGROUND ? NSControlStateValueOn : NSControlStateValueOff;
+    self.presentationFacelessItem.state = presentation == TB_APP_PRESENTATION_FACELESS ? NSControlStateValueOn : NSControlStateValueOff;
+    if (self.checkbox.selectedTag != presentation) [self.checkbox selectItemWithTag:presentation];
     self.checkbox.hidden = session != 0;
+    self.presentationLabel.hidden = session != 0;
 
-    /* Without background mode the window always shows at start. */
     NSControlStateValue showAtStartState = showAtStart ? NSControlStateValueOn : NSControlStateValueOff;
     self.showAtStartItem.state = showAtStartState;
-    self.showAtStartItem.enabled = background != 0;
+    /* Applies in every app mode. */
+    self.showAtStartItem.enabled = YES;
     self.showAtStartCheckbox.state = showAtStartState;
-    self.showAtStartCheckbox.enabled = background != 0;
+    self.showAtStartCheckbox.enabled = YES;
     self.showAtStartCheckbox.hidden = session != 0;
     self.loginHint.hidden = session != 0;
     self.showWindowItem.enabled = !visible;
@@ -337,16 +390,37 @@ static NSWindow *tb_ui_largest_window(void) {
 
 static TBBackgroundUI *g_background_ui = nil;
 
-int tb_background_mode_load(void) {
-    return [NSUserDefaults.standardUserDefaults boolForKey:kBackgroundModeKey] ? 1 : 0;
+int tb_app_presentation_load(void) {
+    NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+    id stored = [defaults objectForKey:kAppPresentationKey];
+    if (stored) {
+        const int value = (int)[stored integerValue];
+        if (value >= TB_APP_PRESENTATION_STANDARD && value <= TB_APP_PRESENTATION_FACELESS) return value;
+    }
+    /* Before 4.0: "Run in background" on/off. */
+    return [defaults boolForKey:kBackgroundModeKey] ? TB_APP_PRESENTATION_BACKGROUND
+                                                    : TB_APP_PRESENTATION_STANDARD;
 }
 
-void tb_background_mode_save(int enabled) {
-    [NSUserDefaults.standardUserDefaults setBool:enabled != 0 forKey:kBackgroundModeKey];
+void tb_app_presentation_save(int presentation) {
+    [NSUserDefaults.standardUserDefaults setInteger:presentation forKey:kAppPresentationKey];
+    [NSUserDefaults.standardUserDefaults setBool:presentation != TB_APP_PRESENTATION_STANDARD
+                                          forKey:kBackgroundModeKey];
+}
+
+int tb_background_ui_take_presentation_request(void) {
+    if (!g_background_ui) return -1;
+    const int requested = g_background_ui.requestedPresentation;
+    g_background_ui.requestedPresentation = -1;
+    return requested;
 }
 
 int tb_show_window_at_start_load(void) {
-    return [NSUserDefaults.standardUserDefaults boolForKey:kShowWindowAtStartKey] ? 1 : 0;
+    id stored = [NSUserDefaults.standardUserDefaults objectForKey:kShowWindowAtStartKey];
+    /* Never set: like before, standard mode shows the window, background
+     * mode doesn't. */
+    if (!stored) return tb_app_presentation_load() == TB_APP_PRESENTATION_STANDARD;
+    return [stored boolValue] ? 1 : 0;
 }
 
 void tb_show_window_at_start_save(int enabled) {
@@ -399,15 +473,21 @@ void tb_background_ui_set_update_notice(const char *text) {
 }
 
 void tb_background_ui_install(void) {
-    if (!g_background_ui) g_background_ui = [[TBBackgroundUI alloc] init];
+    if (g_background_ui) return;
+    g_background_ui = [[TBBackgroundUI alloc] init];
+    [NSAppleEventManager.sharedAppleEventManager
+        setEventHandler:g_background_ui
+            andSelector:@selector(handleReopen:withReplyEvent:)
+          forEventClass:kCoreEventClass
+             andEventID:kAEReopenApplication];
 }
 
-void tb_background_ui_update(int background_mode,
+void tb_background_ui_update(int presentation,
                              int show_at_start,
                              int window_visible,
                              int session_active,
                              const char *status) {
-    [g_background_ui updateBackground:background_mode
+    [g_background_ui updateBackground:presentation
                           showAtStart:show_at_start
                               visible:window_visible
                               session:session_active

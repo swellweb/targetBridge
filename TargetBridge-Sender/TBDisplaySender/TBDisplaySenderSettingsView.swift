@@ -53,7 +53,17 @@ struct TBDisplaySenderSettingsView: View {
                 }
 
                 settingsSection(title: interfaceTitle) {
+                    Picker(TBDisplaySenderL10n.text("sender.app_mode.label", service.language),
+                           selection: $service.appPresentation) {
+                        ForEach(TBAppPresentation.allCases) { presentation in
+                            Text(presentation.title(service.language)).tag(presentation)
+                        }
+                    }
+                    Text(TBDisplaySenderL10n.text("sender.app_mode.hint", service.language))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                     Toggle(TBDisplaySenderL10n.showMenuBarIcon(service.language), isOn: $service.showsMenuBarIcon)
+                        .disabled(service.appPresentation != .standard)
                     Toggle(TBDisplaySenderL10n.largeCursor(service.language), isOn: $service.largeCursor)
                         .disabled(service.anyConnected)
                     Toggle(TBDisplaySenderL10n.preventDisplaySleep(service.language), isOn: $service.preventDisplaySleep)

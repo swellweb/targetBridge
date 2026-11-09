@@ -62,7 +62,9 @@ screen, in 8-bit or, experimentally, 10-bit colour:
   certificate, so macOS keeps privacy permissions across updates
 - a per-session **TargetBridge Audio** output device whose volume drives the
   iMac's speakers
-- Receiver background mode with a menu bar icon and a **Performance** submenu
+- app modes for Sender and Receiver: Standard, Background (menu bar icon
+  only) and Faceless (no window or icons; open the app again to show it)
+- Receiver **Performance** submenu
   with a stats overlay
 
 Every new capability falls back on its own when the other Mac can't use it.
@@ -197,16 +199,12 @@ sign the installed apps with your own certificate after each install, before
 the first launch:
 
 1. Once: create a certificate named `TargetBridge Code Signing` in Keychain
-   Access and add it to every Mac, trusted for code signing.
-2. Once per Mac: download [`scripts/sign-local.sh`](scripts/sign-local.sh):
-   ```bash
-   curl -fsSL -o ~/sign-local.sh https://raw.githubusercontent.com/mjfrank/targetBridge/performance/scripts/sign-local.sh
-   ```
-3. After each update: quit the app, drag the new one into Applications, and
-   before opening it run:
-   ```bash
-   bash ~/sign-local.sh
-   ```
+   Access on one Mac and trust it for code signing.
+2. For each update: save all downloads (Sender and Receiver, Apple silicon
+   and Intel) and [`scripts/sign-local.sh`](scripts/sign-local.sh) in one
+   folder and run `bash sign-local.sh` there. It signs every app in one go
+   and offers to install the ones for this Mac.
+3. Copy the signed apps for your other Macs into their Applications folders.
 
 The step-by-step guide with every click is in
 [Sender signing](docs/Sender-Signing.md#keep-permissions-on-your-own-macs-sign-after-installing).

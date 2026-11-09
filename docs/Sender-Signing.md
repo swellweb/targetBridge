@@ -18,13 +18,14 @@ Signing the installed apps yourself with one certificate of your own fixes
 that. It takes about ten minutes once, then one Terminal command per update.
 No Apple Developer account is needed.
 
-Do this on every Mac that runs TargetBridge: the Sender Mac and the iMac with
-the Receiver. Use the **same** certificate on all of them.
+You sign on **one** Mac, the one with the certificate, and copy the signed
+apps to your other Macs. The other Macs don't need the certificate: the
+signature travels with the app.
 
-### Part 1: create the certificate (once, on one Mac)
+### Part 1: create the certificate (once)
 
-Skip this part if you already have a `.p12` file for TargetBridge; go to
-Part 2.
+Skip this part if you already have a `.p12` file for TargetBridge; import it
+by double-clicking it and continue with Part 2.
 
 1. Open **Keychain Access**: press Cmd+Space, type `Keychain Access`, press
    Return. (On macOS 15 and later, Spotlight finds it even though it is no
@@ -38,60 +39,70 @@ Part 2.
    - **Certificate Type:** Code Signing
 4. Click **Create**, confirm the warning with **Continue**, then click
    **Done**.
-5. Export it for your other Macs and as a backup: in Keychain Access, select
-   **login** on the left and **My Certificates** at the top, right-click
-   **TargetBridge Code Signing** and choose **Export…**. Save it as
-   `TargetBridge-CodeSigning.p12` and set a password. Keep the file and the
-   password safe, for example in your password manager. If you lose them,
-   you'll have to approve the permissions again with a new certificate.
+5. Make a backup: in Keychain Access, select **login** on the left and **My
+   Certificates** at the top, right-click **TargetBridge Code Signing** and
+   choose **Export…**. Save it as `TargetBridge-CodeSigning.p12` and set a
+   password. Keep the file and the password safe, for example in your
+   password manager. With a new certificate you'd have to approve the
+   permissions again.
 
-### Part 2: add the certificate to each Mac (once per Mac)
+### Part 2: trust the certificate (once, on the signing Mac)
 
-1. On the Mac where you created the certificate, it is already in the
-   keychain; continue with step 3. On every other Mac, copy
-   `TargetBridge-CodeSigning.p12` over (AirDrop, USB stick), double-click it,
-   choose the **login** keychain and enter the password you set.
-2. Enter your Mac password if Keychain Access asks for it.
-3. Trust the certificate for code signing: in Keychain Access, select
-   **login** and **My Certificates**, double-click **TargetBridge Code
-   Signing**, expand **Trust**, and set **Code Signing** to **Always Trust**.
-   Leave all other settings at "no value specified". Close the window and
-   confirm with your Mac password.
-4. Check it: open **Terminal** (Cmd+Space, type `Terminal`) and run
+1. In Keychain Access, select **login** and **My Certificates**,
+   double-click **TargetBridge Code Signing**, expand **Trust**, and set
+   **Code Signing** to **Always Trust**. Leave all other settings at "no
+   value specified". Close the window and confirm with your Mac password.
+2. Check it: open **Terminal** (Cmd+Space, type `Terminal`) and run
    ```bash
    security find-identity -v -p codesigning
    ```
    The list must contain `"TargetBridge Code Signing"`. If it says
-   `0 valid identities found`, repeat step 3.
+   `0 valid identities found`, repeat step 1.
 
-### Part 3: get the signing script (once per Mac)
+### Part 3: sign every update in one go
 
-In Terminal, run:
-
-```bash
-curl -fsSL -o ~/sign-local.sh https://raw.githubusercontent.com/mjfrank/targetBridge/performance/scripts/sign-local.sh
-```
-
-This saves [`sign-local.sh`](../scripts/sign-local.sh) in your home folder.
-You can also download it from GitHub in the browser and move it to your home
-folder.
-
-### Part 4: after every install or update
-
-1. Quit TargetBridge (Sender) or TargetBridge Receiver if it is running.
-2. Unzip the download and drag the app into **Applications**. If macOS asks,
-   choose **Replace**. The name must stay exactly `TargetBridge.app` or
-   `TargetBridge Receiver.app`.
-3. **Before opening the app**, run in Terminal:
+1. Make a new folder for the update, for example **TargetBridge 4.0** in
+   Downloads, and save all downloads in it: the Sender and the Receiver, for
+   Apple silicon (`arm64`) and Intel (`x86_64`), whichever you need. Zipped
+   or unzipped doesn't matter.
+2. Put the signing script into the same folder. In Terminal (adjust the
+   folder name):
    ```bash
-   bash ~/sign-local.sh
+   cd ~/Downloads/"TargetBridge 4.0"
+   curl -fsSL -o sign-local.sh https://raw.githubusercontent.com/mjfrank/targetBridge/performance/scripts/sign-local.sh
    ```
-   It signs whichever of the two apps is in Applications, removes the
-   download quarantine and checks the result. Each app ends with a line like
-   `ok: Authority=TargetBridge Code Signing`. Enter your Mac password if
-   Keychain Access asks to allow `codesign` to use the key; choose **Always
-   Allow** so it doesn't ask again.
-4. Open the app.
+   You can also download
+   [`sign-local.sh`](../scripts/sign-local.sh) in the browser and move it
+   into the folder.
+3. Run it:
+   ```bash
+   bash sign-local.sh
+   ```
+   It unpacks the zips into one folder per download, signs every app it
+   finds and lists which app belongs on which Mac, for example
+   `TargetBridge Receiver.app (x86_64, for Intel Macs)`. Each app ends with
+   a line like `ok: Authority=TargetBridge Code Signing`. If Keychain Access
+   asks to allow `codesign` to use the key, enter your Mac password and
+   choose **Always Allow**.
+4. For the apps that run on this Mac, the script asks
+   `Install … into /Applications on this Mac? [y/N]`. Quit the app first,
+   then answer `y`.
+
+### Part 4: copy the apps to your other Macs
+
+1. Quit TargetBridge on the other Mac.
+2. Copy the signed app from the update folder to that Mac, for example with
+   AirDrop, a USB stick or file sharing, and drag it into **Applications**.
+   Choose **Replace** if asked. Keep the name exactly `TargetBridge.app` or
+   `TargetBridge Receiver.app`.
+3. If macOS says the app can't be opened because Apple can't check it (this
+   happens after AirDrop or a download), run on that Mac:
+   ```bash
+   xattr -dr com.apple.quarantine "/Applications/TargetBridge Receiver.app"
+   ```
+   (or `/Applications/TargetBridge.app`), or click **Open Anyway** in
+   **System Settings → Privacy & Security**. This doesn't change the
+   signature.
 
 **The first time only**, macOS asks for the permissions once more, because
 the app's identity changed from ad-hoc to your certificate. Approve them in
@@ -103,20 +114,18 @@ again with **+**. From the next update on, the permissions stay.
 ### Troubleshooting
 
 - **`No valid code-signing certificate named "TargetBridge Code Signing"`**:
-  the certificate is missing or not trusted; do Part 2 again on this Mac.
-- **The app still asks for permissions after an update**: the update was
-  opened before it was signed, or it was signed with another certificate.
-  Quit it, run `bash ~/sign-local.sh` again, and approve the permissions one
-  last time.
+  the certificate is missing or not trusted on this Mac; do Part 2 again.
+- **The app still asks for permissions after an update**: the update wasn't
+  signed, or was signed with another certificate. Sign it again and approve
+  the permissions one last time.
 - **Check which certificate an app is signed with:**
   ```bash
   codesign -dv /Applications/TargetBridge.app 2>&1 | grep Authority
   ```
+- **Sign the apps already in Applications** instead of a download folder:
+  `bash sign-local.sh --applications`
 - **A certificate with another name:** set `TB_SIGN_IDENTITY`, for example
-  `TB_SIGN_IDENTITY="My Certificate" bash ~/sign-local.sh`.
-- **Apps somewhere other than Applications:** pass their paths, for example
-  `bash ~/sign-local.sh "/Users/me/Apps/TargetBridge.app"`. Keep them in the
-  same place for every update, or macOS treats them as different apps.
+  `TB_SIGN_IDENTITY="My Certificate" bash sign-local.sh`.
 
 If the macOS firewall is on, the Receiver's sign-in screen mode also needs
 the signed Receiver: the firewall only keeps allowing connections at the
