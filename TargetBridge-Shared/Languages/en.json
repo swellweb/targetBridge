@@ -236,6 +236,8 @@
   "receiver.signin.not_installed": "Not installed",
   "receiver.signin.install": "Install…",
   "receiver.signin.uninstall": "Uninstall…",
+  "receiver.signin.how_to_use": "How to use…",
+  "receiver.signin.how_to_use_title": "How to use sign-in screen mode",
   "receiver.signin.installed_title": "Sign-in screen mode installed",
   "receiver.signin.installed_text": "Log out of the iMac (Apple menu > Log Out). While the sign-in window is shown, a Mac can use the iMac as a display. Esc or a double-click on the iMac ends the session. Not available right after a restart with FileVault.",
   "receiver.signin.uninstalled_title": "Sign-in screen mode uninstalled",

@@ -236,6 +236,8 @@
   "receiver.signin.not_installed": "Non installé",
   "receiver.signin.install": "Installer…",
   "receiver.signin.uninstall": "Désinstaller…",
+  "receiver.signin.how_to_use": "Mode d'emploi…",
+  "receiver.signin.how_to_use_title": "Utiliser le mode écran de connexion",
   "receiver.signin.installed_title": "Mode écran de connexion installé",
   "receiver.signin.installed_text": "Fermez la session sur l'iMac (menu Pomme > Fermer la session). Tant que la fenêtre de connexion est affichée, un Mac peut utiliser l'iMac comme écran. Échap ou un double-clic sur l'iMac termine la session. Non disponible juste après un redémarrage avec FileVault.",
   "receiver.signin.uninstalled_title": "Mode écran de connexion désinstallé",

@@ -236,6 +236,8 @@
   "receiver.signin.not_installed": "Non installata",
   "receiver.signin.install": "Installa…",
   "receiver.signin.uninstall": "Disinstalla…",
+  "receiver.signin.how_to_use": "Come si usa…",
+  "receiver.signin.how_to_use_title": "Come usare la modalità schermata di accesso",
   "receiver.signin.installed_title": "Modalità schermata di accesso installata",
   "receiver.signin.installed_text": "Esci dall'account sull'iMac (menu Apple > Esci). Finché è visibile la finestra di accesso, un Mac può usare l'iMac come monitor. Esc o un doppio clic sull'iMac termina la sessione. Con FileVault non disponibile subito dopo un riavvio.",
   "receiver.signin.uninstalled_title": "Modalità schermata di accesso disinstallata",

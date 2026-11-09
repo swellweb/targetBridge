@@ -236,6 +236,8 @@
   "receiver.signin.not_installed": "未安装",
   "receiver.signin.install": "安装…",
   "receiver.signin.uninstall": "卸载…",
+  "receiver.signin.how_to_use": "使用方法…",
+  "receiver.signin.how_to_use_title": "如何使用登录屏幕模式",
   "receiver.signin.installed_title": "登录屏幕模式已安装",
   "receiver.signin.installed_text": "请在 iMac 上注销（苹果菜单 > 注销）。显示登录窗口期间，Mac 可以将 iMac 用作显示器。在 iMac 上按 Esc 或双击即可结束会话。启用 FileVault 时，重启后无法立即使用。",
   "receiver.signin.uninstalled_title": "登录屏幕模式已卸载",

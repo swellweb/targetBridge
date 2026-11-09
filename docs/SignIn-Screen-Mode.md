@@ -32,7 +32,9 @@ that you install and remove from the Receiver's menu.
 1. In the Receiver's menu bar icon choose **Sign-in screen mode
    (experimental) → Install…**
 2. Enter an administrator name and password.
-3. Log out of the iMac. From now on, every time the iMac shows the sign-in
+3. A short note explains how to use the mode; it is also available later
+   under **Sign-in screen mode (experimental) → How to use…**
+4. Log out of the iMac. From now on, every time the iMac shows the sign-in
    window, a second Receiver runs there in the background.
 
 ## Use

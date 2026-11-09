@@ -2649,6 +2649,11 @@ int main(int argc, char **argv) {
             }
             tb_background_ui_set_signin_installed(tb_signin_installed());
         }
+        if (ui_actions & TB_BACKGROUND_UI_SIGNIN_HELP) {
+            /* The same notes as after installing. */
+            tb_background_ui_show_message(tb_i18n_get("receiver.signin.how_to_use_title"),
+                                          tb_i18n_get("receiver.signin.installed_text"));
+        }
         if (ui_actions & TB_BACKGROUND_UI_TOGGLE_DISPLAY_SYNC) {
             a.display_sync = !a.display_sync;
             tb_pref_set("metalDisplaySync", a.display_sync);

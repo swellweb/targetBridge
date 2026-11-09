@@ -22,6 +22,7 @@ static NSString *const kShowWindowAtStartKey = @"showWindowAtStart";
 @property(nonatomic, strong) NSMenuItem *signinStatusLine;
 @property(nonatomic, strong) NSMenuItem *signinInstallItem;
 @property(nonatomic, strong) NSMenuItem *signinUninstallItem;
+@property(nonatomic, strong) NSMenuItem *signinHelpItem;
 @property(nonatomic) int signinInstalled;
 @property(nonatomic, strong) NSMenuItem *newestFrameItem;
 @property(nonatomic, strong) NSMenuItem *wakeOnDataItem;
@@ -131,6 +132,8 @@ static NSWindow *tb_ui_largest_window(void) {
     [signin addItem:NSMenuItem.separatorItem];
     _signinInstallItem = [self addItemTo:signin action:@selector(installSignin:)];
     _signinUninstallItem = [self addItemTo:signin action:@selector(uninstallSignin:)];
+    [signin addItem:NSMenuItem.separatorItem];
+    _signinHelpItem = [self addItemTo:signin action:@selector(signinHelp:)];
     _signinItem = [menu addItemWithTitle:@"" action:nil keyEquivalent:@""];
     _signinItem.submenu = signin;
     [menu addItem:NSMenuItem.separatorItem];
@@ -151,6 +154,10 @@ static NSWindow *tb_ui_largest_window(void) {
 
 - (void)uninstallSignin:(id)sender {
     self.actions |= TB_BACKGROUND_UI_SIGNIN_UNINSTALL;
+}
+
+- (void)signinHelp:(id)sender {
+    self.actions |= TB_BACKGROUND_UI_SIGNIN_HELP;
 }
 
 - (void)refreshSigninItems {
@@ -272,6 +279,7 @@ static NSWindow *tb_ui_largest_window(void) {
     self.signinItem.title = tb_ui_text("receiver.signin.menu");
     self.signinInstallItem.title = tb_ui_text("receiver.signin.install");
     self.signinUninstallItem.title = tb_ui_text("receiver.signin.uninstall");
+    self.signinHelpItem.title = tb_ui_text("receiver.signin.how_to_use");
     [self refreshSigninItems];
     self.newestFrameItem.title = tb_ui_text("receiver.performance.newest_frame");
     self.wakeOnDataItem.title = tb_ui_text("receiver.performance.wake_on_data");

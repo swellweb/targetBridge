@@ -16,7 +16,8 @@ enum tb_background_ui_action {
     TB_BACKGROUND_UI_RENDERER_SDL_OPENGL = 1 << 9,
     TB_BACKGROUND_UI_TOGGLE_DISPLAY_SYNC = 1 << 10,
     TB_BACKGROUND_UI_SIGNIN_INSTALL = 1 << 11,
-    TB_BACKGROUND_UI_SIGNIN_UNINSTALL = 1 << 12
+    TB_BACKGROUND_UI_SIGNIN_UNINSTALL = 1 << 12,
+    TB_BACKGROUND_UI_SIGNIN_HELP = 1 << 13
 };
 
 /* Where "Download update" in the menu bar points. */
