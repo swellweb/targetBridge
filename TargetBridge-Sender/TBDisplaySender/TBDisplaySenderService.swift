@@ -32,8 +32,32 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
     case retina4k60
     case native5k
     case native5k60Experimental
+    case native5k60Uncompressed
+    case native5k60UncompressedLZ4
+    case native5k60Enhanced10Bit
+    case native5k60Full10Bit
 
     var id: String { rawValue }
+
+    /// Profiles for the uncompressed modes start with their own video
+    /// compression; the session's own setting applies to all other profiles.
+    var defaultCodecPreference: TBDisplayCodecPreference? {
+        switch self {
+        case .native5k60Uncompressed: return .uncompressed
+        case .native5k60UncompressedLZ4: return .uncompressedLZ4
+        case .native5k60Enhanced10Bit: return .uncompressedEnhanced
+        case .native5k60Full10Bit: return .uncompressedFull10Bit
+        default: return nil
+        }
+    }
+
+    /// The video compression options a profile allows. Profiles for the
+    /// uncompressed modes allow switching between those modes only.
+    var allowedCodecPreferences: [TBDisplayCodecPreference] {
+        defaultCodecPreference == nil
+            ? TBDisplayCodecPreference.allCases
+            : TBDisplayCodecPreference.allCases.filter(\.usesRawFrames)
+    }
 
     var title: String {
         switch self {
@@ -55,6 +79,14 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
             return "5K"
         case .native5k60Experimental:
             return "5K 60 Experimental"
+        case .native5k60Uncompressed:
+            return "5K 60 Uncompressed (8-bit)"
+        case .native5k60UncompressedLZ4:
+            return "5K 60 LZ4, lossless (8-bit)"
+        case .native5k60Enhanced10Bit:
+            return "5K 60 10-bit dithered"
+        case .native5k60Full10Bit:
+            return "5K 60 Full 10-bit"
         }
     }
 
@@ -78,6 +110,14 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
             return "5120 × 2880 @ 48"
         case .native5k60Experimental:
             return "5120 × 2880 @ 60"
+        case .native5k60Uncompressed:
+            return "5120 × 2880 @ 60"
+        case .native5k60UncompressedLZ4:
+            return "5120 × 2880 @ 60"
+        case .native5k60Enhanced10Bit:
+            return "5120 × 2880 @ 60"
+        case .native5k60Full10Bit:
+            return "5120 × 2880 @ 60, ~30 for video"
         }
     }
 
@@ -93,7 +133,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
             return 3840
         case .retina4k60:
             return 4096
-        case .native5k, .native5k60Experimental:
+        case .native5k, .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit:
             return 5120
         }
     }
@@ -110,7 +150,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
             return 2160
         case .retina4k60:
             return 2304
-        case .native5k, .native5k60Experimental:
+        case .native5k, .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit:
             return 2880
         }
     }
@@ -133,7 +173,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
             return 120_000_000
         case .native5k:
             return 120_000_000
-        case .native5k60Experimental:
+        case .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit:
             return 150_000_000
         }
     }
@@ -144,6 +184,14 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
             return "H.264"
         case .crisp2160p60, .retina4k60, .native5k, .native5k60Experimental:
             return "HEVC"
+        case .native5k60Uncompressed:
+            return "Uncompressed 8-bit"
+        case .native5k60UncompressedLZ4:
+            return "LZ4 8-bit"
+        case .native5k60Enhanced10Bit:
+            return "10-bit dithered"
+        case .native5k60Full10Bit:
+            return "Full 10-bit"
         }
     }
 
@@ -151,7 +199,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
         switch self {
         case .standard1080p, .smooth1080p60, .standard1440p, .smooth1440p60, .smooth1800p60:
             return kCMVideoCodecType_H264
-        case .crisp2160p60, .retina4k60, .native5k, .native5k60Experimental:
+        case .crisp2160p60, .retina4k60, .native5k, .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit:
             return kCMVideoCodecType_HEVC
         }
     }
@@ -164,7 +212,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
         case .standard1080p, .standard1440p:
             return 3
         case .smooth1080p60, .smooth1440p60, .smooth1800p60, .crisp2160p60, .retina4k60,
-             .native5k, .native5k60Experimental:
+             .native5k, .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit:
             // Five surfaces protect WindowServer from starvation during
             // high-frame-rate 4K capture while the serial pipeline prevents an
             // application-side frame backlog.
@@ -188,7 +236,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
             return 60
         case .native5k:
             return 48
-        case .native5k60Experimental:
+        case .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit:
             return 60
         }
     }
@@ -214,7 +262,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
             return 60
         case .native5k:
             return 48
-        case .native5k60Experimental:
+        case .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit:
             return 60
         }
     }
@@ -231,7 +279,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
             return 1
         case .smooth1800p60, .crisp2160p60, .retina4k60:
             return 1
-        case .native5k, .native5k60Experimental:
+        case .native5k, .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit:
             return 1
         }
     }
@@ -240,7 +288,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
         switch self {
         case .standard1080p, .standard1440p:
             return false
-        case .smooth1080p60, .smooth1440p60, .smooth1800p60, .crisp2160p60, .retina4k60, .native5k, .native5k60Experimental:
+        case .smooth1080p60, .smooth1440p60, .smooth1800p60, .crisp2160p60, .retina4k60, .native5k, .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit:
             return true
         }
     }
@@ -256,7 +304,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
         switch self {
         case .standard1080p, .standard1440p:
             return 1
-        case .smooth1080p60, .smooth1440p60, .smooth1800p60, .crisp2160p60, .retina4k60, .native5k, .native5k60Experimental:
+        case .smooth1080p60, .smooth1440p60, .smooth1800p60, .crisp2160p60, .retina4k60, .native5k, .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit:
             return 0
         }
     }
@@ -265,7 +313,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
         switch self {
         case .standard1080p, .standard1440p:
             return false
-        case .smooth1080p60, .smooth1440p60, .smooth1800p60, .crisp2160p60, .retina4k60, .native5k, .native5k60Experimental:
+        case .smooth1080p60, .smooth1440p60, .smooth1800p60, .crisp2160p60, .retina4k60, .native5k, .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit:
             return true
         }
     }
@@ -281,7 +329,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
         switch self {
         case .standard1080p, .smooth1080p60, .standard1440p, .smooth1440p60, .smooth1800p60:
             return .nominal
-        case .crisp2160p60, .retina4k60, .native5k, .native5k60Experimental:
+        case .crisp2160p60, .retina4k60, .native5k, .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit:
             return .best
         }
     }
@@ -298,7 +346,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
             return 60
         case .native5k:
             return 48
-        case .native5k60Experimental:
+        case .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit:
             return 60
         }
     }
@@ -340,7 +388,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
         case .standard1080p, .smooth1080p60:
             return true
         case .standard1440p, .smooth1440p60, .smooth1800p60, .crisp2160p60, .retina4k60,
-             .native5k, .native5k60Experimental:
+             .native5k, .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit:
             return false
         }
     }
@@ -391,6 +439,38 @@ enum TBDisplayCodecPreference: String, CaseIterable, Identifiable, Codable {
     case automatic
     case h264
     case hevc
+    /// Raw NV12 frames. Falls back to automatic if the receiver lacks support.
+    case uncompressed
+    /// Raw NV12 frames compressed losslessly with LZ4. Sent like
+    /// `uncompressed` (without LZ4) to receivers that cannot decode it.
+    case uncompressedLZ4
+    /// LZ4 plus 10-bit capture dithered to 8 bit on the GPU and parallel data
+    /// streams. Each part falls back on its own if the receiver or the GPU
+    /// cannot use it.
+    case uncompressedEnhanced
+    /// Full 10-bit RGB, 4 bytes per pixel, with LZ4 and parallel data streams.
+    /// About 30 frames per second at 5K. Falls back to `uncompressedEnhanced`
+    /// if the receiver cannot show it.
+    case uncompressedFull10Bit
+
+    var usesRawFrames: Bool {
+        switch self {
+        case .uncompressed, .uncompressedLZ4, .uncompressedEnhanced, .uncompressedFull10Bit: return true
+        case .automatic, .h264, .hevc: return false
+        }
+    }
+
+    var compressesRawFrames: Bool {
+        self == .uncompressedLZ4 || self == .uncompressedEnhanced || self == .uncompressedFull10Bit
+    }
+
+    /// All uncompressed modes can spread frames over parallel connections
+    /// (session setting "Parallel connections").
+    var usesParallelStreams: Bool { usesRawFrames }
+
+    /// The 10-bit modes need parallel connections to keep up at 5K; choosing
+    /// them turns the session setting on.
+    var needsParallelStreams: Bool { self == .uncompressedEnhanced || self == .uncompressedFull10Bit }
 
     var id: String { rawValue }
 }
@@ -533,6 +613,72 @@ private final class TBDirectDisplayStreamCapture {
 /// state is confined to `queue`; the two values the main thread polls
 /// (`sentFrames`, capture health) are guarded by a small lock instead of
 /// a per-frame hop back to main.
+/// Starts connections and waits until each is ready (then sends `hello`) or
+/// has failed, at most `timeout` seconds. Returns the indexes that are ready.
+private final class TBDataStreamOpener: @unchecked Sendable {
+    private let lock = NSLock()
+    private var pending: Int
+    private var ready: Set<Int> = []
+    private var settledIndexes: Set<Int> = []
+    private var finished = false
+    private let continuation: CheckedContinuation<Set<Int>, Never>
+
+    private init(count: Int, continuation: CheckedContinuation<Set<Int>, Never>) {
+        self.pending = count
+        self.continuation = continuation
+    }
+
+    private func settle(_ index: Int?, isReady: Bool, force: Bool = false) {
+        lock.lock()
+        if finished { lock.unlock(); return }
+        if let index {
+            guard settledIndexes.insert(index).inserted else { lock.unlock(); return }
+            if isReady { ready.insert(index) }
+            pending -= 1
+        }
+        let done = force || pending <= 0
+        if done { finished = true }
+        let result = ready
+        lock.unlock()
+        if done { continuation.resume(returning: result) }
+    }
+
+    static func open(
+        _ connections: [NWConnection],
+        hello: Data,
+        queue: DispatchQueue,
+        timeout: TimeInterval
+    ) async -> Set<Int> {
+        guard !connections.isEmpty else { return [] }
+        return await withCheckedContinuation { continuation in
+            let opener = TBDataStreamOpener(count: connections.count, continuation: continuation)
+            for (index, connection) in connections.enumerated() {
+                connection.stateUpdateHandler = { [weak connection] state in
+                    switch state {
+                    case .ready:
+                        connection?.send(content: hello, completion: .contentProcessed({ _ in }))
+                        opener.settle(index, isReady: true)
+                    case .failed, .cancelled:
+                        opener.settle(index, isReady: false)
+                    default:
+                        break
+                    }
+                }
+                connection.start(queue: queue)
+            }
+            queue.asyncAfter(deadline: .now() + timeout) {
+                opener.settle(nil, isReady: false, force: true)
+            }
+        }
+    }
+}
+
+/// Parts of one frame still in flight; only touched on the pipeline queue.
+private final class TBPendingParts: @unchecked Sendable {
+    var count: Int
+    init(count: Int) { self.count = count }
+}
+
 private final class TBVideoPipeline: @unchecked Sendable {
     let queue = DispatchQueue(label: "fd.tbmonitor.sender.pipeline", qos: .userInteractive)
 
@@ -542,6 +688,16 @@ private final class TBVideoPipeline: @unchecked Sendable {
     private let displayName: String
     private let displayID: CGDirectDisplayID
     private let usesRawNV12: Bool
+    /// Send only the changed rows of raw frames (packet type 0x24).
+    private let usesRawRegions: Bool
+    /// Compress raw bands losslessly with LZ4.
+    private let compressesRawRegions: Bool
+    /// Send 10-bit captures as they are (4 bytes per pixel) instead of NV12.
+    private let sendsRawRGB10: Bool
+    /// Extra connections that carry raw frames in parallel parts.
+    private let dataConnections: [NWConnection]
+    /// Converts 10-bit captures to dithered 8-bit NV12; nil captures NV12 directly.
+    private let tenBitConverter: TBTenBitConverter?
     private let onFirstFrame: @Sendable () -> Void
 
     // Confined to `queue`.
@@ -554,6 +710,23 @@ private final class TBVideoPipeline: @unchecked Sendable {
     private var frameRatePacer: TBFrameRatePacer
     private var ackSent: Bool
     private var running = false
+
+    // Changed-rows raw frames (confined to `queue`). Rows that changed in
+    // frames the pacer or backpressure skipped stay pending, so they go out
+    // with the next frame that is sent.
+    private var rawPendingSpans: [TBRawRowSpan] = []
+    private var rawNeedsFullFrame = true
+    private var rawFrameWidth = 0
+    private var rawFrameHeight = 0
+    private var rawLastFullFrameUptime: TimeInterval = 0
+    /// Sequence of frames split over data streams; never 0 on the wire.
+    private var rawFrameSequence: UInt32 = 0
+    /// A whole frame now and then repairs anything a missed dirty rect left behind.
+    private static let rawFullFrameInterval: TimeInterval = 5
+    /// Full 10-bit colour: after a frame that LZ4 shrank by less than 20 %
+    /// (video), this many frames go out raw before LZ4 is tried again.
+    private static let rgb10RawFramesAfterPoorCompression = 30
+    private var rgb10RawFramesLeft = 0
 
     // Read from the main thread (fps timer / watchdog); guarded by `lock`.
     private let lock = NSLock()
@@ -570,6 +743,11 @@ private final class TBVideoPipeline: @unchecked Sendable {
          displayName: String,
          displayID: CGDirectDisplayID,
          usesRawNV12: Bool,
+         usesRawRegions: Bool = false,
+         compressesRawRegions: Bool = false,
+         sendsRawRGB10: Bool = false,
+         dataConnections: [NWConnection] = [],
+         tenBitConverter: TBTenBitConverter? = nil,
          ackAlreadySent: Bool,
          onFirstFrame: @escaping @Sendable () -> Void) {
         self.preset = preset
@@ -578,6 +756,11 @@ private final class TBVideoPipeline: @unchecked Sendable {
         self.displayName = displayName
         self.displayID = displayID
         self.usesRawNV12 = usesRawNV12
+        self.usesRawRegions = usesRawNV12 && usesRawRegions
+        self.compressesRawRegions = usesRawNV12 && usesRawRegions && compressesRawRegions
+        self.sendsRawRGB10 = usesRawNV12 && usesRawRegions && sendsRawRGB10
+        self.dataConnections = usesRawNV12 && usesRawRegions ? dataConnections : []
+        self.tenBitConverter = usesRawNV12 && usesRawRegions ? tenBitConverter : nil
         self.frameRatePacer = TBFrameRatePacer(maximumFrameRate: preset.expectedFrameRate)
         self.ackSent = ackAlreadySent
         self.onFirstFrame = onFirstFrame
@@ -724,9 +907,16 @@ private final class TBVideoPipeline: @unchecked Sendable {
     func encode(_ sampleBuffer: CMSampleBuffer) {
         guard running, let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         markCaptureFrame()
+        if usesRawRegions {
+            collectRawRegions(from: sampleBuffer, pixelBuffer: pixelBuffer)
+        }
         let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
         guard frameRatePacer.shouldEmit(presentationTime: pts) else {
             droppedByFrameRatePacer += 1
+            return
+        }
+        if usesRawRegions {
+            sendRawRegions(pixelBuffer)
             return
         }
         if usesRawNV12 {
@@ -914,6 +1104,136 @@ private final class TBVideoPipeline: @unchecked Sendable {
             }
         }))
         lock.lock(); _sentFrames += 1; lock.unlock()
+    }
+
+    /// Adds the rows that changed in this frame to the pending rows.
+    private func collectRawRegions(from sampleBuffer: CMSampleBuffer, pixelBuffer: CVPixelBuffer) {
+        // Plain width/height: 10-bit captures are not planar.
+        let width = CVPixelBufferGetWidth(pixelBuffer)
+        let height = CVPixelBufferGetHeight(pixelBuffer)
+        if width != rawFrameWidth || height != rawFrameHeight {
+            rawFrameWidth = width
+            rawFrameHeight = height
+            rawNeedsFullFrame = true
+            rawPendingSpans = []
+        }
+        guard !rawNeedsFullFrame else { return }
+        guard let rects = TBRawDirtyRects.pixelRects(in: sampleBuffer, pixelWidth: width, pixelHeight: height) else {
+            // No dirty-rect information: only a whole frame is safe.
+            rawNeedsFullFrame = true
+            rawPendingSpans = []
+            return
+        }
+        rawPendingSpans = TBRawRegionPlanner.union(
+            rawPendingSpans,
+            TBRawRegionPlanner.rowSpans(for: rects, frameHeight: height)
+        )
+    }
+
+    /// Changed-rows passthrough: sends only the rows that changed since the
+    /// last frame that was sent, optionally LZ4-compressed, as packet 0x24.
+    private func sendRawRegions(_ pixelBuffer: CVPixelBuffer) {
+        guard running else { return }
+        // Backpressure: keep the changed rows pending and send them with a
+        // later frame instead of piling packets onto a saturated link.
+        if pendingVideoPackets >= preset.maxPendingVideoPackets {
+            droppedBeforeEncodeFrames += 1
+            return
+        }
+        let now = ProcessInfo.processInfo.systemUptime
+        if now - rawLastFullFrameUptime >= Self.rawFullFrameInterval {
+            rawNeedsFullFrame = true
+        }
+        let fullFrame = rawNeedsFullFrame
+        let spans = fullFrame
+            ? TBRawRegionPlanner.fullFrame(height: CVPixelBufferGetHeight(pixelBuffer))
+            : rawPendingSpans
+        // Nothing changed on screen: nothing to send.
+        guard !spans.isEmpty else { return }
+
+        // 10-bit captures are either sent as they are or converted (only the
+        // rows to send) to dithered NV12.
+        let nv12: CVPixelBuffer
+        if CVPixelBufferGetPixelFormatType(pixelBuffer) == TBTenBitConverter.sourcePixelFormat, !sendsRawRGB10 {
+            guard let converted = tenBitConverter?.convert(pixelBuffer, spans: spans) else {
+                rawNeedsFullFrame = true
+                return
+            }
+            nv12 = converted
+        } else {
+            nv12 = pixelBuffer
+        }
+
+        // Parallel data streams when at least one is up, otherwise the session connection.
+        let streams = dataConnections.filter { $0.state == .ready }
+        let frameSequence: UInt32?
+        if streams.isEmpty {
+            frameSequence = nil
+        } else {
+            rawFrameSequence &+= 1
+            if rawFrameSequence == 0 { rawFrameSequence = 1 }
+            frameSequence = rawFrameSequence
+        }
+        // Full 10-bit colour: LZ4 shrinks desktop content (windows, text,
+        // scrolling pages) several times, which is what makes moving a window
+        // fast. Video barely compresses, so after a frame that LZ4 couldn't
+        // shrink, rows go out raw for a while, like DisplayBridge sends video.
+        let isRGB10 = CVPixelBufferGetPixelFormatType(nv12) == TBTenBitConverter.sourcePixelFormat
+        var compress = compressesRawRegions
+        if compress, isRGB10, rgb10RawFramesLeft > 0 {
+            rgb10RawFramesLeft -= 1
+            compress = false
+        }
+        guard let built = TBRawRegionPacketBuilder.makePackets(
+            pixelBuffer: nv12,
+            spans: spans,
+            fullFrame: fullFrame,
+            compress: compress,
+            parts: max(1, streams.count),
+            frameSequence: frameSequence
+        ) else { return }
+        if compress, isRGB10, built.summary.rawBytes > 0,
+           built.summary.wireBytes * 10 > built.summary.rawBytes * 8 {
+            rgb10RawFramesLeft = Self.rgb10RawFramesAfterPoorCompression
+        }
+
+        sendSessionAckIfNeeded()
+        rawPendingSpans = []
+        if fullFrame {
+            rawNeedsFullFrame = false
+            rawLastFullFrameUptime = now
+        }
+
+        // Backpressure counts frames: a frame is done when all its parts are.
+        pendingVideoPackets += 1
+        let remaining = TBPendingParts(count: built.packets.count)
+        for (index, packet) in built.packets.enumerated() {
+            let target = streams.isEmpty ? connection : streams[index % streams.count]
+            target.send(content: packet, completion: .contentProcessed({ [weak self] _ in
+                guard let self else { return }
+                self.queue.async {
+                    remaining.count -= 1
+                    if remaining.count == 0 {
+                        self.pendingVideoPackets = max(0, self.pendingVideoPackets - 1)
+                    }
+                }
+            }))
+        }
+        lock.lock(); _sentFrames += 1; lock.unlock()
+    }
+
+    private func sendSessionAckIfNeeded() {
+        guard !ackSent else { return }
+        ackSent = true
+        let ack = TBMonitorCreateSessionAck(
+            accepted: true,
+            displayName: displayName,
+            displayID: displayID
+        )
+        if let packet = TBMonitorProtocol.makeJSONPacket(type: .createSessionAck, value: ack) {
+            connection.send(content: packet, completion: .contentProcessed({ _ in }))
+        }
+        onFirstFrame()
     }
 
     private func buildParamSetsPacket(from format: CMVideoFormatDescription, codecType: CMVideoCodecType) -> Data? {
@@ -1105,6 +1425,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         preventDisplaySleep: Bool,
         autoRestartOnWake: Bool,
         audioEnabled: Bool,
+        audioSource: TBAudioSource = .systemCapture,
         verboseDisplayLogging: Bool = false
     ) {
         self.statusText = TBDisplaySenderStatusState.ready.text(language)
@@ -1117,6 +1438,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         self.preventDisplaySleep = preventDisplaySleep
         self.autoRestartOnWake = autoRestartOnWake
         self.audioEnabled = audioEnabled
+        self.audioSource = audioSource
         self.verboseDisplayLogging = verboseDisplayLogging
         self.streamResolutionText = TBDisplaySenderL10n.streamSummary(
             preset: .standard1440p,
@@ -1200,6 +1522,60 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     }
 
     @Published var audioEnabled: Bool
+    @Published var audioSource: TBAudioSource
+    @Published var customName = ""
+    @Published var customDisplayName = ""
+    var audioOutputDeviceAvailable = true
+    /// On for new sessions: the device only exists while a session uses it.
+    @Published var selectsAudioOutputOnConnect = true
+    var sessionTitleProvider: (() -> String)?
+    /// What macOS shows for this session's display: its own name, or the session's.
+    private var macOSDisplayName: String? {
+        let name = customDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? sessionTitleProvider?() : name
+    }
+    /// Connects when the receiver appears (cable plugged in, receiver
+    /// started, Sender launched), like plugging in a display. A session that
+    /// ends while the receiver stays reachable is left alone; see `keepAlive`.
+    @Published var autoConnect = false
+    /// Reconnects after a connection is lost unexpectedly. Off by default.
+    /// Not after Stop, and not after the receiver ended the session (for
+    /// example Esc on the iMac).
+    @Published var keepAlive = false {
+        didSet { if !keepAlive { cancelKeepAliveReconnect() } }
+    }
+    /// Set by a manual Stop: keep alive does not reconnect.
+    private var autoConnectSuspended = false
+    /// Set when the receiver ended the session: keep alive does not reconnect.
+    private var endedByReceiver = false
+    private var keepAliveWorkItem: DispatchWorkItem?
+    private static let keepAliveRetryDelay: TimeInterval = 3
+
+    /// The receiver just appeared on the network.
+    func connectBecauseReceiverAppeared() {
+        guard autoConnect, !isConnected, !isStreaming, connection == nil else { return }
+        TBLog.connection.info("auto connect: receiver appeared")
+        connect()
+    }
+
+    private func cancelKeepAliveReconnect() {
+        keepAliveWorkItem?.cancel()
+        keepAliveWorkItem = nil
+    }
+
+    private func scheduleKeepAliveReconnect() {
+        guard keepAlive, !autoConnectSuspended, !endedByReceiver else { return }
+        cancelKeepAliveReconnect()
+        let item = DispatchWorkItem { [weak self] in
+            guard let self, self.keepAlive, !self.autoConnectSuspended, !self.endedByReceiver,
+                  !self.isConnected, !self.isStreaming, self.connection == nil,
+                  !self.receiverIP.isEmpty else { return }
+            TBLog.connection.info("keep alive: reconnecting after a lost connection")
+            self.connect()
+        }
+        keepAliveWorkItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.keepAliveRetryDelay, execute: item)
+    }
     @Published var brightness: Double = 1.0 {
         didSet {
             sendBrightnessUpdate()
@@ -1261,11 +1637,39 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
 
     @Published var capturePreset: TBDisplayCapturePreset = .standard1440p {
         didSet {
+            if capturePreset != oldValue {
+                profileCodecPreference = nil
+                // The 10-bit profiles depend on parallel connections.
+                if capturePreset.defaultCodecPreference?.needsParallelStreams == true {
+                    parallelStreams = true
+                }
+            }
             if !isStreaming {
                 streamResolutionText = TBDisplaySenderL10n.streamSummary(preset: capturePreset, source: captureSource, language: language)
             }
         }
     }
+    /// Set when Sender and Receiver run different versions; shown with a
+    /// download button until the next connection.
+    @Published var versionNotice: String?
+
+    /// The compression actually used. A profile for an uncompressed mode uses
+    /// its own mode unless another uncompressed mode was picked for it.
+    var effectiveCodecPreference: TBDisplayCodecPreference {
+        guard let profileDefault = capturePreset.defaultCodecPreference else { return codecPreference }
+        if let chosen = profileCodecPreference, capturePreset.allowedCodecPreferences.contains(chosen) {
+            return chosen
+        }
+        return profileDefault
+    }
+
+    /// The uncompressed mode picked within an uncompressed-mode profile; nil
+    /// uses the profile's own mode. Reset when the profile changes.
+    @Published var profileCodecPreference: TBDisplayCodecPreference?
+
+    /// Uncompressed modes: spread each frame over up to 4 extra connections.
+    @Published var parallelStreams: Bool = true
+
     @Published var codecPreference: TBDisplayCodecPreference = .automatic {
         didSet {
             if !isStreaming {
@@ -1316,11 +1720,19 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     @Published var inputBindings: [TBInputBinding] = []
 
     private var connection: NWConnection?
+    /// Extra connections for raw frames ("enhanced" and full 10-bit modes).
+    /// Kept across capture restarts, closed with the session.
+    private var dataConnections: [NWConnection] = []
     private let connectionQueue = DispatchQueue(label: "fd.tbmonitor.sender.connection", qos: .userInteractive)
     private var recvBuffer = Data()
 
     private var session = ReceiverBackedVirtualDisplaySession()
     private let audioConverter = SBAudioConverter()
+    private var loopbackAudioSubscription: UUID? {
+        didSet { isUsingOutputDevice = loopbackAudioSubscription != nil }
+    }
+    @Published private(set) var isUsingOutputDevice = false
+    private var outputDeviceLevel: Double = 1
     private var activeProfile: TBMonitorDisplayProfile?
     private var activeCodecType: CMVideoCodecType?
     private var activeCodecName: String?
@@ -1471,7 +1883,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         let preferredCodec: CMVideoCodecType
 
         switch preference {
-        case .automatic:
+        case .automatic, .uncompressed, .uncompressedLZ4, .uncompressedEnhanced, .uncompressedFull10Bit:
             preferredCodec = preset.codecType == kCMVideoCodecType_HEVC || hevcAvailable
                 ? kCMVideoCodecType_HEVC
                 : kCMVideoCodecType_H264
@@ -1505,7 +1917,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
             ?? receiverSupportsHEVCDecodeHint
             ?? false
         return Self.chooseCodec(
-            preference: codecPreference,
+            preference: effectiveCodecPreference,
             preset: preset,
             receiverSupportsHEVC: receiverSupportsHEVC,
             senderSupportsH264: Self.probeHardwareEncoderSupport(
@@ -1595,6 +2007,10 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
 
     func connect() {
         guard connection == nil, !receiverIP.isEmpty, !localInterfaceIP.isEmpty else { return }
+        autoConnectSuspended = false
+        endedByReceiver = false
+        cancelKeepAliveReconnect()
+        versionNotice = nil
         connectTimeoutWorkItem?.cancel()
         connectTimeoutWorkItem = nil
         recvBuffer.removeAll(keepingCapacity: false)
@@ -1604,14 +2020,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         lastConnectionStateDetail = nil
         setStatus(.connecting(receiverDisplayName))
 
-        let tcpOptions = NWProtocolTCP.Options()
-        tcpOptions.noDelay = true
-        let params = NWParameters(tls: nil, tcp: tcpOptions)
-        params.allowLocalEndpointReuse = true
-        params.serviceClass = .interactiveVideo
-        if let localPort = NWEndpoint.Port(rawValue: 0) {
-            params.requiredLocalEndpoint = .hostPort(host: NWEndpoint.Host(localInterfaceIP), port: localPort)
-        }
+        let params = makeConnectionParameters()
 
         // Scope link-local dials to the interface that owns the local IP.
         // requiredLocalEndpoint pins the source address but NOT the egress
@@ -1810,6 +2219,8 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         completion: (@MainActor @Sendable () -> Void)? = nil
     ) {
         TBSenderAutomation.suspendAutomaticReconnectAfterUserStop()
+        autoConnectSuspended = true
+        cancelKeepAliveReconnect()
         stop(
             resetStatusTo: .stopped,
             persistArrangement: persistArrangement,
@@ -1836,9 +2247,16 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         resetStatusTo status: TBDisplaySenderStatusState?,
         persistArrangement: Bool = true,
         teardownReason: String = "sender_internal_stop",
+        allowKeepAlive: Bool = true,
         teardownCompletion: (@MainActor @Sendable () -> Void)? = nil
     ) {
+        // Keep alive applies to sessions that were connected or connecting
+        // and ended without Stop; never to a cable test.
+        let keepAliveCandidate = allowKeepAlive && !isCableTesting && !isCableTestConnection
+            && teardownReason != "sender_user_stop"
+            && (connection != nil || isConnected || isStreaming)
         let connectionToClose = connection
+        stopLoopbackAudio()
         captureRestartGeneration &+= 1
         isRestartingCaptureAfterWake = false
         if persistArrangement {
@@ -1871,6 +2289,11 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         endCaptureActivity()
         pipeline?.stop()
         pipeline = nil
+        for dataConnection in dataConnections {
+            dataConnection.stateUpdateHandler = nil
+            dataConnection.cancel()
+        }
+        dataConnections = []
         releaseInjectedModifiersIfNeeded()
         remoteHeldModifierKeyCodes.removeAll()
         injectedLeftClickTracker.reset()
@@ -1906,6 +2329,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         lastCursorPacket = nil
         captureDisplayText = TBDisplaySenderL10n.captureDisplayNotAvailable(language)
         displayStateText = TBDisplaySenderL10n.displayStateNotAvailable(language)
+        if keepAliveCandidate { scheduleKeepAliveReconnect() }
     }
 
     /// Stable per-receiver discriminator: the connection address when known
@@ -2036,7 +2460,8 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
                 captureSource: captureSource.title(language),
                 captureWidth: preset.width,
                 captureHeight: preset.height,
-                codec: codecName(for: helloCodecType)
+                codec: codecName(for: helloCodecType),
+                appVersion: TBDisplaySenderBuildInfo.marketingVersion
             )
         ) else { return }
         send(packet)
@@ -2049,6 +2474,20 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         ) else { return }
         TBInputDebugLog.log("sender send control mode update \(inputControlRole.rawValue) to \(receiverIP)")
         send(packet)
+    }
+
+    nonisolated static let brightnessStep = 1.0 / 16.0
+
+    func isShowing(displayID: CGDirectDisplayID) -> Bool {
+        isConnected && displayID != kCGNullDirectDisplay && session.displayID == displayID
+    }
+
+    func stepBrightness(increase: Bool) {
+        brightness = Self.steppedBrightness(from: brightness, increase: increase)
+    }
+
+    nonisolated static func steppedBrightness(from level: Double, increase: Bool) -> Double {
+        min(1, max(0, level + (increase ? brightnessStep : -brightnessStep)))
     }
 
     private func sendBrightnessUpdate() {
@@ -2078,7 +2517,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     private func sendVolumeUpdate() {
         guard let packet = TBMonitorProtocol.makeJSONPacket(
             type: .volume,
-            value: TBMonitorVolume(level: volume)
+            value: TBMonitorVolume(level: isUsingOutputDevice ? outputDeviceLevel : volume)
         ) else { return }
         send(packet)
     }
@@ -2206,6 +2645,10 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
             case .heartbeat:
                 break
             case .teardown:
+                // Ended on purpose on the receiver (Esc or double-click on
+                // the iMac): keep alive must not bring the picture back.
+                endedByReceiver = true
+                cancelKeepAliveReconnect()
                 setStatus(.receiverTerminatedSession)
                 stop(resetStatusTo: nil)
                 return
@@ -2603,6 +3046,19 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         receiverSupportsNightShift = profile.supportsNightShift ?? false
         receiverSupportsTrueTone = profile.supportsTrueTone ?? false
         receiverPanelText = TBDisplaySenderL10n.receiverSummary(profile, language: language)
+        versionNotice = TBVersionCheck.mismatch(
+            sender: TBDisplaySenderBuildInfo.marketingVersion,
+            receiver: profile.appVersion
+        ).map {
+            TBDisplaySenderL10n.versionNotice(
+                $0,
+                senderVersion: TBDisplaySenderBuildInfo.marketingVersion,
+                language: language
+            )
+        }
+        if let versionNotice {
+            TBLog.connection.notice("version mismatch: \(versionNotice, privacy: .public)")
+        }
         sendHello()
         sendInputControlModeUpdate()
         sendBrightnessUpdate()
@@ -2621,7 +3077,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
                 }
                 self.isCableTestConnection = false
                 self.isCableTesting = false
-                self.stop(resetStatusTo: .stopped)
+                self.stop(resetStatusTo: .stopped, allowKeepAlive: false)
                 return
             }
 
@@ -2662,6 +3118,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
                 refreshRate: self.capturePreset.virtualDisplayRefreshRate,
                 modeOverride: modeOverride,
                 identity: self.captureSource.virtualDisplayIdentity(receiverKey: receiverKey),
+                displayName: self.macOSDisplayName,
                 receiverKey: receiverKey
             ) else {
                 self.setStatus(.virtualDisplayCreationFailed)
@@ -2734,6 +3191,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     }
 
     private func startCapture(for profile: TBMonitorDisplayProfile) async -> Bool {
+        await startLoopbackAudioIfAvailable()
         do {
             guard CGPreflightScreenCaptureAccess() else {
                 captureBlockedByScreenRecordingPermission = true
@@ -2754,19 +3212,50 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
                 guard let resolvedDecision = resolvedCodecDecision(for: preset, profile: profile) else {
                     setStatus(.captureError(TBDisplaySenderL10n.codecUnavailable(language)))
                     TBLog.connection.error(
-                        "capture: no compatible hardware codec preset=\(preset.rawValue, privacy: .public) preference=\(self.codecPreference.rawValue, privacy: .public)"
+                        "capture: no compatible hardware codec preset=\(preset.rawValue, privacy: .public) preference=\(self.effectiveCodecPreference.rawValue, privacy: .public)"
                     )
                     return false
                 }
                 codecDecision = resolvedDecision
             }
             let codecType = codecDecision.codecType
-            let codecName = usesRawNV12 ? "NV12 RAW" : codecName(for: codecType)
+            // Changed rows only, when the receiver understands it. RAW_REGIONS=0
+            // turns it off for comparisons on real hardware.
+            let usesRawRegions = usesRawNV12
+                && profile.supportsRawRegions == true
+                && ProcessInfo.processInfo.environment["RAW_REGIONS"] != "0"
+            let compressesRawRegions = usesRawRegions
+                && effectiveCodecPreference.compressesRawFrames
+                && profile.supportsRawLZ4 == true
+            // Full 10-bit RGB needs a receiver that can show it; otherwise the
+            // 10-bit capture is dithered to 8-bit NV12 like "enhanced".
+            let sendsRawRGB10 = usesRawRegions
+                && effectiveCodecPreference == .uncompressedFull10Bit
+                && profile.supportsRawRGB10 == true
+            let tenBitConverter: TBTenBitConverter? =
+                usesRawRegions && !sendsRawRGB10
+                && (effectiveCodecPreference == .uncompressedEnhanced
+                    || effectiveCodecPreference == .uncompressedFull10Bit)
+                ? TBTenBitConverter() : nil
+            let capturesTenBit = sendsRawRGB10 || tenBitConverter != nil
+            let dataStreams = usesRawRegions && effectiveCodecPreference.usesParallelStreams && parallelStreams
+                ? await openDataStreams(for: profile)
+                : []
+            let codecName: String
+            if usesRawNV12 {
+                var parts = [sendsRawRGB10 ? "RGB 10-bit RAW" : "NV12 RAW"]
+                if compressesRawRegions { parts.append("LZ4") }
+                if tenBitConverter != nil { parts.append("10-bit dithered") }
+                if !dataStreams.isEmpty { parts.append("\(dataStreams.count) streams") }
+                codecName = parts.joined(separator: ", ")
+            } else {
+                codecName = self.codecName(for: codecType)
+            }
             activeCodecType = usesRawNV12 ? nil : codecType
             activeCodecName = codecName
             if codecDecision.usedFallback {
                 TBLog.connection.notice(
-                    "capture: codec fallback preference=\(self.codecPreference.rawValue, privacy: .public) selected=\(codecName, privacy: .public)"
+                    "capture: codec fallback preference=\(self.effectiveCodecPreference.rawValue, privacy: .public) selected=\(codecName, privacy: .public)"
                 )
             }
             guard let connection else { return false }
@@ -2782,6 +3271,11 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
                 displayName: session.displayName,
                 displayID: session.displayID,
                 usesRawNV12: usesRawNV12,
+                usesRawRegions: usesRawRegions,
+                compressesRawRegions: compressesRawRegions,
+                sendsRawRGB10: sendsRawRGB10,
+                dataConnections: dataStreams,
+                tenBitConverter: tenBitConverter,
                 ackAlreadySent: sessionAckSent,
                 onFirstFrame: { [weak self] in
                     Task { @MainActor in self?.handleFirstEncodedFrame() }
@@ -2789,7 +3283,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
             )
             guard pipeline.start() else { return false }
             self.pipeline = pipeline
-            TBLog.connection.info("capture: pipeline started preset=\(preset.rawValue, privacy: .public) source=\(String(describing: self.captureSource), privacy: .public) codec=\(codecName, privacy: .public) rawNV12=\(usesRawNV12, privacy: .public)")
+            TBLog.connection.info("capture: pipeline started preset=\(preset.rawValue, privacy: .public) source=\(String(describing: self.captureSource), privacy: .public) codec=\(codecName, privacy: .public) rawNV12=\(usesRawNV12, privacy: .public) rawRegions=\(usesRawRegions, privacy: .public)")
 
             let display: SCDisplay
             if captureSource == .desktopMirror {
@@ -2798,7 +3292,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
                     return await startDirectDisplayStream(displayID: session.displayID, preset: preset)
                 } else if let mirrorDisplay = try await resolveMirrorCaptureDisplay() {
                     display = mirrorDisplay
-                } else if let fallbackDisplayID = directMirrorFallbackDisplayID() {
+                } else if !usesRawNV12, let fallbackDisplayID = directMirrorFallbackDisplayID() {
                     TBLog.connection.warning("capture: no virtual ScreenCaptureKit display; using direct fallback id=\(fallbackDisplayID, privacy: .public)")
                     return await startDirectDisplayStream(displayID: fallbackDisplayID, preset: preset)
                 } else {
@@ -2822,12 +3316,14 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
             configuration.height = preset.height
             configuration.minimumFrameInterval = CMTime(value: 1, timescale: Int32(preset.captureRequestFrameRate))
             configuration.queueDepth = preset.queueDepth
-            configuration.pixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
+            configuration.pixelFormat = capturesTenBit
+                ? TBTenBitConverter.sourcePixelFormat
+                : kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
             configuration.shouldBeOpaque = true
             configuration.showsCursor = !usesCursorOverlay
             configuration.scalesToFit = true
             configuration.captureResolution = preset.captureResolution
-            configuration.capturesAudio = shouldRelayAudio
+            configuration.capturesAudio = shouldCaptureSystemAudio
             configuration.excludesCurrentProcessAudio = true
             configuration.sampleRate = 48000
             configuration.channelCount = 2
@@ -2869,7 +3365,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
                 type: .screen,
                 sampleHandlerQueue: pipeline.queue
             )
-            if shouldRelayAudio {
+            if shouldCaptureSystemAudio {
                 try stream.addStreamOutput(
                     delegate,
                     type: .audio,
@@ -2896,6 +3392,50 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
 
     /// Waking a headless graphical session is asynchronous. Poll briefly for a
     /// receiver-native ScreenCaptureKit surface before using the direct fallback.
+    /// Opens extra connections to the receiver for raw frames, each starting
+    /// with the receiver's stream token. Returns the ones that came up within
+    /// two seconds; an empty list means raw frames use the session connection.
+    private func openDataStreams(for profile: TBMonitorDisplayProfile) async -> [NWConnection] {
+        let alive = dataConnections.filter { $0.state == .ready }
+        if !alive.isEmpty { return alive }
+        for dataConnection in dataConnections { dataConnection.cancel() }
+        dataConnections = []
+
+        guard let token = profile.streamToken, !token.isEmpty,
+              let available = profile.rawDataStreams, available > 0,
+              let endpoint = connection?.endpoint,
+              let hello = TBMonitorProtocol.makeJSONPacket(
+                type: .dataStreamHello,
+                value: TBMonitorDataStreamHello(token: token)
+              ) else { return [] }
+
+        let count = min(4, available)
+        let candidates = (0..<count).map { _ in
+            NWConnection(to: endpoint, using: makeConnectionParameters())
+        }
+        let ready = await TBDataStreamOpener.open(candidates, hello: hello, queue: connectionQueue, timeout: 2)
+        for (index, candidate) in candidates.enumerated() where !ready.contains(index) {
+            candidate.stateUpdateHandler = nil
+            candidate.cancel()
+        }
+        let opened = ready.sorted().map { candidates[$0] }
+        TBLog.connection.info("capture: \(opened.count, privacy: .public) of \(count, privacy: .public) data streams ready")
+        dataConnections = opened
+        return opened
+    }
+
+    private func makeConnectionParameters() -> NWParameters {
+        let tcpOptions = NWProtocolTCP.Options()
+        tcpOptions.noDelay = true
+        let params = NWParameters(tls: nil, tcp: tcpOptions)
+        params.allowLocalEndpointReuse = true
+        params.serviceClass = .interactiveVideo
+        if let localPort = NWEndpoint.Port(rawValue: 0) {
+            params.requiredLocalEndpoint = .hostPort(host: NWEndpoint.Host(localInterfaceIP), port: localPort)
+        }
+        return params
+    }
+
     private func resolveMirrorCaptureDisplay() async throws -> SCDisplay? {
         for attempt in 0..<30 {
             let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
@@ -2965,7 +3505,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     private func startAuxiliaryAudioCapture(preferredDisplayID: CGDirectDisplayID) async {
         guard Self.needsAuxiliaryAudioCapture(
             usingDirectDisplayStream: true,
-            shouldRelayAudio: shouldRelayAudio
+            shouldRelayAudio: shouldCaptureSystemAudio
         ) else { return }
 
         do {
@@ -3137,6 +3677,9 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     /// override can enable it, so older builds never receive unknown frames.
     private func rawNV12Enabled(for profile: TBMonitorDisplayProfile) -> Bool {
         guard profile.supportsRawNV12 == true else { return false }
+        // The headless path captures BGRA through CGDisplayStream, not NV12.
+        guard !headlessMirrorUsesVirtualDisplay else { return false }
+        if effectiveCodecPreference.usesRawFrames { return true }
         guard let value = ProcessInfo.processInfo.environment["RAW"]?.lowercased() else { return false }
         return value == "1" || value == "true"
     }
@@ -3829,7 +4372,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     }
 
     private func processAudio(_ sampleBuffer: CMSampleBuffer) {
-        guard shouldRelayAudio else { return }
+        guard shouldCaptureSystemAudio else { return }
         guard let data = audioConverter.convert(sampleBuffer: sampleBuffer) else { return }
         let packet = TBMonitorProtocol.makePacket(type: .audioFrame, payload: data)
         send(packet)
@@ -3837,6 +4380,67 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
 
     private var shouldRelayAudio: Bool {
         audioEnabled && audioAddonAvailable
+    }
+
+    /// System capture stays off while this session reads the output device. It
+    /// remains the fallback if the driver is missing or access is denied.
+    private var shouldCaptureSystemAudio: Bool {
+        shouldRelayAudio && loopbackAudioSubscription == nil
+    }
+
+    private func startLoopbackAudioIfAvailable() async {
+        guard shouldRelayAudio,
+              audioOutputDeviceAvailable,
+              audioSource == .outputDevice,
+              loopbackAudioSubscription == nil else { return }
+
+        guard TBAudioLoopbackCapture.isDriverInstalled else {
+            TBLog.connection.warning("audio: output device missing; using system audio capture")
+            return
+        }
+
+        guard await TBAudioLoopbackCapture.requestMicrophoneAccess() else {
+            TBLog.connection.warning("audio: microphone access denied; using system audio capture")
+            return
+        }
+        guard connection != nil, loopbackAudioSubscription == nil else { return }
+
+        loopbackAudioSubscription = TBAudioLoopbackCapture.shared.subscribe(
+            audio: { [weak self] data in
+                guard let self else { return }
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        self.sendLoopbackAudio(data)
+                    }
+                }
+            },
+            volume: { [weak self] level in
+                guard let self else { return }
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        self.outputDeviceLevel = level
+                        self.sendVolumeUpdate()
+                    }
+                }
+            }
+        )
+        // The Mac's volume for this device now drives the receiver's speaker volume.
+        outputDeviceLevel = TBAudioLoopbackCapture.currentOutputLevel() ?? 1
+        sendVolumeUpdate()
+        if selectsAudioOutputOnConnect, loopbackAudioSubscription != nil {
+            TBAudioLoopbackCapture.selectAsDefaultOutput()
+        }
+    }
+
+    private func stopLoopbackAudio() {
+        guard let subscription = loopbackAudioSubscription else { return }
+        loopbackAudioSubscription = nil
+        TBAudioLoopbackCapture.shared.unsubscribe(subscription)
+    }
+
+    private func sendLoopbackAudio(_ data: Data) {
+        guard shouldRelayAudio else { return }
+        send(TBMonitorProtocol.makePacket(type: .audioFrame, payload: data))
     }
 
     private func send(_ packet: Data) {

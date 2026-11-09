@@ -215,3 +215,15 @@ These are standard macOS networking features that can live alongside TargetBridg
 Related reading:
 
 - [docs/Hardware.md#thunderbolt-networking](docs/Hardware.md#thunderbolt-networking)
+
+## Uncompressed Streaming
+
+Choose **Uncompressed** under **Video compression** in the session settings. Frames are sent as raw NV12 (4:2:0 color) with no encoder or decoder involved. This needs a direct Thunderbolt link: 5K at 60 Hz is about 10.6 Gb/s. A headless Mac mirroring through its virtual display, or a receiver without raw support, uses Automatic instead.
+
+## Session Names and Auto-Connect
+
+Sessions can be named in their settings. The display shown in macOS uses the session name unless it has its own **Display name**, which applies on the next connection. With **Connect automatically** on, a session connects when its receiver is found while TargetBridge is open. Pressing Stop pauses this until the next manual connect.
+
+## Receiver Background Mode
+
+The Receiver has a menu bar icon. Turn on **Run in background** from that menu or from the checkbox on its main screen, and the app waits with no window or Dock icon. It stays that way across restarts, so it can be added to macOS Login Items. With **Always show this window at start** on, the window still opens when the app starts. When a session starts, the window and Dock icon return for the session, then hide again. Closing the window while in background mode hides it, and **Quit** in the menu exits the app.

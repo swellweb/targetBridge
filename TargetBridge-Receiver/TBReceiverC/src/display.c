@@ -9,6 +9,7 @@
 #include "display.h"
 #include "tb_i18n.h"
 #include "tb_gesture_bridge.h"
+#include "tb_metal_view.h"
 
 #include <CoreFoundation/CoreFoundation.h>
 #include <CoreGraphics/CoreGraphics.h>
@@ -19,9 +20,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 #ifndef TB_RECEIVER_VERSION
-#define TB_RECEIVER_VERSION "3.6.0"
+#define TB_RECEIVER_VERSION "4.0"
 #endif
 
 #ifndef TB_RECEIVER_BUILD
@@ -33,12 +35,29 @@ struct tb_display {
     SDL_Renderer *ren;
     SDL_Texture  *tex;
     SDL_Texture  *status_tex;
+    SDL_Texture  *stats_tex;
+    int           stats_w, stats_h;
+    int           stats_visible;
+    char          last_stats[256];
+    SDL_Texture  *notice_tex;
+    int           notice_w, notice_h;
+    char          last_notice[512];
+    char          renderer_name[32];
     int           tex_w, tex_h;
+    Uint32        tex_format;
+    int           tex_needs_full_upload; /* new texture, contents undefined */
+    int           native_rgb10;          /* 10-bit RGB shown in 10 bits (Metal view) */
+    struct tb_metal_view *metal_view;    /* "TargetBridge Metal" renderer only */
+    int           video_in_view;         /* the picture is in the Metal view */
+    int           display_sync;          /* raw modes wait for the refresh */
     int           quit;
+    int           window_hidden;
+    int           close_hides;
     int           preferred_fullscreen;
     int           is_connected;
     int           is_connecting;
     int           input_capture_active;
+    int           end_session_gestures;  /* sign-in screen mode: Esc / double-click end the session */
     int           input_intercept_active;
     struct tb_input_queue input_queue;
     uint32_t      last_target_switch_tick;
@@ -262,6 +281,34 @@ static void tb_disp_draw_text(CGContextRef ctx,
     CFRelease(cf_text);
 }
 
+/* Width of `text` in the given font, in pixels. */
+static CGFloat tb_disp_text_width(const char *text, const char *font_name, CGFloat font_size) {
+    if (!text || !*text) return 0.0;
+    CFStringRef cf_text = CFStringCreateWithCString(NULL, text, kCFStringEncodingUTF8);
+    CFStringRef cf_font_name = CFStringCreateWithCString(NULL, font_name, kCFStringEncodingUTF8);
+    CTFontRef font = cf_font_name ? CTFontCreateWithName(cf_font_name, font_size, NULL) : NULL;
+    CGFloat width = 0.0;
+    if (cf_text && font) {
+        const void *keys[] = { kCTFontAttributeName };
+        const void *values[] = { font };
+        CFDictionaryRef attrs = CFDictionaryCreate(NULL, keys, values, 1,
+                                                   &kCFTypeDictionaryKeyCallBacks,
+                                                   &kCFTypeDictionaryValueCallBacks);
+        CFAttributedStringRef attributed = attrs ? CFAttributedStringCreate(NULL, cf_text, attrs) : NULL;
+        CTLineRef line = attributed ? CTLineCreateWithAttributedString(attributed) : NULL;
+        if (line) {
+            width = (CGFloat)CTLineGetTypographicBounds(line, NULL, NULL, NULL);
+            CFRelease(line);
+        }
+        if (attributed) CFRelease(attributed);
+        if (attrs) CFRelease(attrs);
+    }
+    if (font) CFRelease(font);
+    if (cf_font_name) CFRelease(cf_font_name);
+    if (cf_text) CFRelease(cf_text);
+    return width;
+}
+
 static void tb_disp_fill_rect(CGContextRef ctx,
                               CGFloat x,
                               CGFloat y,
@@ -422,53 +469,66 @@ static void tb_disp_rebuild_status_texture(struct tb_display *d,
                           0.40, 0.45, 0.53);
     } else {
 
-    tb_disp_fill_rect(ctx, 0, 0, (CGFloat)drawable_w, (CGFloat)drawable_h, 0.06, 0.07, 0.09, 1.0);
-    tb_disp_fill_rect(ctx, 48, 52, (CGFloat)drawable_w - 96, (CGFloat)drawable_h - 104, 0.11, 0.12, 0.15, 1.0);
-    tb_disp_fill_rect(ctx, 48, (CGFloat)drawable_h - 152, (CGFloat)drawable_w - 96, 2, 0.22, 0.24, 0.29, 1.0);
+    /* The canvas has a top-left origin, so y grows downward. The bottom bar
+     * leaves room for the native background checkboxes. */
+    const CGFloat canvas_w = (CGFloat)drawable_w;
+    const CGFloat canvas_h = (CGFloat)drawable_h;
+    int window_w = 0;
+    SDL_GetWindowSize(d->win, &window_w, NULL);
+    const CGFloat points_to_pixels = window_w > 0 ? canvas_w / (CGFloat)window_w : 1.0;
+    const CGFloat bar_h = 72.0 * points_to_pixels;
+    const CGFloat bar_y = canvas_h - bar_h;
+
+    tb_disp_fill_rect(ctx, 0, 0, canvas_w, canvas_h, 0.06, 0.07, 0.09, 1.0);
+    tb_disp_fill_rect(ctx, 48, 52, canvas_w - 96, bar_y - 72, 0.11, 0.12, 0.15, 1.0);
+    tb_disp_fill_rect(ctx, 48, 150, canvas_w - 96, 2, 0.22, 0.24, 0.29, 1.0);
+    tb_disp_fill_rect(ctx, 0, bar_y, canvas_w, bar_h, 0.085, 0.095, 0.12, 1.0);
 
     const CGFloat outer_x = 72.0;
-    const CGFloat outer_w = (CGFloat)drawable_w - 144.0;
-    const CGFloat top_y = (CGFloat)drawable_h - 176.0;
+    const CGFloat outer_w = canvas_w - 144.0;
+    const CGFloat top_y = 176.0;
     const CGFloat card_gap = 28.0;
     const CGFloat card_w = (outer_w - card_gap) / 2.0;
 
-    tb_disp_draw_text(ctx, tb_i18n_get("receiver.ui.title"), title_font, 28, 72, (CGFloat)drawable_h - 84, 0.95, 0.97, 1.0);
-    tb_disp_draw_text(ctx, tb_i18n_get("receiver.ui.subtitle"), body_font, 17, 72, (CGFloat)drawable_h - 118, 0.72, 0.76, 0.84);
-    tb_disp_draw_text(ctx, TB_RECEIVER_VERSION, mono_bold_font, 17, (CGFloat)drawable_w - 220, (CGFloat)drawable_h - 82, 0.64, 0.69, 0.78);
-    tb_disp_draw_text(ctx, TB_RECEIVER_BUILD, mono_font, 13, (CGFloat)drawable_w - 220, (CGFloat)drawable_h - 114, 0.53, 0.57, 0.66);
+    tb_disp_draw_text(ctx, tb_i18n_get("receiver.ui.title"), title_font, 28, 72, 84, 0.95, 0.97, 1.0);
+    tb_disp_draw_text(ctx, tb_i18n_get("receiver.ui.subtitle"), body_font, 17, 72, 118, 0.72, 0.76, 0.84);
 
     tb_disp_draw_text(ctx, tb_i18n_get("receiver.ui.ip_thunderbolt_bridge"), section_font, 15, outer_x, top_y, 0.54, 0.62, 0.76);
-    tb_disp_draw_text(ctx, ip, mono_bold_font, 34, outer_x, top_y - 42.0, 0.43, 0.93, 0.60);
+    tb_disp_draw_text(ctx, ip, mono_bold_font, 34, outer_x, top_y + 42.0, 0.43, 0.93, 0.60);
 
-    const CGFloat info_top = top_y - 126.0;
+    const CGFloat info_top = top_y + 126.0;
     const CGFloat info_h = 194.0;
-    tb_disp_fill_rect(ctx, outer_x, info_top - info_h, card_w, info_h, 0.14, 0.15, 0.19, 1.0);
-    tb_disp_fill_rect(ctx, outer_x + card_w + card_gap, info_top - info_h, card_w, info_h, 0.14, 0.15, 0.19, 1.0);
+    tb_disp_fill_rect(ctx, outer_x, info_top, card_w, info_h, 0.14, 0.15, 0.19, 1.0);
+    tb_disp_fill_rect(ctx, outer_x + card_w + card_gap, info_top, card_w, info_h, 0.14, 0.15, 0.19, 1.0);
 
-    tb_disp_draw_text(ctx, tb_i18n_get("receiver.ui.status"), section_font, 15, outer_x + 20.0, info_top - 34.0, 0.54, 0.62, 0.76);
-    tb_disp_draw_text(ctx, status, body_font, 22, outer_x + 20.0, info_top - 68.0, 0.94, 0.96, 0.99);
-    tb_disp_draw_text(ctx, tb_i18n_get("receiver.ui.sender"), section_font, 14, outer_x + 20.0, info_top - 118.0, 0.54, 0.62, 0.76);
-    tb_disp_draw_text(ctx, sender, body_font, 20, outer_x + 20.0, info_top - 148.0, 0.94, 0.96, 0.99);
+    tb_disp_draw_text(ctx, tb_i18n_get("receiver.ui.status"), section_font, 15, outer_x + 20.0, info_top + 34.0, 0.54, 0.62, 0.76);
+    tb_disp_draw_text(ctx, status, body_font, 22, outer_x + 20.0, info_top + 68.0, 0.94, 0.96, 0.99);
+    tb_disp_draw_text(ctx, tb_i18n_get("receiver.ui.sender"), section_font, 14, outer_x + 20.0, info_top + 118.0, 0.54, 0.62, 0.76);
+    tb_disp_draw_text(ctx, sender, body_font, 20, outer_x + 20.0, info_top + 148.0, 0.94, 0.96, 0.99);
 
     const CGFloat display_x = outer_x + card_w + card_gap + 20.0;
-    tb_disp_draw_text(ctx, tb_i18n_get("receiver.ui.display"), section_font, 15, display_x, info_top - 34.0, 0.54, 0.62, 0.76);
-    tb_disp_draw_text(ctx, panel, zh ? body_font : mono_font, 20, display_x, info_top - 68.0, 0.94, 0.96, 0.99);
-    tb_disp_draw_text(ctx, tb_i18n_get("receiver.ui.stream_profile"), section_font, 14, display_x, info_top - 118.0, 0.54, 0.62, 0.76);
-    tb_disp_draw_text(ctx, mode, zh ? body_font : mono_font, 20, display_x, info_top - 148.0, 0.94, 0.96, 0.99);
+    tb_disp_draw_text(ctx, tb_i18n_get("receiver.ui.display"), section_font, 15, display_x, info_top + 34.0, 0.54, 0.62, 0.76);
+    tb_disp_draw_text(ctx, panel, zh ? body_font : mono_font, 20, display_x, info_top + 68.0, 0.94, 0.96, 0.99);
+    tb_disp_draw_text(ctx, tb_i18n_get("receiver.ui.stream_profile"), section_font, 14, display_x, info_top + 118.0, 0.54, 0.62, 0.76);
+    tb_disp_draw_text(ctx, mode, zh ? body_font : mono_font, 20, display_x, info_top + 148.0, 0.94, 0.96, 0.99);
 
-    const CGFloat footer_top = info_top - info_h - 28.0;
+    const CGFloat footer_top = info_top + info_h + 28.0;
     const CGFloat footer_h = 150.0;
-    tb_disp_fill_rect(ctx, outer_x, footer_top - footer_h, outer_w, footer_h, 0.14, 0.15, 0.19, 1.0);
+    tb_disp_fill_rect(ctx, outer_x, footer_top, outer_w, footer_h, 0.14, 0.15, 0.19, 1.0);
 
-    tb_disp_draw_text(ctx, tb_i18n_get("receiver.ui.language"), section_font, 15, outer_x + 20.0, footer_top - 32.0, 0.54, 0.62, 0.76);
-    tb_disp_draw_text(ctx, language, body_font, 20, outer_x + 20.0, footer_top - 64.0, 0.94, 0.96, 0.99);
+    tb_disp_draw_text(ctx, tb_i18n_get("receiver.ui.language"), section_font, 15, outer_x + 20.0, footer_top + 32.0, 0.54, 0.62, 0.76);
+    tb_disp_draw_text(ctx, language, body_font, 20, outer_x + 20.0, footer_top + 64.0, 0.94, 0.96, 0.99);
 
-    tb_disp_draw_text(ctx, tb_i18n_get("receiver.ui.permissions"), section_font, 15, outer_x + 20.0, footer_top - 102.0, 0.54, 0.62, 0.76);
-    tb_disp_draw_text(ctx, permissions, body_font, 20, outer_x + 20.0, footer_top - 134.0, 0.94, 0.96, 0.99);
+    tb_disp_draw_text(ctx, tb_i18n_get("receiver.ui.permissions"), section_font, 15, outer_x + 20.0, footer_top + 102.0, 0.54, 0.62, 0.76);
+    tb_disp_draw_text(ctx, permissions, body_font, 20, outer_x + 20.0, footer_top + 134.0, 0.94, 0.96, 0.99);
 
-    tb_disp_draw_text(ctx, tb_i18n_get("receiver.ui.help_1"), body_font, 17, 72, 138, 0.76, 0.80, 0.88);
-    tb_disp_draw_text(ctx, tb_i18n_get("receiver.ui.help_2"), body_font, 17, 72, 108, 0.76, 0.80, 0.88);
-    tb_disp_draw_text(ctx, tb_i18n_get("receiver.ui.help_4"), body_font, 17, 72, 78, 0.76, 0.80, 0.88);
+    tb_disp_draw_text(ctx, tb_i18n_get("receiver.ui.help_1"), body_font, 17, 72, bar_y - 94, 0.76, 0.80, 0.88);
+    tb_disp_draw_text(ctx, tb_i18n_get("receiver.ui.help_2"), body_font, 17, 72, bar_y - 64, 0.76, 0.80, 0.88);
+    tb_disp_draw_text(ctx, tb_i18n_get("receiver.ui.help_4"), body_font, 17, 72, bar_y - 34, 0.76, 0.80, 0.88);
+
+    const CGFloat bar_text_y = bar_y + bar_h / 2.0 + 6.0;
+    tb_disp_draw_text(ctx, TB_RECEIVER_VERSION, mono_bold_font, 17, 72, bar_text_y, 0.64, 0.69, 0.78);
+    tb_disp_draw_text(ctx, TB_RECEIVER_BUILD, mono_font, 13, 212, bar_text_y, 0.53, 0.57, 0.66);
     }
 
     CGContextRelease(ctx);
@@ -533,7 +593,7 @@ static SDL_Renderer *tb_disp_try_renderer(SDL_Window *win, const char *driver) {
     return ren;
 }
 
-static SDL_Renderer *tb_disp_create_accelerated_renderer(SDL_Window *win) {
+static SDL_Renderer *tb_disp_create_accelerated_renderer(SDL_Window *win, int prefer_metal) {
     const char *forced_driver = getenv("TB_RECEIVER_RENDER_DRIVER");
     if (forced_driver && forced_driver[0] != '\0') {
         fprintf(stderr, "[disp] renderer override = %s\n", forced_driver);
@@ -541,7 +601,11 @@ static SDL_Renderer *tb_disp_create_accelerated_renderer(SDL_Window *win) {
     }
 
 #if defined(__APPLE__)
-    const char *macos_drivers[] = { "opengl", "metal", NULL };
+    const char *macos_drivers[] = {
+        prefer_metal ? "metal" : "opengl",
+        prefer_metal ? "opengl" : "metal",
+        NULL
+    };
     for (int i = 0; macos_drivers[i] != NULL; i++) {
         SDL_Renderer *ren = tb_disp_try_renderer(win, macos_drivers[i]);
         if (ren) return ren;
@@ -551,7 +615,7 @@ static SDL_Renderer *tb_disp_create_accelerated_renderer(SDL_Window *win) {
     return tb_disp_try_renderer(win, NULL);
 }
 
-struct tb_display *tb_disp_create(int fullscreen) {
+struct tb_display *tb_disp_create(int fullscreen, int start_hidden, int renderer) {
     /* Best-quality scaling (linear filter; Metal backend uses bilinear
      * regardless but this sets the hint correctly). "best" enables
      * anisotropic where supported. Must be set BEFORE renderer creation. */
@@ -578,7 +642,7 @@ struct tb_display *tb_disp_create(int fullscreen) {
     /* No VSYNC: lets us present as fast as decode produces frames.
      * On Intel iMac with Radeon Pro 570 + 5K display, VSYNC at 60Hz combined
      * with GPU→CPU NV12 transfer was stalling the pipeline to ~4 fps. */
-    d->ren = tb_disp_create_accelerated_renderer(d->win);
+    d->ren = tb_disp_create_accelerated_renderer(d->win, renderer != TB_DISP_RENDERER_SDL_OPENGL);
     if (!d->ren) {
         fprintf(stderr, "[disp] CreateRenderer: %s\n", SDL_GetError());
         SDL_DestroyWindow(d->win); free(d); return NULL;
@@ -590,6 +654,17 @@ struct tb_display *tb_disp_create(int fullscreen) {
     SDL_RendererInfo info;
     if (SDL_GetRendererInfo(d->ren, &info) == 0) {
         fprintf(stderr, "[disp] renderer = %s\n", info.name);
+        snprintf(d->renderer_name, sizeof(d->renderer_name), "%s", info.name);
+        /* "TargetBridge Metal": SDL keeps the window, waiting screen and
+         * overlays, our Metal view draws all video. SDL2 itself has no 10-bit
+         * textures, so only this view shows 10-bit RGB in 10 bits. */
+        if (renderer == TB_DISP_RENDERER_TARGETBRIDGE) d->metal_view = tb_metal_view_create(d->ren);
+        if (d->metal_view) snprintf(d->renderer_name, sizeof(d->renderer_name), "TargetBridge Metal");
+        else if (strcmp(info.name, "metal") == 0) snprintf(d->renderer_name, sizeof(d->renderer_name), "SDL Metal");
+        else if (strcmp(info.name, "opengl") == 0) snprintf(d->renderer_name, sizeof(d->renderer_name), "SDL OpenGL");
+        d->native_rgb10 = d->metal_view != NULL;
+        fprintf(stderr, "[disp] 10-bit RGB: %s\n",
+                d->native_rgb10 ? "native (Metal, 10-bit drawable)" : "converted to 8-bit by SDL");
     }
 
     int win_w = 0, win_h = 0, out_w = 0, out_h = 0;
@@ -619,7 +694,8 @@ struct tb_display *tb_disp_create(int fullscreen) {
     d->last_video_frame_time = 0;
 
     tb_disp_refresh_window_mode(d);
-    SDL_ShowWindow(d->win);
+    d->window_hidden = start_hidden;
+    if (!start_hidden) SDL_ShowWindow(d->win);
     return d;
 }
 
@@ -631,6 +707,8 @@ void tb_disp_destroy(struct tb_display *d) {
     }
     tb_disp_destroy_status_texture(d);
     if (d->tex) SDL_DestroyTexture(d->tex);
+    tb_metal_view_destroy(d->metal_view);
+    d->metal_view = NULL;
     if (d->ren) SDL_DestroyRenderer(d->ren);
     if (d->win) SDL_DestroyWindow(d->win);
     SDL_EnableScreenSaver();
@@ -638,20 +716,25 @@ void tb_disp_destroy(struct tb_display *d) {
     free(d);
 }
 
-int tb_disp_ensure_texture(struct tb_display *d, int w, int h) {
-    if (d->tex && d->tex_w == w && d->tex_h == h) return 0;
+static int tb_disp_ensure_texture_format(struct tb_display *d, int w, int h, Uint32 format) {
+    if (d->tex && d->tex_w == w && d->tex_h == h && d->tex_format == format) return 0;
     if (d->tex) { SDL_DestroyTexture(d->tex); d->tex = NULL; }
 
-    d->tex = SDL_CreateTexture(d->ren, SDL_PIXELFORMAT_NV12,
-                               SDL_TEXTUREACCESS_STREAMING, w, h);
+    d->tex = SDL_CreateTexture(d->ren, format, SDL_TEXTUREACCESS_STREAMING, w, h);
     if (!d->tex) {
-        fprintf(stderr, "[disp] CreateTexture(NV12): %s\n", SDL_GetError());
+        fprintf(stderr, "[disp] CreateTexture(%s): %s\n", SDL_GetPixelFormatName(format), SDL_GetError());
         return -1;
     }
     d->tex_w = w;
     d->tex_h = h;
-    fprintf(stderr, "[disp] texture %dx%d NV12\n", w, h);
+    d->tex_format = format;
+    d->tex_needs_full_upload = 1;
+    fprintf(stderr, "[disp] texture %dx%d %s\n", w, h, SDL_GetPixelFormatName(format));
     return 0;
+}
+
+int tb_disp_ensure_texture(struct tb_display *d, int w, int h) {
+    return tb_disp_ensure_texture_format(d, w, h, SDL_PIXELFORMAT_NV12);
 }
 
 static void tb_disp_draw_poly_outline(SDL_Renderer *ren, const SDL_Point *pts, int count) {
@@ -1114,11 +1197,154 @@ static void tb_disp_draw_cursor(struct tb_display *d) {
     SDL_SetRenderDrawBlendMode(d->ren, old_blend);
 }
 
+/* A one-line text label on a dark rounded box, as a blended texture. */
+static SDL_Texture *tb_disp_make_label(struct tb_display *d, const char *text,
+                                       const char *font, CGFloat size, int w, int h,
+                                       CGFloat r, CGFloat g, CGFloat b) {
+    const size_t bytes_per_row = (size_t)w * 4u;
+    uint32_t *pixels = (uint32_t *)calloc((size_t)w * (size_t)h, sizeof(uint32_t));
+    if (!pixels) return NULL;
+    CGColorSpaceRef color_space = CGColorSpaceCreateDeviceRGB();
+    CGContextRef ctx = CGBitmapContextCreate(pixels, (size_t)w, (size_t)h, 8, bytes_per_row, color_space,
+                                             kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Little);
+    CGColorSpaceRelease(color_space);
+    if (!ctx) {
+        free(pixels);
+        return NULL;
+    }
+    CGContextTranslateCTM(ctx, 0, (CGFloat)h);
+    CGContextScaleCTM(ctx, 1.0, -1.0);
+    tb_disp_fill_rounded_rect(ctx, 0, 0, (CGFloat)w, (CGFloat)h, 10.0, 0.0, 0.0, 0.0, 0.72);
+    tb_disp_draw_text(ctx, text, font, size, 20, (CGFloat)h * 0.68, r, g, b);
+    CGContextRelease(ctx);
+    SDL_Texture *tex = SDL_CreateTexture(d->ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STATIC, w, h);
+    if (tex) {
+        SDL_UpdateTexture(tex, NULL, pixels, (int)bytes_per_row);
+        SDL_SetTextureBlendMode(tex, SDL_BLENDMODE_BLEND);
+    }
+    free(pixels);
+    return tex;
+}
+
+void tb_disp_set_notice_text(struct tb_display *d, const char *text) {
+    if (!d) return;
+    if (!text) text = "";
+    if (strcmp(d->last_notice, text) == 0) return;
+    snprintf(d->last_notice, sizeof(d->last_notice), "%s", text);
+    if (d->notice_tex) {
+        SDL_DestroyTexture(d->notice_tex);
+        d->notice_tex = NULL;
+    }
+    if (!*text) return;
+    d->notice_w = 2400;
+    d->notice_h = 56;
+    d->notice_tex = tb_disp_make_label(d, text, "Helvetica Neue", 26, d->notice_w, d->notice_h,
+                                       1.0, 0.82, 0.35);
+}
+
+/* The stats line changes every second. The texture is created once and only
+ * its pixels are replaced: destroying and recreating it every second made
+ * SDL's Metal renderer flash the whole picture once a second. */
+static void tb_disp_rebuild_stats_texture(struct tb_display *d, const char *text) {
+    d->stats_visible = 0;
+    if (!text || !*text) return;
+
+    /* The box grows with the text; if the text is wider than the screen
+     * allows, the font shrinks so the whole line stays readable. */
+    int out_w = 0, out_h = 0;
+    if (SDL_GetRendererOutputSize(d->ren, &out_w, &out_h) != 0 || out_w <= 0) out_w = 1920;
+    const CGFloat padding = 16.0;
+    const CGFloat max_box = (CGFloat)(out_w - 48);
+    CGFloat font_size = 22.0;
+    CGFloat text_w = tb_disp_text_width(text, "Menlo", font_size);
+    if (text_w + 2.0 * padding > max_box && text_w > 0.0) {
+        font_size = font_size * (max_box - 2.0 * padding) / text_w;
+        if (font_size < 10.0) font_size = 10.0;
+        text_w = tb_disp_text_width(text, "Menlo", font_size);
+    }
+    /* Width in steps of 64 px, so the texture isn't recreated whenever a
+     * number gains a digit. */
+    int w = ((int)ceil(text_w + 2.0 * padding) + 63) & ~63;
+    if (w < 256) w = 256;
+    if (w > (int)max_box) w = (int)max_box;
+    const int h = (int)ceil(font_size * 2.1);
+    const size_t bytes_per_row = (size_t)w * 4u;
+    uint32_t *pixels = (uint32_t *)calloc((size_t)w * (size_t)h, sizeof(uint32_t));
+    if (!pixels) return;
+
+    CGColorSpaceRef color_space = CGColorSpaceCreateDeviceRGB();
+    CGContextRef ctx = CGBitmapContextCreate(pixels, (size_t)w, (size_t)h, 8, bytes_per_row, color_space,
+                                             kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Little);
+    CGColorSpaceRelease(color_space);
+    if (!ctx) {
+        free(pixels);
+        return;
+    }
+    CGContextTranslateCTM(ctx, 0, (CGFloat)h);
+    CGContextScaleCTM(ctx, 1.0, -1.0);
+    tb_disp_fill_rounded_rect(ctx, 0, 0, (CGFloat)w, (CGFloat)h, 10.0, 0.0, 0.0, 0.0, 0.62);
+    tb_disp_draw_text(ctx, text, "Menlo", font_size, padding, (CGFloat)h * 0.67, 0.55, 1.0, 0.65);
+    CGContextRelease(ctx);
+
+    if (d->stats_tex && (d->stats_w != w || d->stats_h != h)) {
+        SDL_DestroyTexture(d->stats_tex);
+        d->stats_tex = NULL;
+    }
+    if (!d->stats_tex) {
+        d->stats_tex = SDL_CreateTexture(d->ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, w, h);
+        if (d->stats_tex) SDL_SetTextureBlendMode(d->stats_tex, SDL_BLENDMODE_BLEND);
+        d->stats_w = w;
+        d->stats_h = h;
+    }
+    if (d->stats_tex && SDL_UpdateTexture(d->stats_tex, NULL, pixels, (int)bytes_per_row) == 0) {
+        d->stats_visible = 1;
+    }
+    free(pixels);
+}
+
+void tb_disp_set_stats_text(struct tb_display *d, const char *text) {
+    if (!d) return;
+    if (!text) text = "";
+    if (strcmp(d->last_stats, text) == 0) return;
+    snprintf(d->last_stats, sizeof(d->last_stats), "%s", text);
+    tb_disp_rebuild_stats_texture(d, text);
+}
+
+const char *tb_disp_renderer_name(struct tb_display *d) {
+    return d && d->renderer_name[0] ? d->renderer_name : "unknown";
+}
+
+/* Puts the picture into the Metal view (or back to SDL's texture), with a
+ * 10-bit drawable for 10-bit RGB, and sets whether the Metal layer waits for
+ * the display's refresh. */
+static void tb_disp_use_view(struct tb_display *d, int in_view, int rgb10, int display_sync) {
+    if (!d->metal_view) return;
+    tb_metal_view_set_display_sync(d->metal_view, display_sync);
+    tb_metal_view_set_10bit_drawable(d->metal_view, in_view && rgb10);
+    d->video_in_view = in_view;
+}
+
 static void tb_disp_render_current(struct tb_display *d) {
-    if (!d || !d->tex) return;
-    SDL_RenderClear(d->ren);
-    SDL_RenderCopy(d->ren, d->tex, NULL, NULL);
+    if (!d) return;
+    if (d->video_in_view) {
+        SDL_RenderClear(d->ren);
+        if (tb_metal_view_draw(d->metal_view, d->ren) != 0) return;
+    } else {
+        if (!d->tex) return;
+        SDL_RenderClear(d->ren);
+        SDL_RenderCopy(d->ren, d->tex, NULL, NULL);
+    }
     tb_disp_draw_cursor(d);
+    if (d->stats_tex && d->stats_visible) {
+        SDL_Rect stats_rect = { 24, 24, d->stats_w, d->stats_h };
+        SDL_RenderCopy(d->ren, d->stats_tex, NULL, &stats_rect);
+    }
+    if (d->notice_tex) {
+        int out_w = 0, out_h = 0;
+        SDL_GetRendererOutputSize(d->ren, &out_w, &out_h);
+        SDL_Rect notice_rect = { 24, out_h - d->notice_h - 24, d->notice_w, d->notice_h };
+        SDL_RenderCopy(d->ren, d->notice_tex, NULL, &notice_rect);
+    }
     SDL_RenderPresent(d->ren);
 }
 
@@ -1126,17 +1352,125 @@ void tb_disp_render_nv12(struct tb_display *d,
                          const uint8_t *y, int y_stride,
                          const uint8_t *uv, int uv_stride,
                          int w, int h) {
-    if (tb_disp_ensure_texture(d, w, h) < 0) return;
+    if (!d) return;
     tb_disp_set_connection_state(d, 1);
 
+    /* Hardware-decoded video never waits for the refresh: that stalled
+     * decoding on Intel iMacs. */
+    if (d->metal_view) {
+        tb_disp_use_view(d, 1, 0, 0);
+        if (tb_metal_view_upload_nv12(d->metal_view, y, y_stride, uv, uv_stride, w, h) == 0) {
+            d->last_video_frame_time = SDL_GetTicks();
+            tb_disp_render_current(d);
+            return;
+        }
+        tb_disp_use_view(d, 0, 0, 0);
+    }
+
+    if (tb_disp_ensure_texture(d, w, h) < 0) return;
     if (SDL_UpdateNVTexture(d->tex, NULL,
                             y,  y_stride,
                             uv, uv_stride) < 0) {
         fprintf(stderr, "[disp] UpdateNVTexture: %s\n", SDL_GetError());
         return;
     }
+    d->tex_needs_full_upload = 0;
     d->last_video_frame_time = SDL_GetTicks();
     tb_disp_render_current(d);
+}
+
+void tb_disp_render_nv12_rows(struct tb_display *d,
+                              const uint8_t *y, size_t y_capacity,
+                              const uint8_t *uv, size_t uv_capacity,
+                              int w, int h, int first_row, int end_row) {
+    if (!d) return;
+    tb_disp_set_connection_state(d, 1);
+
+    /* Metal: the GPU copies the changed rows straight from the frame memory. */
+    if (d->metal_view) {
+        tb_disp_use_view(d, 1, 0, d->display_sync);
+        if (tb_metal_view_upload_nv12_rows(d->metal_view, y, y_capacity, uv, uv_capacity,
+                                           w, h, first_row, end_row) == 0) {
+            d->last_video_frame_time = SDL_GetTicks();
+            tb_disp_render_current(d);
+            return;
+        }
+        tb_disp_use_view(d, 0, 0, 0);
+    }
+
+    if (tb_disp_ensure_texture(d, w, h) < 0) return;
+    if (d->tex_needs_full_upload) {
+        first_row = 0;
+        end_row = h;
+    }
+    /* NV12 rectangles must start and end on even rows. */
+    first_row &= ~1;
+    end_row = (end_row + 1) & ~1;
+    if (first_row < 0) first_row = 0;
+    if (end_row > h) end_row = h;
+    if (end_row > first_row) {
+        const SDL_Rect rect = { 0, first_row, w, end_row - first_row };
+        if (SDL_UpdateNVTexture(d->tex, &rect,
+                                y + (size_t)w * (size_t)first_row, w,
+                                uv + (size_t)w * (size_t)(first_row / 2), w) < 0) {
+            fprintf(stderr, "[disp] UpdateNVTexture(rows): %s\n", SDL_GetError());
+            return;
+        }
+        d->tex_needs_full_upload = 0;
+    }
+    d->last_video_frame_time = SDL_GetTicks();
+    tb_disp_render_current(d);
+}
+
+void tb_disp_render_rgb10_rows(struct tb_display *d, const uint8_t *pixels, size_t pixels_capacity,
+                               int w, int h, int first_row, int end_row) {
+    if (!d) return;
+    tb_disp_set_connection_state(d, 1);
+
+    /* Metal: the GPU copies the changed rows into a 10-bit texture. */
+    if (d->metal_view) {
+        tb_disp_use_view(d, 1, 1, d->display_sync);
+        if (tb_metal_view_upload_rgb10(d->metal_view, pixels, pixels_capacity,
+                                       w, h, first_row, end_row) == 0) {
+            d->last_video_frame_time = SDL_GetTicks();
+            tb_disp_render_current(d);
+            return;
+        }
+        tb_disp_use_view(d, 0, 0, 0);
+    }
+
+    if (tb_disp_ensure_texture_format(d, w, h, SDL_PIXELFORMAT_ARGB2101010) < 0) return;
+    if (d->tex_needs_full_upload) {
+        first_row = 0;
+        end_row = h;
+    }
+    if (first_row < 0) first_row = 0;
+    if (end_row > h) end_row = h;
+    if (end_row > first_row) {
+        const SDL_Rect rect = { 0, first_row, w, end_row - first_row };
+        const int pitch = w * 4;
+        if (SDL_UpdateTexture(d->tex, &rect, pixels + (size_t)pitch * (size_t)first_row, pitch) < 0) {
+            fprintf(stderr, "[disp] UpdateTexture(RGB10 rows): %s\n", SDL_GetError());
+            return;
+        }
+        d->tex_needs_full_upload = 0;
+    }
+    d->last_video_frame_time = SDL_GetTicks();
+    tb_disp_render_current(d);
+}
+
+void tb_disp_reset_video(struct tb_display *d) {
+    if (!d) return;
+    tb_disp_use_view(d, 0, 0, 0);
+    tb_metal_view_reset(d->metal_view);
+}
+
+void tb_disp_set_display_sync(struct tb_display *d, int on) {
+    if (d) d->display_sync = on ? 1 : 0;
+}
+
+int tb_disp_native_rgb10(struct tb_display *d) {
+    return d ? d->native_rgb10 : 0;
 }
 
 void tb_disp_set_cursor(struct tb_display *d,
@@ -1156,7 +1490,7 @@ void tb_disp_set_cursor(struct tb_display *d,
 
     uint32_t now = SDL_GetTicks();
     if (now - d->last_video_frame_time > 40) {
-        if (d->is_connected && d->tex) {
+        if (d->is_connected && (d->tex || d->video_in_view)) {
             tb_disp_render_current(d);
         }
     }
@@ -1166,11 +1500,34 @@ unsigned int tb_disp_poll_actions(struct tb_display *d) {
     unsigned int actions = TB_DISP_ACTION_NONE;
     SDL_Event ev;
     while (SDL_PollEvent(&ev)) {
-        if (ev.type == SDL_QUIT) d->quit = 1;
+        if (ev.type == SDL_QUIT && d->end_session_gestures) {
+            /* Sign-in screen mode: Cmd+Q must not stop the mode. */
+            actions |= TB_DISP_ACTION_END_SESSION;
+        }
+        else if (ev.type == SDL_QUIT) {
+            if (d->close_hides) actions |= TB_DISP_ACTION_HIDE_WINDOW;
+            else d->quit = 1;
+        }
+        /* Sign-in screen mode: Esc or a double-click on the iMac ends the
+         * session and gives the sign-in window back. */
+        else if (d->end_session_gestures && ev.type == SDL_KEYDOWN &&
+                 ev.key.keysym.sym == SDLK_ESCAPE) {
+            actions |= TB_DISP_ACTION_END_SESSION;
+        }
+        else if (d->end_session_gestures && ev.type == SDL_MOUSEBUTTONDOWN &&
+                 ev.button.button == SDL_BUTTON_LEFT && ev.button.clicks == 2) {
+            actions |= TB_DISP_ACTION_END_SESSION;
+        }
+        else if (d->end_session_gestures) {
+            /* Nothing else at the iMac does anything in this mode. */
+        }
         else if (!d->input_capture_active &&
                  !d->input_intercept_active &&
                  ev.type == SDL_KEYDOWN &&
-                 ev.key.keysym.sym == SDLK_ESCAPE) d->quit = 1;
+                 ev.key.keysym.sym == SDLK_ESCAPE) {
+            if (d->close_hides) actions |= TB_DISP_ACTION_HIDE_WINDOW;
+            else d->quit = 1;
+        }
         else if (!d->input_capture_active &&
                  !d->input_intercept_active &&
                  ev.type == SDL_KEYDOWN &&
@@ -1375,6 +1732,25 @@ static void tb_disp_set_connecting_state(struct tb_display *d, int connecting) {
     tb_disp_set_stream_state(d, 0, connecting ? 1 : 0);
 }
 
+void tb_disp_set_window_visible(struct tb_display *d, int visible) {
+    if (!d || !d->win || d->window_hidden == !visible) return;
+    d->window_hidden = !visible;
+    if (visible) {
+        SDL_ShowWindow(d->win);
+        SDL_RaiseWindow(d->win);
+    } else {
+        SDL_HideWindow(d->win);
+    }
+}
+
+void tb_disp_set_close_hides(struct tb_display *d, int close_hides) {
+    if (d) d->close_hides = close_hides;
+}
+
+void tb_disp_set_end_session_gestures(struct tb_display *d, int on) {
+    if (d) d->end_session_gestures = on ? 1 : 0;
+}
+
 void tb_disp_set_input_capture_active(struct tb_display *d, int active) {
     if (!d) return;
     d->input_capture_active = active ? 1 : 0;
@@ -1414,6 +1790,7 @@ void tb_disp_render_status(struct tb_display *d,
     if (!d || !d->ren || !d->win) return;
 
     tb_disp_set_connection_state(d, 0);
+    if (d->window_hidden) return;
 
     if (!ip) ip = tb_i18n_get("receiver.network.not_detected");
     if (!status) status = tb_i18n_get("receiver.status.waiting_for_sender");

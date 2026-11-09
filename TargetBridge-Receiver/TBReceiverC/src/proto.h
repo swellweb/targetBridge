@@ -21,6 +21,15 @@
  *             [Y plane: yStride*height][CbCr plane: uvStride*(height/2)]
  *   (see handle_raw_frame in main.c; sender-side sendRawFrame)
  *
+ * type 0x24 = changed rows of a raw NV12 frame, optionally LZ4-compressed
+ *   (see raw_regions.h; only sent when the receiver advertises
+ *   "supportsRawRegions" in its display profile)
+ *
+ * type 0x25 = data stream hello (JSON {"token":"..."}), first packet on an
+ *   extra data connection opened while a session is active
+ * type 0x26 = part of a raw frame over parallel data streams
+ *   (see raw_regions.h)
+ *
  * type 0x30 = heartbeat (JSON)
  * type 0x31 = teardown (JSON)
  * type 0x32 = cursor position (JSON)
@@ -47,6 +56,12 @@
 #define TB_PKT_FRAME            0x21
 #define TB_PKT_RAW_FRAME        0x22  /* uncompressed NV12 planes (raw passthrough) */
 #define TB_PKT_AUDIO_FRAME      0x23
+#define TB_PKT_RAW_REGIONS      0x24  /* changed rows of a raw NV12 frame */
+/* First packet on an extra data connection: JSON {"token":"<streamToken>"}
+ * with the token from this receiver's display profile. */
+#define TB_PKT_DATA_STREAM_HELLO 0x25
+/* One part of a raw frame sent over parallel data streams (raw_regions.h). */
+#define TB_PKT_RAW_REGIONS_PART 0x26
 #define TB_PKT_HEARTBEAT        0x30
 #define TB_PKT_TEARDOWN         0x31
 #define TB_PKT_CURSOR           0x32

@@ -18,9 +18,13 @@
 #include "display.h"
 #include "idle_watchdog.h"
 #include "receiver_profile.h"
+#include "raw_regions.h"
+#include "version_check.h"
 #include "proto.h"
 #include "tb_gesture_bridge.h"
 #include "tb_display_tweaks.h"
+#include "tb_background_ui.h"
+#include "tb_signin_mode.h"
 #include "tb_i18n.h"
 
 #include <SDL.h>
@@ -36,7 +40,14 @@
 #define kAudioObjectPropertyElementMain kAudioObjectPropertyElementMaster
 #endif
 
+#include <CoreVideo/CoreVideo.h>
+#include <compression.h>
+
+#ifndef TB_RECEIVER_VERSION
+#define TB_RECEIVER_VERSION "4.0"
+#endif
 #include <errno.h>
+#include <poll.h>
 #include <limits.h>
 #include <signal.h>
 #include <stdint.h>
@@ -54,6 +65,25 @@
  * heartbeats every 2s and streams frames continuously, so 10s of silence
  * (5 missed heartbeats) means it died without a FIN. */
 #define TB_SENDER_IDLE_TIMEOUT_MS 10000
+
+/* Extra TCP connections a sender opens for raw frames ("Uncompressed,
+ * enhanced"). A connection only counts once its first packet carries this
+ * session's stream token. */
+#define TB_MAX_DATA_STREAMS 4
+
+struct app;
+
+/* Sign-in screen mode: no new session this long after one was ended on the iMac. */
+#define TB_SIGNIN_REFUSE_MS (5u * 60u * 1000u)
+
+struct tb_data_stream {
+    int              fd;
+    int              accepted;
+    int              rejected;
+    uint64_t         opened_ms;
+    struct tb_parser parser;
+    struct app      *app;
+};
 
 struct app {
     struct tb_display *disp;
@@ -76,6 +106,46 @@ struct app {
 
     uint64_t last_recv_ms;      /* idle watchdog: last time the sender sent anything */
     int      close_requested;
+    int      background_mode;   /* background or faceless: window only on demand */
+    int      presentation;      /* enum tb_app_presentation */
+    /* Performance switches (Receiver menu bar > Performance). */
+    int      perf_newest_frame;
+    int      perf_wake_on_data;
+    int      video_renderer;   /* enum tb_disp_renderer, applies at start */
+    int      display_sync;     /* Metal: raw modes wait for the refresh */
+    int      perf_show_stats;
+    CVPixelBufferRef pending_pixel_buffer;
+    /* Changed-rows raw frames: the receiver's copy of the picture, and the
+     * rows patched since the last draw (drawn once per loop with
+     * "draw only the newest frame"). */
+    struct tb_raw_frame raw_frame;
+    struct tb_data_stream data_streams[TB_MAX_DATA_STREAMS];
+    char     stream_token[24];
+    uint64_t version_notice_until_ms; /* overlay hides then; menu item stays */
+    int      raw_pending;       /* rows patched but not drawn yet */
+    int      raw_pending_first;
+    int      raw_pending_end;
+    int      raw_ready;         /* a whole frame is in the pending rows */
+    uint64_t raw_pending_since_ms;
+    uint32_t raw_newest_seq;    /* newest frame seen over the data streams */
+    uint32_t raw_newest_parts;  /* its part count, 0 = unknown */
+    uint32_t raw_newest_got;    /* its parts received so far */
+    uint64_t stats_region_rows;
+    uint64_t stats_rgb10_frames;
+    uint64_t stats_region_height;
+    uint64_t stats_skipped;
+    uint64_t stats_draw_us_total;
+    uint64_t stats_draw_us_max;
+    uint64_t stats_draw_count;
+    uint64_t stats_bytes;
+    int      show_window_at_start;
+    int      window_requested;
+    /* Sign-in screen mode ("--login-window", started by macOS at the
+     * sign-in window when the mode is installed). */
+    int      signin_mode;
+    int      signin_window_shown;
+    uint64_t signin_refuse_until_ms;   /* after Esc / double-click on the iMac */
+    uint64_t signin_last_console_check_ms;
     int      have_video_frame;
     /* A real streaming session has begun (the sender sent a session packet, not
      * just a transient probe like a UI-language push). Gates the fullscreen
@@ -168,6 +238,12 @@ static void tb_receiver_input_log(const char *fmt, ...) {
 
 static volatile sig_atomic_t g_term = 0;
 static void on_sigint(int s) { (void)s; g_term = 1; }
+
+static uint64_t now_us(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000000ULL + ts.tv_nsec / 1000ULL;
+}
 
 static uint64_t now_ms(void) {
     struct timespec ts;
@@ -934,6 +1010,36 @@ static void tb_receiver_apply_input_control_mode(struct app *a, const uint8_t *p
     tb_receiver_refresh_input_capture(a);
 }
 
+/* ---- Version check ---------------------------------------------------- */
+
+/* Sender and Receiver should run the same version: newer performance
+ * features need both. A mismatch is shown on the picture for a while and in
+ * the menu bar with a download link until the session ends. */
+static void tb_receiver_update_version_notice(struct app *a, const char *sender_version) {
+    const char *receiver_version = TB_RECEIVER_VERSION;
+    const int order = tb_version_compare(sender_version, receiver_version);
+    if (order == 0) {
+        tb_disp_set_notice_text(a->disp, NULL);
+        tb_background_ui_set_update_notice(NULL);
+        a->version_notice_until_ms = 0;
+        return;
+    }
+    const char *key = order > 0
+        ? "receiver.version.receiver_older"
+        : (sender_version && *sender_version ? "receiver.version.sender_older"
+                                             : "receiver.version.sender_unknown");
+    struct tb_i18n_pair pairs[] = {
+        { "sender", sender_version ? sender_version : "" },
+        { "receiver", receiver_version }
+    };
+    char text[512];
+    tb_format_i18n(text, sizeof(text), key, pairs, 2);
+    fprintf(stderr, "[main] version mismatch: %s\n", text);
+    tb_disp_set_notice_text(a->disp, text);
+    tb_background_ui_set_update_notice(text);
+    a->version_notice_until_ms = now_ms() + 20000;
+}
+
 /* ---- Callbacks: decoder → display ------------------------------------ */
 
 static void on_frame(const uint8_t *y, int y_stride,
@@ -953,8 +1059,55 @@ static void on_frame(const uint8_t *y, int y_stride,
         snprintf(height_text, sizeof(height_text), "%d", h);
         tb_format_i18n(a->mode_text, sizeof(a->mode_text), "receiver.mode.receiving", pairs, 2);
     }
+    const uint64_t draw_start = now_us();
     tb_disp_render_nv12(a->disp, y, y_stride, uv, uv_stride, w, h);
+    const uint64_t draw_us = now_us() - draw_start;
+    a->stats_draw_us_total += draw_us;
+    if (draw_us > a->stats_draw_us_max) a->stats_draw_us_max = draw_us;
+    a->stats_draw_count++;
     a->frames++;
+}
+
+static void tb_receiver_present_pixel_buffer(struct app *a, CVPixelBufferRef pb) {
+    if (CVPixelBufferLockBaseAddress(pb, kCVPixelBufferLock_ReadOnly) != 0) return;
+    on_frame((const uint8_t *)CVPixelBufferGetBaseAddressOfPlane(pb, 0),
+             (int)CVPixelBufferGetBytesPerRowOfPlane(pb, 0),
+             (const uint8_t *)CVPixelBufferGetBaseAddressOfPlane(pb, 1),
+             (int)CVPixelBufferGetBytesPerRowOfPlane(pb, 1),
+             (int)CVPixelBufferGetWidth(pb),
+             (int)CVPixelBufferGetHeight(pb),
+             a);
+    CVPixelBufferUnlockBaseAddress(pb, kCVPixelBufferLock_ReadOnly);
+}
+
+/* With "draw only the newest frame", every frame is still decoded (later
+ * frames depend on it), but only the latest one per loop is drawn. */
+static void on_pixel_buffer(void *pixel_buffer, void *ud) {
+    struct app *a = (struct app *)ud;
+    CVPixelBufferRef pb = (CVPixelBufferRef)pixel_buffer;
+    if (!a->perf_newest_frame) {
+        tb_receiver_present_pixel_buffer(a, pb);
+        return;
+    }
+    if (a->pending_pixel_buffer) {
+        CVPixelBufferRelease(a->pending_pixel_buffer);
+        a->stats_skipped++;
+    }
+    a->pending_pixel_buffer = CVPixelBufferRetain(pb);
+}
+
+static void tb_receiver_present_pending_frame(struct app *a) {
+    CVPixelBufferRef pb = a->pending_pixel_buffer;
+    if (!pb) return;
+    a->pending_pixel_buffer = NULL;
+    tb_receiver_present_pixel_buffer(a, pb);
+    CVPixelBufferRelease(pb);
+}
+
+static void tb_receiver_drop_pending_frame(struct app *a) {
+    if (!a->pending_pixel_buffer) return;
+    CVPixelBufferRelease(a->pending_pixel_buffer);
+    a->pending_pixel_buffer = NULL;
 }
 
 /* Raw passthrough: render received NV12 planes directly, bypassing the decoder.
@@ -993,8 +1146,129 @@ static void handle_raw_frame(struct app *a, const uint8_t *p, size_t len) {
         snprintf(height_text, sizeof(height_text), "%u", h);
         tb_format_i18n(a->mode_text, sizeof(a->mode_text), "receiver.mode.receiving", pairs, 2);
     }
+    const uint64_t draw_start = now_us();
     tb_disp_render_nv12(a->disp, y, (int)ys, uv, (int)us, (int)w, (int)h);
+    const uint64_t draw_us = now_us() - draw_start;
+    a->stats_draw_us_total += draw_us;
+    if (draw_us > a->stats_draw_us_max) a->stats_draw_us_max = draw_us;
+    a->stats_draw_count++;
     a->frames++;
+}
+
+static int tb_receiver_decode_lz4(uint8_t *dst, size_t dst_len,
+                                  const uint8_t *src, size_t src_len) {
+    const size_t n = compression_decode_buffer(dst, dst_len, src, src_len,
+                                               NULL, COMPRESSION_LZ4_RAW);
+    return n == dst_len ? 0 : -1;
+}
+
+static void tb_receiver_draw_raw_rows(struct app *a, int first_row, int end_row) {
+    const uint64_t draw_start = now_us();
+    if (a->raw_frame.format == TB_RAW_REGIONS_FORMAT_RGB10) {
+        tb_disp_render_rgb10_rows(a->disp, a->raw_frame.y, a->raw_frame.y_capacity,
+                                  (int)a->raw_frame.w, (int)a->raw_frame.h,
+                                  first_row, end_row);
+    } else {
+        tb_disp_render_nv12_rows(a->disp, a->raw_frame.y, a->raw_frame.y_capacity,
+                                 a->raw_frame.uv, a->raw_frame.uv_capacity,
+                                 (int)a->raw_frame.w, (int)a->raw_frame.h,
+                                 first_row, end_row);
+    }
+    const uint64_t draw_us = now_us() - draw_start;
+    a->stats_draw_us_total += draw_us;
+    if (draw_us > a->stats_draw_us_max) a->stats_draw_us_max = draw_us;
+    a->stats_draw_count++;
+    a->frames++;
+}
+
+static void tb_receiver_reset_pending_raw(struct app *a) {
+    a->raw_pending = 0;
+    a->raw_ready = 0;
+    a->raw_newest_seq = 0;
+    a->raw_newest_parts = 0;
+    a->raw_newest_got = 0;
+}
+
+/* Draws the pending rows once a whole frame is in them. A frame whose parts
+ * never all arrive (the sender gave up on a stream) is drawn after 100 ms. */
+static void tb_receiver_present_pending_raw(struct app *a) {
+    if (!a->raw_pending) return;
+    if (!a->raw_ready && now_ms() - a->raw_pending_since_ms < 100) return;
+    a->raw_pending = 0;
+    a->raw_ready = 0;
+    tb_receiver_draw_raw_rows(a, a->raw_pending_first, a->raw_pending_end);
+}
+
+/* Counts a part of a frame sent over parallel data streams and returns 1 once
+ * every part of the newest frame has arrived. Parts of older frames only
+ * fill rows the newer one didn't touch, so they never complete a frame. */
+static int tb_receiver_count_part(struct app *a, const struct tb_raw_regions_result *result) {
+    const uint32_t seq = result->sequence;
+    if (a->raw_newest_seq == 0 || (int32_t)(seq - a->raw_newest_seq) > 0) {
+        a->raw_newest_seq = seq;
+        a->raw_newest_parts = result->parts;
+        a->raw_newest_got = 1;
+    } else if (seq == a->raw_newest_seq) {
+        a->raw_newest_got++;
+    } else {
+        return 0;
+    }
+    return a->raw_newest_parts == 0 || a->raw_newest_got >= a->raw_newest_parts;
+}
+
+/* Changed rows of a raw NV12 frame (see raw_regions.h). The rows are patched
+ * into the receiver's copy of the picture and only they are uploaded. */
+static void handle_raw_regions(struct app *a, const uint8_t *p, size_t len, int is_part) {
+    struct tb_raw_regions_result result;
+    memset(&result, 0, sizeof(result));
+    const uint8_t previous_format = a->raw_frame.format;
+    const int status = is_part
+        ? tb_raw_regions_apply_part(&a->raw_frame, p, len, tb_receiver_decode_lz4, &result)
+        : tb_raw_regions_apply(&a->raw_frame, p, len, tb_receiver_decode_lz4, &result);
+    if (status != -1 && a->raw_frame.format != previous_format) {
+        /* A pending draw of the old format no longer matches the frame. */
+        tb_receiver_reset_pending_raw(a);
+    }
+    if (status == -1) {
+        fprintf(stderr, "[main] raw regions: malformed packet (%zu bytes) ignored\n", len);
+        return;
+    }
+    if (status == -2) {
+        fprintf(stderr, "[main] raw regions: LZ4 band could not be decoded\n");
+    }
+
+    if (!a->have_video_frame) {
+        char width_text[16];
+        char height_text[16];
+        struct tb_i18n_pair pairs[] = {
+            { "width", width_text },
+            { "height", height_text }
+        };
+        snprintf(width_text, sizeof(width_text), "%u", result.w);
+        snprintf(height_text, sizeof(height_text), "%u", result.h);
+        tb_copy_i18n(a->status_text, sizeof(a->status_text), "receiver.status.stream_active");
+        tb_format_i18n(a->mode_text, sizeof(a->mode_text), "receiver.mode.receiving", pairs, 2);
+    }
+    a->have_video_frame = 1;
+    a->stats_region_rows += result.rows;
+    if (result.format == TB_RAW_REGIONS_FORMAT_RGB10) a->stats_rgb10_frames++;
+    a->stats_region_height += result.h;
+
+    if (a->raw_pending) {
+        if ((int)result.first_row < a->raw_pending_first) a->raw_pending_first = (int)result.first_row;
+        if ((int)result.end_row > a->raw_pending_end) a->raw_pending_end = (int)result.end_row;
+    } else {
+        a->raw_pending = 1;
+        a->raw_pending_first = (int)result.first_row;
+        a->raw_pending_end = (int)result.end_row;
+        a->raw_pending_since_ms = now_ms();
+    }
+    const int complete = is_part ? tb_receiver_count_part(a, &result) : 1;
+    if (!complete) return;
+    /* A whole frame that is replaced before it was drawn counts as skipped. */
+    if (a->raw_ready) a->stats_skipped++;
+    a->raw_ready = 1;
+    if (!a->perf_newest_frame) tb_receiver_present_pending_raw(a);
 }
 
 static void ring_read(struct app *a, Uint8 *dst, int len) {
@@ -1080,11 +1354,7 @@ static void tb_audio_close_for_idle(struct app *a) {
  * level is clamped to 0.0..1.0. Sets the default output device's scalar volume,
  * preferring the master element and falling back to per-channel when a device
  * has no master volume control. Safe to call from the network/parser thread. */
-static void tb_set_system_volume(double level) {
-    if (level < 0.0) level = 0.0;
-    if (level > 1.0) level = 1.0;
-    Float32 vol = (Float32)level;
-
+static AudioDeviceID tb_default_output_device(void) {
     AudioObjectPropertyAddress dev_addr = {
         kAudioHardwarePropertyDefaultOutputDevice,
         kAudioObjectPropertyScopeGlobal,
@@ -1093,10 +1363,42 @@ static void tb_set_system_volume(double level) {
     AudioDeviceID device = kAudioObjectUnknown;
     UInt32 size = sizeof(device);
     if (AudioObjectGetPropertyData(kAudioObjectSystemObject, &dev_addr, 0, NULL,
-                                   &size, &device) != noErr ||
-        device == kAudioObjectUnknown) {
-        return;
+                                   &size, &device) != noErr) {
+        return kAudioObjectUnknown;
     }
+    return device;
+}
+
+static int tb_get_system_volume(double *level) {
+    AudioDeviceID device = tb_default_output_device();
+    if (device == kAudioObjectUnknown) return 0;
+
+    AudioObjectPropertyAddress vol_addr = {
+        kAudioDevicePropertyVolumeScalar,
+        kAudioDevicePropertyScopeOutput,
+        kAudioObjectPropertyElementMain
+    };
+    /* Element 0 is the master; devices without one report on channel 1. */
+    for (UInt32 element = 0; element <= 1; element++) {
+        vol_addr.mElement = element;
+        Float32 vol = 0;
+        UInt32 size = sizeof(vol);
+        if (AudioObjectHasProperty(device, &vol_addr) &&
+            AudioObjectGetPropertyData(device, &vol_addr, 0, NULL, &size, &vol) == noErr) {
+            *level = vol;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static void tb_set_system_volume(double level) {
+    if (level < 0.0) level = 0.0;
+    if (level > 1.0) level = 1.0;
+    Float32 vol = (Float32)level;
+
+    AudioDeviceID device = tb_default_output_device();
+    if (device == kAudioObjectUnknown) return;
 
     AudioObjectPropertyAddress vol_addr = {
         kAudioDevicePropertyVolumeScalar,
@@ -1121,6 +1423,23 @@ static void tb_set_system_volume(double level) {
             AudioObjectSetPropertyData(device, &vol_addr, 0, NULL, sizeof(vol), &vol);
         }
     }
+}
+
+/* Volume from before the session's first change, restored however it ends. */
+static int g_volume_restore_pending = 0;
+static double g_volume_restore_level = 0.0;
+
+static void tb_restore_system_volume(void) {
+    if (!g_volume_restore_pending) return;
+    g_volume_restore_pending = 0;
+    tb_set_system_volume(g_volume_restore_level);
+}
+
+static void tb_apply_session_volume(double level) {
+    if (!g_volume_restore_pending) {
+        g_volume_restore_pending = tb_get_system_volume(&g_volume_restore_level);
+    }
+    tb_set_system_volume(level);
 }
 
 /* ---- Callbacks: parser → decoder ------------------------------------- */
@@ -1161,6 +1480,12 @@ static void on_packet(uint8_t type, const uint8_t *payload, size_t len, void *ud
             tb_copy_i18n(a->sender_text, sizeof(a->sender_text), "receiver.status.sender_connected");
         }
         {
+            char sender_version[32];
+            sender_version[0] = '\0';
+            extract_json_string_field(payload, len, "\"appVersion\"", sender_version, sizeof(sender_version));
+            tb_receiver_update_version_notice(a, sender_version);
+        }
+        {
             char preset[64];
             char source[64];
             char codec[64];
@@ -1199,6 +1524,14 @@ static void on_packet(uint8_t type, const uint8_t *payload, size_t len, void *ud
     case TB_PKT_RAW_FRAME:
         a->session_active = 1;
         handle_raw_frame(a, payload, len);
+        break;
+    case TB_PKT_RAW_REGIONS:
+        a->session_active = 1;
+        handle_raw_regions(a, payload, len, 0);
+        break;
+    case TB_PKT_RAW_REGIONS_PART:
+        a->session_active = 1;
+        handle_raw_regions(a, payload, len, 1);
         break;
     case TB_PKT_CURSOR:
         {
@@ -1250,7 +1583,7 @@ static void on_packet(uint8_t type, const uint8_t *payload, size_t len, void *ud
         {
             double level = 1.0;
             (void)extract_json_double_field(payload, len, "\"level\"", &level);
-            tb_set_system_volume(level);
+            tb_apply_session_volume(level);
         }
         break;
     case TB_PKT_AUDIO_FRAME:
@@ -1293,6 +1626,12 @@ static void on_packet(uint8_t type, const uint8_t *payload, size_t len, void *ud
         tb_receiver_apply_input_event(payload, len);
         break;
     case TB_PKT_INPUT_CONTROL:
+        /* Sign-in screen mode: the iMac's keyboard and mouse never control
+         * the Mac, so nobody at the locked iMac can use it. */
+        if (a->signin_mode) {
+            fprintf(stderr, "[signin] ignoring input control request\n");
+            break;
+        }
         tb_receiver_apply_input_control_mode(a, payload, len);
         break;
     case TB_PKT_HEARTBEAT:
@@ -1313,14 +1652,16 @@ static void on_packet(uint8_t type, const uint8_t *payload, size_t len, void *ud
 
 /* ---- Networking helpers ---------------------------------------------- */
 
-static int drain_socket(struct app *a) {
-    uint8_t buf[1024 * 1024];
+static int drain_fd(struct app *a, int fd, struct tb_parser *parser) {
+    /* Shared by all connections; the receiver reads them on one thread. */
+    static uint8_t buf[1024 * 1024];
     int saw_data = 0;
     for (;;) {
-        ssize_t n = read(a->client_fd, buf, sizeof(buf));
+        ssize_t n = read(fd, buf, sizeof(buf));
         if (n > 0) {
             saw_data = 1;
-            if (tb_parser_feed(&a->parser, buf, (size_t)n) < 0) return -1;
+            a->stats_bytes += (uint64_t)n;
+            if (tb_parser_feed(parser, buf, (size_t)n) < 0) return -1;
         } else if (n == 0) {
             return -1;  /* peer closed */
         } else {
@@ -1329,6 +1670,97 @@ static int drain_socket(struct app *a) {
             return -1;
         }
     }
+}
+
+static int drain_socket(struct app *a) {
+    return drain_fd(a, a->client_fd, &a->parser);
+}
+
+/* ---- Parallel data streams ------------------------------------------- */
+
+static void on_data_stream_packet(uint8_t type, const uint8_t *payload, size_t len, void *ud) {
+    struct tb_data_stream *stream = (struct tb_data_stream *)ud;
+    struct app *a = stream->app;
+    if (stream->rejected) return;
+    if (!stream->accepted) {
+        char token[40];
+        token[0] = '\0';
+        if (type == TB_PKT_DATA_STREAM_HELLO) {
+            extract_json_string_field(payload, len, "\"token\"", token, sizeof(token));
+        }
+        if (token[0] != '\0' && a->stream_token[0] != '\0' &&
+            strcmp(token, a->stream_token) == 0) {
+            stream->accepted = 1;
+            fprintf(stderr, "[main] data stream connected\n");
+        } else {
+            stream->rejected = 1;
+        }
+        return;
+    }
+    switch (type) {
+    case TB_PKT_RAW_REGIONS_PART:
+        handle_raw_regions(a, payload, len, 1);
+        break;
+    case TB_PKT_RAW_REGIONS:
+        handle_raw_regions(a, payload, len, 0);
+        break;
+    default:
+        break;
+    }
+}
+
+static void close_data_stream(struct tb_data_stream *stream) {
+    if (stream->fd >= 0) close(stream->fd);
+    stream->fd = -1;
+    stream->accepted = 0;
+    stream->rejected = 0;
+    tb_parser_free(&stream->parser);
+}
+
+static void close_data_streams(struct app *a) {
+    for (int i = 0; i < TB_MAX_DATA_STREAMS; ++i) close_data_stream(&a->data_streams[i]);
+}
+
+/* While a session runs, further connections may be data streams of the same
+ * sender. They are accepted here and dropped unless their first packet
+ * carries the session's stream token. */
+static void accept_data_streams(struct app *a, uint64_t t) {
+    for (;;) {
+        int c = tb_net_accept(a->server_fd);
+        if (c < 0) return;
+        struct tb_data_stream *slot = NULL;
+        for (int i = 0; i < TB_MAX_DATA_STREAMS; ++i) {
+            if (a->data_streams[i].fd < 0) { slot = &a->data_streams[i]; break; }
+        }
+        if (!slot) {
+            close(c);
+            continue;
+        }
+        slot->fd = c;
+        slot->accepted = 0;
+        slot->rejected = 0;
+        slot->opened_ms = t;
+        slot->app = a;
+        tb_parser_init(&slot->parser, on_data_stream_packet, slot);
+    }
+}
+
+static int drain_data_streams(struct app *a, uint64_t t) {
+    int activity = 0;
+    for (int i = 0; i < TB_MAX_DATA_STREAMS; ++i) {
+        struct tb_data_stream *stream = &a->data_streams[i];
+        if (stream->fd < 0) continue;
+        const int result = drain_fd(a, stream->fd, &stream->parser);
+        if (result < 0 || stream->rejected ||
+            (!stream->accepted && t - stream->opened_ms > 2000)) {
+            fprintf(stderr, "[main] data stream closed%s\n",
+                    stream->rejected ? " (wrong token)" : "");
+            close_data_stream(stream);
+            continue;
+        }
+        if (result > 0) activity = 1;
+    }
+    return activity;
 }
 
 static void write_be32(uint8_t *dst, uint32_t value) {
@@ -1363,6 +1795,20 @@ static int send_all(int fd, const uint8_t *buf, size_t len) {
         return -1;
     }
     return 0;
+}
+
+/* Tells the Sender that the session was ended here on purpose, so it shows
+ * that and does not reconnect by itself. */
+static void tb_receiver_send_teardown(int fd, const char *reason) {
+    if (fd < 0) return;
+    char json[96];
+    const int json_len = snprintf(json, sizeof(json), "{\"reason\":\"%s\"}", reason ? reason : "");
+    if (json_len <= 0 || (size_t)json_len >= sizeof(json)) return;
+    uint8_t packet[5 + sizeof(json)];
+    write_be32(packet, (uint32_t)json_len + 1u);
+    packet[4] = TB_PKT_TEARDOWN;
+    memcpy(packet + 5, json, (size_t)json_len);
+    (void)send_all(fd, packet, 5u + (size_t)json_len);
 }
 
 static void tb_receiver_send_input_event(struct app *a,
@@ -1867,7 +2313,8 @@ static void send_receiver_info(struct app *a) {
         "{\"receiverName\":\"%s\",\"panelWidth\":%u,\"panelHeight\":%u,"
         "\"modeWidth\":%u,\"modeHeight\":%u,\"refreshRate\":60,"
         "\"hiDPI\":%s,\"captureWidth\":%u,\"captureHeight\":%u,"
-        "\"supportsHEVCDecode\":%s,\"supportsRawNV12\":true,\"inputMonitoringTrusted\":%s,\"accessibilityTrusted\":%s,"
+        "\"supportsHEVCDecode\":%s,\"supportsRawNV12\":true,\"supportsRawRegions\":true,\"supportsRawLZ4\":true,\"supportsRawRGB10\":%s,"
+        "\"appVersion\":\"" TB_RECEIVER_VERSION "\",\"rawDataStreams\":%d,\"streamToken\":\"%s\",\"inputMonitoringTrusted\":%s,\"accessibilityTrusted\":%s,"
         "\"supportsNightShift\":%s,\"supportsTrueTone\":%s}",
         escaped_name,
         profile.panel_w,
@@ -1878,6 +2325,11 @@ static void send_receiver_info(struct app *a) {
         profile.capture_w,
         profile.capture_h,
         tb_dec_supports_hevc_hwdecode() ? "true" : "false",
+        /* Full 10-bit colour only where it is shown in 10 bits (Metal);
+         * otherwise the Sender uses the 10-bit dithered mode instead. */
+        tb_disp_native_rgb10(a->disp) ? "true" : "false",
+        TB_MAX_DATA_STREAMS,
+        a->stream_token,
         tb_receiver_input_monitoring_trusted() ? "true" : "false",
         tb_receiver_accessibility_trusted() ? "true" : "false",
         tb_night_shift_supported() ? "true" : "false",
@@ -1901,11 +2353,47 @@ static void send_receiver_info(struct app *a) {
     free(pkt);
 }
 
+static void tb_receiver_update_window_visibility(struct app *a) {
+    const int session = a->client_fd >= 0 && a->session_active;
+    /* The window shows during a session and when requested: at start
+     * ("Always show this window at start", in every app mode), from the menu,
+     * or by opening the app again (Finder, Dock). */
+    const int visible = session || a->window_requested;
+
+    tb_disp_set_close_hides(a->disp, a->background_mode && !session);
+    if (visible) {
+        tb_background_ui_update(a->presentation, a->show_window_at_start, 1, session, a->status_text);
+        tb_disp_set_window_visible(a->disp, 1);
+        if (a->signin_mode && !a->signin_window_shown) {
+            tb_signin_prepare_windows();
+            a->signin_window_shown = 1;
+        }
+    } else {
+        a->signin_window_shown = 0;
+        tb_disp_set_window_visible(a->disp, 0);
+        tb_background_ui_update(a->presentation, a->show_window_at_start, 0, session, a->status_text);
+    }
+}
+
 static void close_client(struct app *a) {
     if (a->client_fd >= 0) close(a->client_fd);
     a->client_fd = -1;
+    tb_restore_system_volume();
     a->session_active = 0;
     a->close_requested = 0;
+    /* Standard mode returns to the waiting window; background and faceless
+     * hide it. */
+    a->window_requested = !a->background_mode;
+    tb_receiver_drop_pending_frame(a);
+    tb_receiver_reset_pending_raw(a);
+    tb_disp_reset_video(a->disp);
+    tb_raw_frame_free(&a->raw_frame);
+    close_data_streams(a);
+    a->stream_token[0] = '\0';
+    a->version_notice_until_ms = 0;
+    tb_disp_set_notice_text(a->disp, NULL);
+    tb_background_ui_set_update_notice(NULL);
+    tb_disp_set_stats_text(a->disp, NULL);
     a->have_video_frame = 0;
     snprintf(a->input_control_mode, sizeof(a->input_control_mode), "off");
     SDL_EnableScreenSaver();
@@ -1952,6 +2440,7 @@ static void build_display_host(char *buf, size_t bufsz, const char *ip_fallback,
 
 int main(int argc, char **argv) {
     int fullscreen = 1;
+    int signin_mode = 0;
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--permission-status") == 0) {
             printf(
@@ -1962,6 +2451,7 @@ int main(int argc, char **argv) {
             return 0;
         }
         if (strcmp(argv[i], "--windowed") == 0) fullscreen = 0;
+        if (strcmp(argv[i], "--login-window") == 0) signin_mode = 1;
     }
 
     char startup_language_pref[8];
@@ -2007,6 +2497,7 @@ int main(int argc, char **argv) {
     memset(&a, 0, sizeof(a));
     a.server_fd = -1;
     a.client_fd = -1;
+    for (int i = 0; i < TB_MAX_DATA_STREAMS; ++i) a.data_streams[i].fd = -1;
     if (tb_receiver_load_or_create_id(a.receiver_id, sizeof(a.receiver_id),
                                      CFSTR("com.targetbridge.receiver")) == 0) {
         fprintf(stderr, "[identity] receiver ID ready\n");
@@ -2040,8 +2531,39 @@ int main(int argc, char **argv) {
     tb_gesture_bridge_install(tb_receiver_space_switch_callback, &a);
     tb_gesture_bridge_set_active(0);
 
-    a.disp = tb_disp_create(fullscreen);
+    a.presentation = tb_app_presentation_load();
+    a.background_mode = a.presentation != TB_APP_PRESENTATION_STANDARD;
+    a.show_window_at_start = tb_show_window_at_start_load();
+    a.signin_mode = signin_mode;
+    if (a.signin_mode) {
+        /* No waiting screen and no menu bar icon: the window exists only
+         * while a Mac streams, above the sign-in window. */
+        tb_signin_set_active(1);
+        a.presentation = TB_APP_PRESENTATION_FACELESS;
+        a.background_mode = 1;
+        a.show_window_at_start = 0;
+        SDL_SetHint(SDL_HINT_VIDEO_MAC_FULLSCREEN_SPACES, "0");
+        fprintf(stderr, "[signin] sign-in screen mode (experimental)\n");
+    }
+    a.window_requested = a.show_window_at_start;
+    a.perf_newest_frame = tb_pref_get("perfNewestFrameOnly", 1);
+    a.perf_wake_on_data = tb_pref_get("perfWakeOnData", 1);
+    a.video_renderer = tb_pref_get_int("videoRenderer", TB_DISP_RENDERER_TARGETBRIDGE);
+    if (a.video_renderer < TB_DISP_RENDERER_TARGETBRIDGE || a.video_renderer > TB_DISP_RENDERER_SDL_OPENGL) {
+        a.video_renderer = TB_DISP_RENDERER_TARGETBRIDGE;
+    }
+    a.display_sync = tb_pref_get("metalDisplaySync", 0);
+    a.perf_show_stats = tb_pref_get("perfShowStats", 0);
+    if (a.signin_mode) a.perf_show_stats = 0;   /* never on the sign-in screen */
+    a.disp = tb_disp_create(fullscreen, !a.window_requested, a.video_renderer);
     if (!a.disp) { fprintf(stderr, "tb_disp_create failed\n"); return 1; }
+    tb_disp_set_display_sync(a.disp, a.display_sync);
+    if (a.signin_mode) {
+        tb_disp_set_end_session_gestures(a.disp, 1);
+        tb_signin_prepare_windows();
+    } else {
+        tb_background_ui_install();
+    }
 
     /* SDL starts with screen-saver inhibition enabled. A Receiver that has not
      * accepted a client yet never reaches close_client(), so release the
@@ -2059,6 +2581,7 @@ int main(int argc, char **argv) {
     bonjour_update(&a, TB_PORT);
 
     a.dec = tb_dec_create(on_frame, &a);
+    if (a.dec) tb_dec_set_pixel_buffer_cb(a.dec, on_pixel_buffer);
     if (!a.dec) { fprintf(stderr, "tb_dec_create failed\n"); tb_disp_destroy(a.disp); return 1; }
 
     tb_parser_init(&a.parser, on_packet, &a);
@@ -2074,6 +2597,95 @@ int main(int argc, char **argv) {
         int socket_activity = 0;
         CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.0, true);
         if (disp_actions & TB_DISP_ACTION_QUIT) break;
+        if (disp_actions & TB_DISP_ACTION_HIDE_WINDOW) a.window_requested = 0;
+        if (a.signin_mode) {
+            const uint64_t signin_now = now_ms();
+            /* Esc or a double-click on the iMac: end the session, give the
+             * sign-in window back and refuse new sessions for a while. */
+            if ((disp_actions & TB_DISP_ACTION_END_SESSION) && a.client_fd >= 0) {
+                fprintf(stderr, "[signin] session ended on the iMac\n");
+                tb_receiver_send_teardown(a.client_fd, "ended_on_receiver");
+                close_client(&a);
+                a.signin_refuse_until_ms = signin_now + TB_SIGNIN_REFUSE_MS;
+            }
+            /* Someone logged in: the normal Receiver takes over. */
+            if (signin_now - a.signin_last_console_check_ms >= 2000) {
+                a.signin_last_console_check_ms = signin_now;
+                if (tb_signin_console_user_logged_in()) {
+                    fprintf(stderr, "[signin] a user logged in; quitting\n");
+                    if (a.client_fd >= 0) close_client(&a);
+                    break;
+                }
+            }
+        }
+
+        unsigned int ui_actions = tb_background_ui_take_actions();
+        if (ui_actions & TB_BACKGROUND_UI_QUIT) break;
+        if (ui_actions & TB_BACKGROUND_UI_SHOW_WINDOW) a.window_requested = 1;
+        if (ui_actions & TB_BACKGROUND_UI_TOGGLE) {
+            const int requested = tb_background_ui_take_presentation_request();
+            if (requested >= TB_APP_PRESENTATION_STANDARD && requested <= TB_APP_PRESENTATION_FACELESS) {
+                a.presentation = requested;
+                a.background_mode = requested != TB_APP_PRESENTATION_STANDARD;
+                /* Keep the window open after the change; it hides when closed. */
+                a.window_requested = 1;
+                tb_app_presentation_save(a.presentation);
+            }
+        }
+        if (ui_actions & TB_BACKGROUND_UI_TOGGLE_NEWEST_FRAME) {
+            a.perf_newest_frame = !a.perf_newest_frame;
+            tb_pref_set("perfNewestFrameOnly", a.perf_newest_frame);
+        }
+        if (ui_actions & TB_BACKGROUND_UI_TOGGLE_WAKE_ON_DATA) {
+            a.perf_wake_on_data = !a.perf_wake_on_data;
+            tb_pref_set("perfWakeOnData", a.perf_wake_on_data);
+        }
+        /* Expert settings. The renderer applies on the next launch: it is
+         * chosen at startup. */
+        if (ui_actions & TB_BACKGROUND_UI_RENDERER_TARGETBRIDGE) a.video_renderer = TB_DISP_RENDERER_TARGETBRIDGE;
+        if (ui_actions & TB_BACKGROUND_UI_RENDERER_SDL_METAL) a.video_renderer = TB_DISP_RENDERER_SDL_METAL;
+        if (ui_actions & TB_BACKGROUND_UI_RENDERER_SDL_OPENGL) a.video_renderer = TB_DISP_RENDERER_SDL_OPENGL;
+        if (ui_actions & (TB_BACKGROUND_UI_RENDERER_TARGETBRIDGE | TB_BACKGROUND_UI_RENDERER_SDL_METAL |
+                          TB_BACKGROUND_UI_RENDERER_SDL_OPENGL)) {
+            tb_pref_set_int("videoRenderer", a.video_renderer);
+        }
+        if (ui_actions & (TB_BACKGROUND_UI_SIGNIN_INSTALL | TB_BACKGROUND_UI_SIGNIN_UNINSTALL)) {
+            const int install = (ui_actions & TB_BACKGROUND_UI_SIGNIN_INSTALL) != 0;
+            char error[256] = {0};
+            const int result = install ? tb_signin_install(error, sizeof(error))
+                                       : tb_signin_uninstall(error, sizeof(error));
+            if (result == 0) {
+                tb_background_ui_show_message(
+                    tb_i18n_get(install ? "receiver.signin.installed_title" : "receiver.signin.uninstalled_title"),
+                    tb_i18n_get(install ? "receiver.signin.installed_text" : "receiver.signin.uninstalled_text"));
+            } else if (result < 0) {
+                tb_background_ui_show_message(tb_i18n_get("receiver.signin.failed_title"), error);
+            }
+            tb_background_ui_set_signin_installed(tb_signin_installed());
+        }
+        if (ui_actions & TB_BACKGROUND_UI_SIGNIN_HELP) {
+            /* The same notes as after installing. */
+            tb_background_ui_show_message(tb_i18n_get("receiver.signin.how_to_use_title"),
+                                          tb_i18n_get("receiver.signin.installed_text"));
+        }
+        if (ui_actions & TB_BACKGROUND_UI_TOGGLE_DISPLAY_SYNC) {
+            a.display_sync = !a.display_sync;
+            tb_pref_set("metalDisplaySync", a.display_sync);
+            tb_disp_set_display_sync(a.disp, a.display_sync);
+        }
+        if (ui_actions & TB_BACKGROUND_UI_TOGGLE_STATS) {
+            a.perf_show_stats = !a.perf_show_stats;
+            tb_pref_set("perfShowStats", a.perf_show_stats);
+            if (!a.perf_show_stats) tb_disp_set_stats_text(a.disp, NULL);
+        }
+        tb_background_ui_set_performance(a.perf_newest_frame, a.perf_wake_on_data,
+                                         a.video_renderer, a.display_sync, a.perf_show_stats);
+        if (ui_actions & TB_BACKGROUND_UI_TOGGLE_SHOW_AT_START) {
+            a.show_window_at_start = !a.show_window_at_start;
+            tb_show_window_at_start_save(a.show_window_at_start);
+        }
+        tb_receiver_update_window_visibility(&a);
+
         if ((disp_actions & TB_DISP_ACTION_CYCLE_LANGUAGE) && a.client_fd < 0) {
             tb_receiver_cycle_language_preference(&a);
         }
@@ -2081,6 +2693,7 @@ int main(int argc, char **argv) {
         uint64_t t = now_ms();
 
         if (t - a.last_ip_check_ms >= 1000) {
+            if (!a.signin_mode) tb_background_ui_set_signin_installed(tb_signin_installed());
             char refreshed_tb_ip[64] = {0};
             char refreshed_usb_ip[64] = {0};
             char refreshed_net_ip[64] = {0};
@@ -2134,6 +2747,13 @@ int main(int argc, char **argv) {
         /* Accept new client */
         if (a.client_fd < 0) {
             int c = tb_net_accept(a.server_fd);
+            if (c >= 0 && a.signin_mode && t < a.signin_refuse_until_ms) {
+                fprintf(stderr, "[signin] refusing a session for %llu s after it was ended on the iMac\n",
+                        (unsigned long long)((a.signin_refuse_until_ms - t) / 1000));
+                tb_receiver_send_teardown(c, "ended_on_receiver");
+                close(c);
+                c = -1;
+            }
             if (c >= 0) {
                 a.client_fd = c;
                 a.have_video_frame = 0;
@@ -2145,11 +2765,17 @@ int main(int argc, char **argv) {
                 fprintf(stderr, "[main] client connected\n");
                 tb_parser_free(&a.parser);
                 tb_parser_init(&a.parser, on_packet, &a);
+                snprintf(a.stream_token, sizeof(a.stream_token), "%08x%08x",
+                         arc4random(), arc4random());
                 tb_receiver_refresh_input_capture(&a);
                 send_receiver_info(&a);
             }
         } else {
+            accept_data_streams(&a, t);
             int drain_result = drain_socket(&a);
+            if (drain_result >= 0 && drain_data_streams(&a, t) > 0 && drain_result == 0) {
+                drain_result = 1;
+            }
             if (drain_result < 0) {
                 close_client(&a);
             } else {
@@ -2194,6 +2820,11 @@ int main(int argc, char **argv) {
         if (t - a.last_tweak_poll_ms >= 500) {
             a.last_tweak_poll_ms = t;
             tb_receiver_send_display_tweaks_if_changed(&a);
+        }
+
+        if (a.client_fd >= 0) {
+            tb_receiver_present_pending_frame(&a);
+            tb_receiver_present_pending_raw(&a);
         }
 
         if (a.client_fd < 0 || !a.session_active) {
@@ -2274,22 +2905,77 @@ int main(int argc, char **argv) {
             }
         }
 
+        if (a.version_notice_until_ms != 0 && t >= a.version_notice_until_ms) {
+            a.version_notice_until_ms = 0;
+            tb_disp_set_notice_text(a.disp, NULL);
+        }
+
         /* FPS log */
         if (t - a.last_fps_tick_ms >= 1000) {
             uint64_t df = a.frames - a.last_fps_count;
             a.last_fps_count   = a.frames;
             a.last_fps_tick_ms = t;
-            if (df > 0) fprintf(stderr, "[main] %llu fps\n", (unsigned long long)df);
+            char stats[256];
+            char changed[64] = "";
+            const double draw_avg_ms = a.stats_draw_count
+                ? (double)a.stats_draw_us_total / 1000.0 / (double)a.stats_draw_count : 0.0;
+            if (a.stats_region_height > 0) {
+                /* Share of the screen's rows that the sender had to send. */
+                snprintf(changed, sizeof(changed), " | changed %.0f%%%s",
+                         100.0 * (double)a.stats_region_rows / (double)a.stats_region_height,
+                         a.stats_rgb10_frames == 0 ? ""
+                             : tb_disp_native_rgb10(a.disp) ? " | 10-bit RGB" : " | 10-bit RGB shown as 8-bit");
+            }
+            snprintf(stats, sizeof(stats),
+                     "%llu fps | %llu skipped | draw %.1f ms (max %.1f) | %.0f Mbit/s%s | %s",
+                     (unsigned long long)df,
+                     (unsigned long long)a.stats_skipped,
+                     draw_avg_ms,
+                     (double)a.stats_draw_us_max / 1000.0,
+                     (double)a.stats_bytes * 8.0 / 1000000.0,
+                     changed,
+                     tb_disp_renderer_name(a.disp));
+            if (df > 0) fprintf(stderr, "[main] %s\n", stats);
+            tb_disp_set_stats_text(a.disp, a.perf_show_stats && a.client_fd >= 0 ? stats : NULL);
+            a.stats_skipped = 0;
+            a.stats_draw_us_total = 0;
+            a.stats_draw_us_max = 0;
+            a.stats_draw_count = 0;
+            a.stats_bytes = 0;
+            a.stats_region_rows = 0;
+            a.stats_region_height = 0;
+            a.stats_rgb10_frames = 0;
         }
 
         /* Yield when idle or when a nonblocking active socket had no data,
          * otherwise the receiver can busy-spin between incoming frame packets. */
         if (a.client_fd < 0 || !a.have_video_frame || socket_activity == 0) {
-            SDL_Delay(1);
+            if (a.client_fd >= 0 && a.perf_wake_on_data) {
+                /* Same 1 ms ceiling, but returns as soon as data arrives
+                 * on the session or any of its data streams. */
+                struct pollfd pfds[1 + TB_MAX_DATA_STREAMS];
+                nfds_t count = 0;
+                pfds[count].fd = a.client_fd;
+                pfds[count].events = POLLIN;
+                pfds[count].revents = 0;
+                count++;
+                for (int i = 0; i < TB_MAX_DATA_STREAMS; ++i) {
+                    if (a.data_streams[i].fd < 0) continue;
+                    pfds[count].fd = a.data_streams[i].fd;
+                    pfds[count].events = POLLIN;
+                    pfds[count].revents = 0;
+                    count++;
+                }
+                (void)poll(pfds, count, 1);
+            } else {
+                SDL_Delay(1);
+            }
         }
     }
 
     if (a.client_fd >= 0) close(a.client_fd);
+    close_data_streams(&a);
+    tb_restore_system_volume();
     tb_receiver_stop_input_tap(&a);
     if (a.server_fd >= 0) close(a.server_fd);
     bonjour_deinit(&a);

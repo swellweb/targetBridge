@@ -1,0 +1,13 @@
+{
+  "id": "targetbridge.brightness-keys",
+  "name": "Brightness Keys",
+  "version": "1.0",
+  "summary": "Use the Mac's brightness keys for the TargetBridge display under the mouse pointer. Needs Accessibility permission.",
+  "author": "TargetBridge",
+  "minimumSenderVersion": "3.6",
+  "capabilities": [
+    "brightness-keys"
+  ],
+  "experimental": true,
+  "defaultEnabled": false
+}

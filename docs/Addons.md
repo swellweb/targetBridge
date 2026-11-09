@@ -20,6 +20,8 @@ The current official manifests bundled with the app are:
 - `Network Link`
 - `Audio Relay`
 - `Input Dockstation`
+- `TargetBridge Audio Device`
+- `Brightness Keys`
 
 Bundled official addon manifests also ship inside the app bundle and are mirrored to:
 
@@ -131,3 +133,13 @@ Notes
 - If an addon is incompatible with the installed Sender version, it will still be listed in the UI but marked incompatible.
 - This addon system currently targets the Sender UI and feature gating; it does not load arbitrary executable code from addon manifests.
 - The current input relay implementation does not suppress local input on the Sender. Events continue to affect the Sender while also being forwarded to the active remote session.
+
+TargetBridge Audio Device
+-------------------------
+
+Enables the TargetBridge Audio source and the driver controls in **Settings > Audio**. It needs Audio Relay. Turning the add-on off does not uninstall a driver, so remove the driver first if the device should leave macOS. Sessions set to the device use system audio capture while the add-on is off.
+
+Brightness Keys
+---------------
+
+Experimental and off by default. While the mouse pointer is on a connected TargetBridge display, the Mac's brightness keys change that receiver's brightness in steps of 1/16 and macOS does not receive the key. On any other display, the keys work normally. This needs Accessibility permission. Mirrored sessions keep the Mac's normal behavior because the pointer stays on the Mac's own display.

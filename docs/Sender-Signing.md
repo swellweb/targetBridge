@@ -10,6 +10,127 @@ Receiver (`com.targetbridge.receiver`). Both must retain their respective
 bundle ID, installation path, and signing identity. This matters whenever the
 app has been granted a macOS privacy permission.
 
+## Keep permissions on your own Macs: sign after installing
+
+Pre-built downloads are signed ad-hoc, so macOS treats every update as a new
+app and asks for Screen Recording, Accessibility and Input Monitoring again.
+Signing the installed apps yourself with one certificate of your own fixes
+that. It takes about ten minutes once, then one Terminal command per update.
+No Apple Developer account is needed.
+
+You sign on **one** Mac, the one with the certificate, and copy the signed
+apps to your other Macs. The other Macs don't need the certificate: the
+signature travels with the app.
+
+### Part 1: create the certificate (once)
+
+Skip this part if you already have a `.p12` file for TargetBridge; import it
+by double-clicking it and continue with Part 2.
+
+1. Open **Keychain Access**: press Cmd+Space, type `Keychain Access`, press
+   Return. (On macOS 15 and later, Spotlight finds it even though it is no
+   longer in the Utilities folder.)
+2. In the menu bar choose **Keychain Access → Certificate Assistant →
+   Create a Certificate…**
+3. Fill in:
+   - **Name:** `TargetBridge Code Signing` (exactly this; the signing script
+     looks for this name)
+   - **Identity Type:** Self Signed Root
+   - **Certificate Type:** Code Signing
+4. Click **Create**, confirm the warning with **Continue**, then click
+   **Done**.
+5. Make a backup: in Keychain Access, select **login** on the left and **My
+   Certificates** at the top, right-click **TargetBridge Code Signing** and
+   choose **Export…**. Save it as `TargetBridge-CodeSigning.p12` and set a
+   password. Keep the file and the password safe, for example in your
+   password manager. With a new certificate you'd have to approve the
+   permissions again.
+
+### Part 2: trust the certificate (once, on the signing Mac)
+
+1. In Keychain Access, select **login** and **My Certificates**,
+   double-click **TargetBridge Code Signing**, expand **Trust**, and set
+   **Code Signing** to **Always Trust**. Leave all other settings at "no
+   value specified". Close the window and confirm with your Mac password.
+2. Check it: open **Terminal** (Cmd+Space, type `Terminal`) and run
+   ```bash
+   security find-identity -v -p codesigning
+   ```
+   The list must contain `"TargetBridge Code Signing"`. If it says
+   `0 valid identities found`, repeat step 1.
+
+### Part 3: sign every update in one go
+
+1. Make a new folder for the update, for example **TargetBridge 4.0** in
+   Downloads, and save all downloads in it: the Sender and the Receiver, for
+   Apple silicon (`arm64`) and Intel (`x86_64`), whichever you need. Zipped
+   or unzipped doesn't matter.
+2. Put the signing script into the same folder. In Terminal (adjust the
+   folder name):
+   ```bash
+   cd ~/Downloads/"TargetBridge 4.0"
+   curl -fsSL -o sign-local.sh https://raw.githubusercontent.com/mjfrank/targetBridge/4.0/scripts/sign-local.sh
+   ```
+   You can also download
+   [`sign-local.sh`](../scripts/sign-local.sh) in the browser and move it
+   into the folder.
+3. Run it:
+   ```bash
+   bash sign-local.sh
+   ```
+   It unpacks the zips into one folder per download, signs every app it
+   finds and lists which app belongs on which Mac, for example
+   `TargetBridge Receiver.app (x86_64, for Intel Macs)`. Each app ends with
+   a line like `ok: Authority=TargetBridge Code Signing`. If Keychain Access
+   asks to allow `codesign` to use the key, enter your Mac password and
+   choose **Always Allow**.
+4. For the apps that run on this Mac, the script asks
+   `Install … into /Applications on this Mac? [y/N]`. Quit the app first,
+   then answer `y`.
+
+### Part 4: copy the apps to your other Macs
+
+1. Quit TargetBridge on the other Mac.
+2. Copy the signed app from the update folder to that Mac, for example with
+   AirDrop, a USB stick or file sharing, and drag it into **Applications**.
+   Choose **Replace** if asked. Keep the name exactly `TargetBridge.app` or
+   `TargetBridge Receiver.app`.
+3. If macOS says the app can't be opened because Apple can't check it (this
+   happens after AirDrop or a download), run on that Mac:
+   ```bash
+   xattr -dr com.apple.quarantine "/Applications/TargetBridge Receiver.app"
+   ```
+   (or `/Applications/TargetBridge.app`), or click **Open Anyway** in
+   **System Settings → Privacy & Security**. This doesn't change the
+   signature.
+
+**The first time only**, macOS asks for the permissions once more, because
+the app's identity changed from ad-hoc to your certificate. Approve them in
+**System Settings → Privacy & Security** (Screen Recording on the Sender Mac;
+Accessibility and Input Monitoring where you use them). If the app is listed
+there already but doesn't work, select it, remove it with **–**, and add it
+again with **+**. From the next update on, the permissions stay.
+
+### Troubleshooting
+
+- **`No valid code-signing certificate named "TargetBridge Code Signing"`**:
+  the certificate is missing or not trusted on this Mac; do Part 2 again.
+- **The app still asks for permissions after an update**: the update wasn't
+  signed, or was signed with another certificate. Sign it again and approve
+  the permissions one last time.
+- **Check which certificate an app is signed with:**
+  ```bash
+  codesign -dv /Applications/TargetBridge.app 2>&1 | grep Authority
+  ```
+- **Sign the apps already in Applications** instead of a download folder:
+  `bash sign-local.sh --applications`
+- **A certificate with another name:** set `TB_SIGN_IDENTITY`, for example
+  `TB_SIGN_IDENTITY="My Certificate" bash sign-local.sh`.
+
+If the macOS firewall is on, the Receiver's sign-in screen mode also needs
+the signed Receiver: the firewall only keeps allowing connections at the
+sign-in window for an app whose signature doesn't change with every update.
+
 ## Build and sign
 
 Use one persistent certificate and keep `com.targetbridge.sender` as the bundle

@@ -9,6 +9,13 @@ enum TBMonitorPacketType: UInt8 {
     case frame = 0x21
     case rawFrame = 0x22   // Uncompressed NV12 planes (raw passthrough mode)
     case audioFrame = 0x23
+    /// Changed rows of a raw NV12 frame, optionally LZ4-compressed. Only sent
+    /// to receivers that advertise `supportsRawRegions`.
+    case rawRegions = 0x24
+    /// First packet on an extra data connection, carrying the receiver's stream token.
+    case dataStreamHello = 0x25
+    /// One part of a raw frame sent over parallel data streams.
+    case rawRegionsPart = 0x26
     case heartbeat = 0x30
     case teardown = 0x31
     case cursor = 0x32
@@ -30,6 +37,8 @@ struct TBMonitorHelloReceiver: Codable {
     var captureWidth: Int?
     var captureHeight: Int?
     var codec: String?
+    /// Sender app version, so the Receiver can point out a mismatch.
+    var appVersion: String?
 }
 
 struct TBMonitorDisplayProfile: Codable {
@@ -44,11 +53,27 @@ struct TBMonitorDisplayProfile: Codable {
     var captureHeight: Int
     var supportsHEVCDecode: Bool?
     var supportsRawNV12: Bool?
+    /// Receiver understands packet type 0x24 (changed rows only).
+    var supportsRawRegions: Bool?
+    /// Receiver can decode LZ4-compressed bands in packet type 0x24.
+    var supportsRawLZ4: Bool?
+    /// Receiver can show full 10-bit RGB raw frames (format 2 in packet 0x24/0x26).
+    var supportsRawRGB10: Bool?
+    /// How many extra data connections the receiver accepts for raw frames.
+    var rawDataStreams: Int?
+    /// Token a data connection must present in its first packet.
+    var streamToken: String?
+    /// Receiver app version (4.0 and later).
+    var appVersion: String?
     var inputMonitoringTrusted: Bool?
     var accessibilityTrusted: Bool?
     /// Optional so older receivers still decode; absent means "cannot".
     var supportsNightShift: Bool?
     var supportsTrueTone: Bool?
+}
+
+struct TBMonitorDataStreamHello: Codable {
+    var token: String
 }
 
 struct TBMonitorCreateSessionAck: Codable {

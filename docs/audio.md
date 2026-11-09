@@ -58,6 +58,27 @@ When broadcasting to multiple receivers, audio can be controlled on a per-sessio
 
 ---
 
+### 5. Audio Sources
+Each session chooses one audio source. New sessions start with the default set in **Settings > Audio**, which is system audio capture unless changed. The choice is saved with the session and can only be changed while disconnected.
+
+* **System audio capture**: The original ScreenCaptureKit pipeline above. It sends all sound from the Mac.
+* **TargetBridge Audio device**: An optional driver adds this output to the macOS sound settings. Its mix is looped back to an input stream on the same device (48 kHz stereo), and `TBAudioLoopbackCapture` reads that input. Only audio sent to this output reaches the receiver, so apps can be routed individually.
+
+Device behaviour:
+* **Visibility**: The device appears only while a session uses it. The Sender asks the driver to add it before reading audio and to remove it when the last such session ends. If the Sender quits or crashes, the driver removes the device once that process disconnects, or after 15 seconds if it never started reading.
+* **Automatic selection**: With **Select audio output automatically** on, which is the default for new sessions, a session selects the device each time it connects or reconnects.
+* **Output restore**: When the last session using the device ends, macOS returns to the previous output if the device is still selected, or to the built-in output if the previous one is gone.
+* **Fallback**: If the driver is missing or microphone access is denied, the session uses system audio capture.
+* **Volume**: The driver does not apply the device's volume or mute, so the stream stays at full level. The Sender forwards those controls to the Receiver, which sets the iMac's speaker volume. The session's volume slider is hidden.
+* **Scope**: There is one device. Every session using it receives the same stream. The receiver and the packet format are unchanged.
+* **Permission**: macOS treats reading any input device as microphone use, so its indicator shows during a session.
+
+For every audio source, the Receiver restores the volume it had before the session when the session ends, including when the connection drops.
+
+The driver is built with libASPL (`scripts/build_audio_driver.sh`) and embedded in `TargetBridge.app/Contents/PlugIns` by `scripts/build_targetbridge_sender_app.sh`, which CI and releases use. Install it from **Settings > Audio**, where the device can also be renamed. If the device is missing or does not update, restart macOS audio with `sudo killall coreaudiod`. For development, `sudo scripts/install_audio_driver.sh` installs the built driver and `-u` removes it.
+
+---
+
 ## 🔊 Receiver-Side Architecture (C)
 
 The receiver utilizes the cross-platform **SDL2 Audio Subsystem** configured for raw PCM playback:

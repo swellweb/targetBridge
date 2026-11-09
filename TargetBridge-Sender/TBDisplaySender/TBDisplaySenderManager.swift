@@ -59,6 +59,22 @@ final class TBDisplaySenderService: ObservableObject {
         }
     }
     @Published var showsMenuBarIcon = true
+    /// Standard, Background or Faceless (see `TBAppPresentation`).
+    @Published var appPresentation: TBAppPresentation = .load() {
+        didSet {
+            UserDefaults.standard.set(appPresentation.rawValue, forKey: TBAppPresentation.defaultsKey)
+            TBAppPresentationController.apply(appPresentation)
+        }
+    }
+    /// Background always shows the menu bar icon, Faceless never; Standard
+    /// follows "Show icon in top bar".
+    var menuBarIconVisible: Bool {
+        switch appPresentation {
+        case .standard: return showsMenuBarIcon
+        case .background: return true
+        case .faceless: return false
+        }
+    }
     @Published var largeCursor: Bool = UserDefaults.standard.bool(forKey: "fd.tbdisplaysender.largeCursor") {
         didSet {
             UserDefaults.standard.set(largeCursor, forKey: "fd.tbdisplaysender.largeCursor")
@@ -103,6 +119,20 @@ final class TBDisplaySenderService: ObservableObject {
             objectWillChange.send()
         }
     }
+    @Published var defaultAudioSource: TBAudioSource = UserDefaults.standard
+        .string(forKey: "fd.tbdisplaysender.defaultAudioSource")
+        .flatMap(TBAudioSource.init(rawValue:)) ?? .systemCapture {
+        didSet {
+            UserDefaults.standard.set(defaultAudioSource.rawValue, forKey: "fd.tbdisplaysender.defaultAudioSource")
+            objectWillChange.send()
+        }
+    }
+    @Published private(set) var audioDriverInstalled = TBAudioDriverInstaller.isInstalled
+    @Published private(set) var audioDriverBusy = false
+    @Published private(set) var audioDriverError: String?
+    @Published private(set) var audioDeviceName: String?
+    @Published private(set) var audioDeviceRenameFailed = false
+    private let brightnessKeyController = TBBrightnessKeyController()
     private var userQuitPending = false
     private var sessionCancellables: [UUID: AnyCancellable] = [:]
     private let receiverDiscovery = TBReceiverDiscovery()
@@ -224,6 +254,10 @@ final class TBDisplaySenderService: ObservableObject {
         isAddonCapabilityEnabled(.audioRelay)
     }
 
+    var audioOutputDeviceAvailable: Bool {
+        audioRelayAvailable && isAddonCapabilityEnabled(.audioOutputDevice)
+    }
+
     var inputDockstationAvailable: Bool {
         isAddonCapabilityEnabled(.inputDockstation)
     }
@@ -260,8 +294,8 @@ final class TBDisplaySenderService: ObservableObject {
             receiverAddress: session.receiverIP.trimmingCharacters(in: .whitespacesAndNewlines),
             receiverProfileAvailable: session.receiverSupportsHEVCDecodeHint != nil,
             receiverSupportsHEVC: session.receiverSupportsHEVCDecodeHint,
-            requiresHEVC: session.codecPreference == .hevc || (
-                session.codecPreference == .automatic && session.capturePreset.codecName == "HEVC"
+            requiresHEVC: session.effectiveCodecPreference == .hevc || (
+                session.effectiveCodecPreference == .automatic && session.capturePreset.codecName == "HEVC"
             ),
             cableRate: session.cableTestResult,
             requiresSenderInputMonitoring: role == .senderMaster,
@@ -283,6 +317,7 @@ final class TBDisplaySenderService: ObservableObject {
             preventDisplaySleep: preventDisplaySleep,
             autoRestartOnWake: autoRestartOnWake,
             audioEnabled: audioEnabled,
+            audioSource: defaultAudioSource,
             verboseDisplayLogging: verboseDisplayLogging
         )
         if let previous = sessions.last {
@@ -304,6 +339,7 @@ final class TBDisplaySenderService: ObservableObject {
 
     func removeSession(_ session: TBDisplaySenderSession) {
         guard sessions.count > 1 else { return }
+        TBSessionSettingsWindows.shared.close(session.id)
         session.stop()
         sessions.removeAll { $0.id == session.id }
         sessionCancellables.removeValue(forKey: session.id)
@@ -377,6 +413,11 @@ final class TBDisplaySenderService: ObservableObject {
         var capturePreset: String
         var captureSource: String
         var audioEnabled: Bool
+        var audioSource: String?
+        var selectsAudioOutputOnConnect: Bool?
+        var customName: String?
+        var customDisplayName: String?
+        var autoConnect: Bool?
         var brightness: Double
         var inputGestureMode: String
         var volume: Double?
@@ -384,6 +425,9 @@ final class TBDisplaySenderService: ObservableObject {
         var inputBindings: [TBInputBinding]?
         var matchRenderToStream: Bool?
         var codecPreference: String?
+        var profileCodecPreference: String?
+        var parallelStreams: Bool?
+        var keepAlive: Bool?
     }
 
     private var lastPersistedData: Data?
@@ -413,13 +457,21 @@ final class TBDisplaySenderService: ObservableObject {
                 capturePreset: session.capturePreset.rawValue,
                 captureSource: session.captureSource.rawValue,
                 audioEnabled: session.audioEnabled,
+                audioSource: session.audioSource.rawValue,
+                selectsAudioOutputOnConnect: session.selectsAudioOutputOnConnect,
+                customName: session.customName,
+                customDisplayName: session.customDisplayName,
+                autoConnect: session.autoConnect,
                 brightness: session.brightness,
                 inputGestureMode: session.inputGestureMode.rawValue,
                 volume: session.volume,
                 inputControlRole: session.inputControlRole.rawValue,
                 inputBindings: session.inputBindings,
                 matchRenderToStream: session.matchRenderToStream,
-                codecPreference: session.codecPreference.rawValue
+                codecPreference: session.codecPreference.rawValue,
+                profileCodecPreference: session.profileCodecPreference?.rawValue,
+                parallelStreams: session.parallelStreams,
+                keepAlive: session.keepAlive
             )
         }
         guard let data = try? JSONEncoder().encode(configs) else { return }
@@ -504,18 +556,30 @@ final class TBDisplaySenderService: ObservableObject {
             from: config.audioEnabled,
             repairPending: !UserDefaults.standard.bool(forKey: Self.audioPreferenceRepairKey)
         )
+        session.audioSource = config.audioSource
+            .flatMap(TBAudioSource.init(rawValue:))
+            ?? defaultAudioSource
+        session.selectsAudioOutputOnConnect = config.selectsAudioOutputOnConnect ?? false
+        session.customName = config.customName ?? ""
+        session.customDisplayName = config.customDisplayName ?? ""
+        session.autoConnect = config.autoConnect ?? false
         session.brightness = config.brightness
         session.volume = config.volume ?? 0.5
         session.matchRenderToStream = config.matchRenderToStream ?? false
         session.codecPreference = config.codecPreference
             .flatMap(TBDisplayCodecPreference.init(rawValue:))
             ?? .automatic
+        session.profileCodecPreference = config.profileCodecPreference
+            .flatMap(TBDisplayCodecPreference.init(rawValue:))
+        session.parallelStreams = config.parallelStreams ?? true
+        session.keepAlive = config.keepAlive ?? false
     }
 
     func refreshLocalInterfaces() {
         localInterfaces = detectLocalInterfaces()
         receiverDiscovery.refresh()
         normalizeSessionInterfaces()
+        reconcileDiscoveredReceivers(discoveredReceivers)
         objectWillChange.send()
     }
 
@@ -537,7 +601,14 @@ final class TBDisplaySenderService: ObservableObject {
     /// Bonjour can rediscover the same receiver with a new address after a
     /// cable reconnect or wake. Keep selected receivers on their active
     /// transport address, while leaving manually entered addresses untouched.
+    /// Receivers seen in the last discovery update; a receiver missing from it
+    /// counts as newly appeared (cable plugged in, receiver started).
+    private var presentReceiverIdentities: Set<String> = []
+
     private func reconcileDiscoveredReceivers(_ receivers: [TBDiscoveredReceiver]) {
+        let present = Set(receivers.map(\.stableIdentity))
+        let appeared = present.subtracting(presentReceiverIdentities)
+        presentReceiverIdentities = present
         for session in sessions where
             !session.selectedReceiverID.isEmpty &&
             !session.isConnected &&
@@ -553,12 +624,24 @@ final class TBDisplaySenderService: ObservableObject {
             session.receiverIP = receiver.ip(for: session.transportKind)
             session.receiverSupportsHEVCDecodeHint = receiver.supportsHEVCDecode
             restoreCodecPreference(for: receiver, to: session, defaultToAutomatic: false)
+            if appeared.contains(receiver.stableIdentity) {
+                session.connectBecauseReceiverAppeared()
+            }
         }
     }
 
     func setCodecPreference(_ preference: TBDisplayCodecPreference, for session: TBDisplaySenderSession) {
         guard !session.isConnected, !session.isStreaming else { return }
+        // Within an uncompressed-mode profile the choice belongs to the
+        // profile, not to the receiver's general setting.
+        if session.capturePreset.defaultCodecPreference != nil {
+            guard session.capturePreset.allowedCodecPreferences.contains(preference) else { return }
+            session.profileCodecPreference = preference
+            if preference.needsParallelStreams { session.parallelStreams = true }
+            return
+        }
         session.codecPreference = preference
+        if preference.needsParallelStreams { session.parallelStreams = true }
         guard let key = receiverCodecPreferenceKey(for: session) else { return }
         var preferences = persistedCodecPreferences
         preferences[key] = preference.rawValue
@@ -653,6 +736,11 @@ final class TBDisplaySenderService: ObservableObject {
     }
 
     func sessionTitle(for session: TBDisplaySenderSession) -> String {
+        let name = session.customName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? defaultSessionTitle(for: session) : name
+    }
+
+    func defaultSessionTitle(for session: TBDisplaySenderSession) -> String {
         let index = sessions.firstIndex(where: { $0.id == session.id }).map { $0 + 1 } ?? 0
         return TBDisplaySenderL10n.sessionTitle(language, index: index)
     }
@@ -683,6 +771,47 @@ final class TBDisplaySenderService: ObservableObject {
 
     func refreshAddons() {
         addonStore.refresh()
+    }
+
+    func refreshAudioDriverStatus() {
+        audioDriverInstalled = TBAudioDriverInstaller.isInstalled
+        audioDeviceName = TBAudioLoopbackCapture.deviceName()
+    }
+
+    func renameAudioDevice(to name: String) {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else { return }
+        audioDeviceRenameFailed = !TBAudioLoopbackCapture.renameDevice(to: trimmedName)
+        refreshAudioDriverStatus()
+    }
+
+    func installAudioDriver() {
+        guard let source = TBAudioDriverInstaller.bundledURL else { return }
+        runAudioDriverCommand(TBAudioDriverInstaller.installCommand(from: source))
+    }
+
+    func removeAudioDriver() {
+        runAudioDriverCommand(TBAudioDriverInstaller.removeCommand)
+    }
+
+    private func runAudioDriverCommand(_ command: String) {
+        guard !audioDriverBusy else { return }
+        audioDriverBusy = true
+        audioDriverError = nil
+        Task { @MainActor [weak self] in
+            var failure: String?
+            do {
+                try await TBAudioDriverInstaller.runAsAdministrator(command)
+            } catch {
+                failure = error.localizedDescription
+            }
+            guard let self else { return }
+            self.audioDriverError = failure
+            // coreaudiod needs a moment to come back with the driver loaded.
+            try? await Task.sleep(for: .seconds(2))
+            self.audioDriverBusy = false
+            self.refreshAudioDriverStatus()
+        }
     }
 
     func openAddonsFolder() {
@@ -719,6 +848,11 @@ final class TBDisplaySenderService: ObservableObject {
 
     private func attachSession(_ session: TBDisplaySenderSession) {
         session.audioAddonAvailable = audioRelayAvailable
+        session.audioOutputDeviceAvailable = audioOutputDeviceAvailable
+        session.sessionTitleProvider = { [weak self, weak session] in
+            guard let self, let session else { return "" }
+            return self.sessionTitle(for: session)
+        }
         session.onRemoteSwitchRequest = { [weak self, weak session] direction in
             guard let self, let session else { return }
             self.switchReceiverMasterTarget(from: session, direction: direction)
@@ -796,6 +930,32 @@ final class TBDisplaySenderService: ObservableObject {
         addonStore.isCapabilityEnabled(capability)
     }
 
+    func updateBrightnessKeyController() {
+        guard isAddonCapabilityEnabled(.brightnessKeys) else {
+            brightnessKeyController.stop()
+            return
+        }
+        brightnessKeyController.handler = { [weak self] key in
+            self?.handleBrightnessKey(key) ?? false
+        }
+        brightnessKeyController.start()
+    }
+
+    /// Keys over a TargetBridge display adjust that receiver. All others stay with macOS.
+    private func handleBrightnessKey(_ key: TBBrightnessKeyEvent) -> Bool {
+        guard let pointer = CGEvent(source: nil)?.location else { return false }
+        var displayID = kCGNullDirectDisplay
+        var count: UInt32 = 0
+        guard CGGetDisplaysWithPoint(pointer, 1, &displayID, &count) == .success, count > 0,
+              let session = sessions.first(where: { $0.isShowing(displayID: displayID) }) else {
+            return false
+        }
+        if key.isPressed {
+            session.stepBrightness(increase: key.isIncrease)
+        }
+        return true
+    }
+
     private func normalizeAddonState() {
         let networkLinkEnabled = isAddonCapabilityEnabled(.networkLink)
         let audioEnabled = audioRelayAvailable
@@ -803,6 +963,7 @@ final class TBDisplaySenderService: ObservableObject {
 
         for session in sessions {
             session.audioAddonAvailable = audioEnabled
+            session.audioOutputDeviceAvailable = audioOutputDeviceAvailable
             if !networkLinkEnabled, session.transportKind == .networkLink {
                 session.transportKind = .thunderboltBridge
             }
@@ -813,6 +974,7 @@ final class TBDisplaySenderService: ObservableObject {
         }
 
         normalizeSessionInterfaces()
+        updateBrightnessKeyController()
         updateInputRelayController()
         sessions.forEach { $0.updateInputControlMode() }
     }

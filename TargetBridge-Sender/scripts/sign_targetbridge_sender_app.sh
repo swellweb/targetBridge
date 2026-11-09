@@ -29,6 +29,10 @@ BUNDLE_ID=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$PLIST")
 
 # Use the system-generated designated requirement. Never weaken it to just a
 # bundle identifier: certificate-bound identity is what makes updates trustworthy.
+DRIVER="$APP/Contents/PlugIns/TargetBridgeAudio.driver"
+if [[ -d "$DRIVER" ]]; then
+    /usr/bin/codesign --force --sign "$IDENTITY" "$DRIVER"
+fi
 /usr/bin/codesign --force --sign "$IDENTITY" "$APP"
 /usr/bin/codesign --verify --deep --strict --all-architectures "$APP"
 DETAILS=$(/usr/bin/codesign -dv "$APP" 2>&1)

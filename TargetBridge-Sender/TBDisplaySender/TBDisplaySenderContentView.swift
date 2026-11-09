@@ -1,4 +1,45 @@
+import AppKit
 import SwiftUI
+
+/// Session settings use real windows so they get the standard title bar controls.
+@MainActor
+final class TBSessionSettingsWindows: NSObject, NSWindowDelegate {
+    static let shared = TBSessionSettingsWindows()
+
+    private var windows: [UUID: NSWindow] = [:]
+
+    func show(service: TBDisplaySenderService, session: TBDisplaySenderSession) {
+        let sessionID = session.id
+        if let window = windows[sessionID] {
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
+        let view = TBDisplaySenderSessionSettingsSheet(service: service, session: session) { [weak self] in
+            self?.close(sessionID)
+        }
+        let window = NSWindow(contentViewController: NSHostingController(rootView: view))
+        window.styleMask = [.titled, .closable, .miniaturizable]
+        window.title = service.sessionTitle(for: session)
+        window.appearance = NSAppearance(named: .darkAqua)
+        window.isReleasedWhenClosed = false
+        window.delegate = self
+        window.center()
+        windows[sessionID] = window
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func close(_ sessionID: UUID) {
+        windows[sessionID]?.close()
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow else { return }
+        windows = windows.filter { $0.value !== window }
+    }
+}
 
 struct TBDisplaySenderContentView: View {
     @ObservedObject var service: TBDisplaySenderService
@@ -204,7 +245,6 @@ struct TBDisplaySenderContentView: View {
 private struct TBDisplaySenderSessionCard: View {
     @ObservedObject var service: TBDisplaySenderService
     @ObservedObject var session: TBDisplaySenderSession
-    @State private var showingSessionSettings = false
 
     private let summaryColumns = [
         GridItem(.adaptive(minimum: 180), spacing: 12)
@@ -214,19 +254,34 @@ private struct TBDisplaySenderSessionCard: View {
         SurfaceCard {
             VStack(alignment: .leading, spacing: 16) {
                 topBar
+                if let notice = session.versionNotice {
+                    versionNoticeBanner(notice)
+                }
                 summaryGrid
                 if session.isConnected {
                     brightnessCard
                 }
-                if session.isConnected && session.audioEnabled {
+                if session.isConnected && session.audioEnabled && !session.isUsingOutputDevice {
                     volumeCard
                 }
                 monitorDetailsCard
             }
         }
-        .sheet(isPresented: $showingSessionSettings) {
-            TBDisplaySenderSessionSettingsSheet(service: service, session: session)
+    }
+
+    private func versionNoticeBanner(_ notice: String) -> some View {
+        HStack(alignment: .center, spacing: 12) {
+            Image(systemName: "exclamationmark.arrow.triangle.2.circlepath")
+                .foregroundStyle(.orange)
+            Text(notice)
+                .font(.callout)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 8)
+            Link(TBDisplaySenderL10n.downloadUpdate(service.language), destination: TBVersionCheck.downloadURL)
+                .buttonStyle(.bordered)
         }
+        .padding(12)
+        .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
     }
 
     private var topBar: some View {
@@ -257,7 +312,7 @@ private struct TBDisplaySenderSessionCard: View {
                 .disabled(!session.isConnected && (trimmedReceiverIP.isEmpty || session.localInterfaceIP.isEmpty))
 
                 Button {
-                    showingSessionSettings = true
+                    TBSessionSettingsWindows.shared.show(service: service, session: session)
                 } label: {
                     Label(TBDisplaySenderL10n.showSettings(service.language), systemImage: "gearshape.2")
                 }
@@ -546,7 +601,7 @@ private struct TBDisplaySenderSessionCard: View {
 private struct TBDisplaySenderSessionSettingsSheet: View {
     @ObservedObject var service: TBDisplaySenderService
     @ObservedObject var session: TBDisplaySenderSession
-    @Environment(\.dismiss) private var dismiss
+    let onClose: () -> Void
     @State private var configurationChecks: [TBConfigurationCheck] = []
 
     var body: some View {
@@ -555,6 +610,38 @@ private struct TBDisplaySenderSessionSettingsSheet: View {
                 header
 
                 settingsSection(title: connectionSettingsTitle) {
+                    settingRow(
+                        TBDisplaySenderL10n.text("sender.session.name_label", service.language),
+                        details: TBDisplaySenderL10n.text("sender.session.name_details", service.language)
+                    ) {
+                        TextField(service.defaultSessionTitle(for: session), text: $session.customName)
+                            .textFieldStyle(.roundedBorder)
+                    }
+
+                    settingRow(
+                        TBDisplaySenderL10n.text("sender.session.display_name_label", service.language),
+                        details: TBDisplaySenderL10n.text("sender.session.display_name_details", service.language)
+                    ) {
+                        TextField(service.sessionTitle(for: session), text: $session.customDisplayName)
+                            .textFieldStyle(.roundedBorder)
+                    }
+
+                    settingRow(
+                        TBDisplaySenderL10n.text("sender.session.auto_connect_label", service.language),
+                        details: TBDisplaySenderL10n.text("sender.session.auto_connect_details", service.language)
+                    ) {
+                        Toggle("", isOn: $session.autoConnect)
+                            .labelsHidden()
+                    }
+
+                    settingRow(
+                        TBDisplaySenderL10n.text("sender.session.keep_alive_label", service.language),
+                        details: TBDisplaySenderL10n.text("sender.session.keep_alive_details", service.language)
+                    ) {
+                        Toggle("", isOn: $session.keepAlive)
+                            .labelsHidden()
+                    }
+
                     settingRow(TBDisplaySenderL10n.transportKind(service.language), details: transportDetails) {
                         Picker(TBDisplaySenderL10n.transportKind(service.language), selection: $session.transportKind) {
                             ForEach(service.availableTransportKinds) { transportKind in
@@ -635,21 +722,29 @@ private struct TBDisplaySenderSessionSettingsSheet: View {
                         .disabled(session.isConnected || session.isStreaming)
                     }
 
+                    // Profiles for the uncompressed modes start with their own mode
+                    // and allow switching between the uncompressed modes only.
                     settingRow(
                         TBDisplaySenderL10n.videoCompression(service.language),
-                        details: TBDisplaySenderL10n.codecPreferenceHint(
-                            session.codecPreference,
-                            language: service.language
-                        )
+                        details: session.capturePreset.defaultCodecPreference == nil
+                            ? TBDisplaySenderL10n.codecPreferenceHint(
+                                session.codecPreference,
+                                language: service.language
+                            )
+                            : TBDisplaySenderL10n.codecSetByProfile(service.language) + " "
+                                + TBDisplaySenderL10n.codecPreferenceHint(
+                                    session.effectiveCodecPreference,
+                                    language: service.language
+                                )
                     ) {
                         Picker(
                             TBDisplaySenderL10n.videoCompression(service.language),
                             selection: Binding(
-                                get: { session.codecPreference },
+                                get: { session.effectiveCodecPreference },
                                 set: { service.setCodecPreference($0, for: session) }
                             )
                         ) {
-                            ForEach(TBDisplayCodecPreference.allCases) { preference in
+                            ForEach(session.capturePreset.allowedCodecPreferences) { preference in
                                 Text(TBDisplaySenderL10n.codecPreferenceTitle(
                                     preference,
                                     language: service.language
@@ -659,6 +754,17 @@ private struct TBDisplaySenderSessionSettingsSheet: View {
                         }
                         .pickerStyle(.menu)
                         .disabled(session.isConnected || session.isStreaming)
+                    }
+
+                    if session.effectiveCodecPreference.usesParallelStreams {
+                        settingRow(
+                            TBDisplaySenderL10n.parallelStreams(service.language),
+                            details: TBDisplaySenderL10n.parallelStreamsHint(service.language)
+                        ) {
+                            Toggle("", isOn: $session.parallelStreams)
+                                .labelsHidden()
+                                .disabled(session.isConnected || session.isStreaming)
+                        }
                     }
 
                     // A native-scale profile already renders the desktop 1:1 with the
@@ -678,6 +784,29 @@ private struct TBDisplaySenderSessionSettingsSheet: View {
                             Toggle("", isOn: $session.audioEnabled)
                                 .labelsHidden()
                                 .disabled(session.isConnected || session.isStreaming)
+                        }
+
+                        if session.audioEnabled, service.audioOutputDeviceAvailable {
+                            settingRow(audioSourceTitle, details: audioSourceDetails) {
+                                Picker(audioSourceTitle, selection: $session.audioSource) {
+                                    ForEach(TBAudioSource.allCases) { source in
+                                        Text(source.title(service.language)).tag(source)
+                                    }
+                                }
+                                .labelsHidden()
+                                .pickerStyle(.menu)
+                                .disabled(session.isConnected || session.isStreaming)
+                            }
+
+                            if session.audioSource == .outputDevice {
+                                settingRow(
+                                    TBDisplaySenderL10n.text("sender.audio_source.auto_select_label", service.language),
+                                    details: TBDisplaySenderL10n.text("sender.audio_source.auto_select_details", service.language)
+                                ) {
+                                    Toggle("", isOn: $session.selectsAudioOutputOnConnect)
+                                        .labelsHidden()
+                                }
+                            }
                         }
                     }
 
@@ -975,7 +1104,7 @@ private struct TBDisplaySenderSessionSettingsSheet: View {
                 Spacer()
 
                 Button(TBDisplaySenderL10n.hideSettings(service.language)) {
-                    dismiss()
+                    onClose()
                 }
                 .buttonStyle(.bordered)
             }
@@ -1080,6 +1209,18 @@ private struct TBDisplaySenderSessionSettingsSheet: View {
         case .french: return "Commencez avec des préréglages prudents sur Wi-Fi ou les liaisons lentes, puis augmentez-les si la stabilité reste bonne."
         case .chinese: return "在 Wi‑Fi 或较慢链路上先使用保守预设，稳定后再逐步提高。"
         }
+    }
+
+    private var audioSourceTitle: String {
+        TBDisplaySenderL10n.text("sender.audio_source.title", service.language)
+    }
+
+    private var audioSourceDetails: String {
+        var details = TBDisplaySenderL10n.text("sender.audio_source.details", service.language)
+        if session.audioSource == .outputDevice, !service.audioDriverInstalled {
+            details += " " + TBDisplaySenderL10n.text("sender.audio_source.driver_missing", service.language)
+        }
+        return details
     }
 
     private var audioDetails: String {

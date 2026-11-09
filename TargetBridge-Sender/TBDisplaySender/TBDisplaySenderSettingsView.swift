@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 struct TBDisplaySenderSettingsView: View {
     @ObservedObject var service: TBDisplaySenderService
     @State private var importError: String?
+    @State private var audioDeviceNameDraft = ""
 
     var body: some View {
         ScrollView {
@@ -52,12 +53,113 @@ struct TBDisplaySenderSettingsView: View {
                 }
 
                 settingsSection(title: interfaceTitle) {
+                    Picker(TBDisplaySenderL10n.text("sender.app_mode.label", service.language),
+                           selection: $service.appPresentation) {
+                        ForEach(TBAppPresentation.allCases) { presentation in
+                            Text(presentation.title(service.language)).tag(presentation)
+                        }
+                    }
+                    Text(TBDisplaySenderL10n.text("sender.app_mode.hint", service.language))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                     Toggle(TBDisplaySenderL10n.showMenuBarIcon(service.language), isOn: $service.showsMenuBarIcon)
+                        .disabled(service.appPresentation != .standard)
                     Toggle(TBDisplaySenderL10n.largeCursor(service.language), isOn: $service.largeCursor)
                         .disabled(service.anyConnected)
                     Toggle(TBDisplaySenderL10n.preventDisplaySleep(service.language), isOn: $service.preventDisplaySleep)
                     Toggle(TBDisplaySenderL10n.autoRestartOnWake(service.language), isOn: $service.autoRestartOnWake)
                     Toggle(TBDisplaySenderL10n.verboseDisplayLogging(service.language), isOn: $service.verboseDisplayLogging)
+                }
+
+                if service.audioOutputDeviceAvailable {
+                    settingsSection(title: audioText("sender.settings.audio_title")) {
+                        Picker(audioText("sender.settings.default_audio_source"), selection: $service.defaultAudioSource) {
+                            ForEach(TBAudioSource.allCases) { source in
+                                Text(source.title(service.language)).tag(source)
+                            }
+                        }
+                        .pickerStyle(.menu)
+
+                        Text(audioText(
+                            service.audioDriverInstalled
+                                ? "sender.settings.audio_driver_installed"
+                                : "sender.settings.audio_driver_missing"
+                        ))
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+
+                        if let deviceName = service.audioDeviceName {
+                            HStack(spacing: 12) {
+                                Text(audioText("sender.settings.audio_device_name"))
+                                TextField(deviceName, text: $audioDeviceNameDraft)
+                                    .textFieldStyle(.roundedBorder)
+                                Button(audioText("sender.settings.rename_audio_device")) {
+                                    service.renameAudioDevice(to: audioDeviceNameDraft)
+                                }
+                                .buttonStyle(.bordered)
+                                .disabled(
+                                    audioDeviceNameDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                        || audioDeviceNameDraft == deviceName
+                                )
+                            }
+                            .onAppear { audioDeviceNameDraft = deviceName }
+                            .onChange(of: deviceName) { _, newName in audioDeviceNameDraft = newName }
+                        }
+
+                        if TBAudioDriverInstaller.bundledURL != nil {
+                            Text(audioText("sender.settings.audio_driver_hint"))
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+
+                            HStack(spacing: 12) {
+                                Button(audioText(
+                                    service.audioDriverInstalled
+                                        ? "sender.settings.update_audio_driver"
+                                        : "sender.settings.install_audio_driver"
+                                )) {
+                                    service.installAudioDriver()
+                                }
+                                .buttonStyle(.borderedProminent)
+
+                                if service.audioDriverInstalled {
+                                    Button(audioText("sender.settings.remove_audio_driver")) {
+                                        service.removeAudioDriver()
+                                    }
+                                    .buttonStyle(.bordered)
+                                }
+                            }
+                            .disabled(service.audioDriverBusy || service.anyConnected)
+                        }
+
+                        if let error = service.audioDriverError {
+                            Text(TBDisplaySenderL10n.text(
+                                "sender.settings.audio_driver_failed",
+                                service.language,
+                                ["error": error]
+                            ))
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                            .fixedSize(horizontal: false, vertical: true)
+                        }
+
+                        if service.audioDeviceRenameFailed {
+                            Text(audioText("sender.settings.audio_device_rename_failed"))
+                                .font(.footnote)
+                                .foregroundStyle(.red)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+
+                        if showsAudioRestartHint {
+                            Text(audioText("sender.settings.audio_restart_hint"))
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Text(verbatim: "sudo killall coreaudiod")
+                                .font(.system(.footnote, design: .monospaced))
+                                .textSelection(.enabled)
+                        }
+                    }
                 }
 
                 settingsSection(title: behaviorTitle) {
@@ -136,6 +238,11 @@ struct TBDisplaySenderSettingsView: View {
             .padding(20)
         }
         .background(appBackground)
+        .preferredColorScheme(.dark)
+        .onAppear {
+            service.refreshAudioDriverStatus()
+            service.updateBrightnessKeyController()
+        }
         .alert(addonImportErrorTitle, isPresented: Binding(
             get: { importError != nil },
             set: { if !$0 { importError = nil } }
@@ -146,6 +253,17 @@ struct TBDisplaySenderSettingsView: View {
         } message: {
             Text(importError ?? "")
         }
+    }
+
+    private var showsAudioRestartHint: Bool {
+        guard !service.audioDriverBusy else { return false }
+        return service.audioDriverError != nil
+            || service.audioDeviceRenameFailed
+            || (service.audioDriverInstalled && service.audioDeviceName == nil)
+    }
+
+    private func audioText(_ key: String) -> String {
+        TBDisplaySenderL10n.text(key, service.language)
     }
 
     private func settingsSection<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
@@ -541,6 +659,16 @@ struct TBDisplaySenderSettingsView: View {
         case (.inputDockstation, .english): return "Input Dockstation"
         case (.inputDockstation, .german): return "Input Dockstation"
         case (.inputDockstation, .french): return "Station d’accueil des entrées"
+        case (.audioOutputDevice, .italian): return "Dispositivo audio"
+        case (.audioOutputDevice, .english): return "Audio Device"
+        case (.audioOutputDevice, .german): return "Audiogerät"
+        case (.audioOutputDevice, .french): return "Périphérique audio"
+        case (.audioOutputDevice, .chinese): return "音频设备"
+        case (.brightnessKeys, .italian): return "Tasti luminosità"
+        case (.brightnessKeys, .english): return "Brightness Keys"
+        case (.brightnessKeys, .german): return "Helligkeitstasten"
+        case (.brightnessKeys, .french): return "Touches de luminosité"
+        case (.brightnessKeys, .chinese): return "亮度键"
         case (.inputDockstation, .chinese): return "输入扩展坞"
         }
     }

@@ -25,13 +25,29 @@ struct tb_display_info {
 enum tb_display_action {
     TB_DISP_ACTION_NONE = 0,
     TB_DISP_ACTION_QUIT = 1 << 0,
-    TB_DISP_ACTION_CYCLE_LANGUAGE = 1 << 1
+    TB_DISP_ACTION_CYCLE_LANGUAGE = 1 << 1,
+    TB_DISP_ACTION_HIDE_WINDOW = 1 << 2,
+    TB_DISP_ACTION_END_SESSION = 1 << 3   /* sign-in screen mode: Esc / double-click */
 };
 
-struct tb_display *tb_disp_create(int fullscreen);
+/* Video renderer (Receiver menu > Expert settings, applies at start). */
+enum tb_disp_renderer {
+    TB_DISP_RENDERER_TARGETBRIDGE = 0, /* SDL Metal window, our Metal video view */
+    TB_DISP_RENDERER_SDL_METAL    = 1, /* SDL draws everything with Metal */
+    TB_DISP_RENDERER_SDL_OPENGL   = 2  /* SDL draws everything with OpenGL */
+};
+
+struct tb_display *tb_disp_create(int fullscreen, int start_hidden, int renderer);
 void               tb_disp_destroy(struct tb_display *d);
 void               tb_disp_set_connection_state(struct tb_display *d, int connected);
 void               tb_disp_set_input_capture_active(struct tb_display *d, int active);
+/* Sign-in screen mode: Esc or a double-click ends the session; other local
+ * input does nothing. */
+void               tb_disp_set_end_session_gestures(struct tb_display *d, int on);
+
+/* Background mode: the window can hide, and closing it hides it instead of quitting. */
+void               tb_disp_set_window_visible(struct tb_display *d, int visible);
+void               tb_disp_set_close_hides(struct tb_display *d, int close_hides);
 void               tb_disp_set_input_intercept_active(struct tb_display *d, int active);
 
 /* Whether the receiver display window is on the active macOS Space. Used to
@@ -48,6 +64,35 @@ void tb_disp_render_nv12(struct tb_display *d,
                          const uint8_t *uv, int uv_stride,
                          int w, int h);
 
+/* Upload only rows [first_row, end_row) of a tightly packed NV12 picture
+ * (stride = w), then render. A newly created texture gets the whole picture. */
+void tb_disp_render_nv12_rows(struct tb_display *d,
+                              const uint8_t *y, size_t y_capacity,
+                              const uint8_t *uv, size_t uv_capacity,
+                              int w, int h, int first_row, int end_row);
+
+/* A notice shown at the bottom of the picture (e.g. a version mismatch);
+ * NULL or "" removes it. */
+void tb_disp_set_notice_text(struct tb_display *d, const char *text);
+
+/* Same for 10-bit RGB (32-bit little-endian ARGB2101010, stride = w * 4).
+ * With the Metal renderer `pixels` is read by the GPU in place, so it must
+ * be 16 KiB aligned with `pixels_capacity` a multiple of 16 KiB (see
+ * tb_raw_frame); the picture is then shown in 10 bits. */
+void tb_disp_render_rgb10_rows(struct tb_display *d, const uint8_t *pixels, size_t pixels_capacity,
+                               int w, int h, int first_row, int end_row);
+
+/* Forgets the picture of the Metal video view, e.g. at the end of a session. */
+void tb_disp_reset_video(struct tb_display *d);
+
+/* Uncompressed modes on the TargetBridge Metal renderer: 1 = present in step
+ * with the display's refresh (no tearing, but the Receiver waits for it). */
+void tb_disp_set_display_sync(struct tb_display *d, int on);
+
+/* Whether the renderer keeps 10-bit RGB textures (otherwise SDL converts
+ * them to 8 bit on upload). */
+int  tb_disp_native_rgb10(struct tb_display *d);
+
 /* Update low-latency local cursor overlay in source-frame coordinates. */
 void tb_disp_set_cursor(struct tb_display *d,
                         int x, int y,
@@ -57,6 +102,10 @@ void tb_disp_set_cursor(struct tb_display *d,
                         int large);
 
 void tb_disp_set_brightness(struct tb_display *d, double level);
+
+/* Performance overlay drawn over the video. NULL or "" removes it. */
+void        tb_disp_set_stats_text(struct tb_display *d, const char *text);
+const char *tb_disp_renderer_name(struct tb_display *d);
 
 /* Poll input actions while idle/connected. */
 unsigned int tb_disp_poll_actions(struct tb_display *d);

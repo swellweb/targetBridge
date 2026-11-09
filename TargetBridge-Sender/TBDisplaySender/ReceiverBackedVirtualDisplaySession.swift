@@ -83,6 +83,7 @@ final class ReceiverBackedVirtualDisplaySession {
         refreshRate: Double? = nil,
         modeOverride: TBVirtualDisplayModeSize? = nil,
         identity: TBVirtualDisplayIdentity,
+        displayName customDisplayName: String? = nil,
         receiverKey: String
     ) -> Bool {
         destroy()
@@ -116,7 +117,7 @@ final class ReceiverBackedVirtualDisplaySession {
         }
 
         let descriptor = CGVirtualDisplayDescriptor()
-        descriptor.name = "\(identity.displayNamePrefix) - \(profile.receiverName)"
+        descriptor.name = customDisplayName ?? "\(identity.displayNamePrefix) - \(profile.receiverName)"
         descriptor.vendorID = 0xEEEE
         descriptor.productID = identity.productID
         descriptor.serialNum = identity.serialNumber
