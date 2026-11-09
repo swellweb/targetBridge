@@ -69,7 +69,7 @@ by double-clicking it and continue with Part 2.
    folder name):
    ```bash
    cd ~/Downloads/"TargetBridge 4.0"
-   curl -fsSL -o sign-local.sh https://raw.githubusercontent.com/mjfrank/targetBridge/performance/scripts/sign-local.sh
+   curl -fsSL -o sign-local.sh https://raw.githubusercontent.com/mjfrank/targetBridge/4.0/scripts/sign-local.sh
    ```
    You can also download
    [`sign-local.sh`](../scripts/sign-local.sh) in the browser and move it
