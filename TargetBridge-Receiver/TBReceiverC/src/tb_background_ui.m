@@ -334,9 +334,9 @@ static NSWindow *tb_ui_largest_window(void) {
     self.displaySyncItem.title = tb_ui_text("receiver.expert.display_sync");
     self.statsItem.title = tb_ui_text("receiver.performance.show_stats");
     self.loginHint.stringValue = tb_ui_text("receiver.background.login_hint");
-    [self.checkbox itemWithTag:TB_APP_PRESENTATION_STANDARD].title = tb_ui_text("receiver.app_mode.standard");
-    [self.checkbox itemWithTag:TB_APP_PRESENTATION_BACKGROUND].title = tb_ui_text("receiver.app_mode.background");
-    [self.checkbox itemWithTag:TB_APP_PRESENTATION_FACELESS].title = tb_ui_text("receiver.app_mode.faceless");
+    [self.checkbox.menu itemWithTag:TB_APP_PRESENTATION_STANDARD].title = tb_ui_text("receiver.app_mode.standard");
+    [self.checkbox.menu itemWithTag:TB_APP_PRESENTATION_BACKGROUND].title = tb_ui_text("receiver.app_mode.background");
+    [self.checkbox.menu itemWithTag:TB_APP_PRESENTATION_FACELESS].title = tb_ui_text("receiver.app_mode.faceless");
     self.presentationLabel.stringValue = tb_ui_text("receiver.app_mode.label");
     self.showAtStartCheckbox.title = tb_ui_text("receiver.background.show_at_start");
     [self layoutCheckboxes];
