@@ -24,6 +24,7 @@
 #include "tb_gesture_bridge.h"
 #include "tb_display_tweaks.h"
 #include "tb_background_ui.h"
+#include "tb_signin_mode.h"
 #include "tb_i18n.h"
 
 #include <SDL.h>
@@ -71,6 +72,9 @@
 #define TB_MAX_DATA_STREAMS 4
 
 struct app;
+
+/* Sign-in screen mode: no new session this long after one was ended on the iMac. */
+#define TB_SIGNIN_REFUSE_MS (5u * 60u * 1000u)
 
 struct tb_data_stream {
     int              fd;
@@ -135,6 +139,12 @@ struct app {
     uint64_t stats_bytes;
     int      show_window_at_start;
     int      window_requested;
+    /* Sign-in screen mode ("--login-window", started by macOS at the
+     * sign-in window when the mode is installed). */
+    int      signin_mode;
+    int      signin_window_shown;
+    uint64_t signin_refuse_until_ms;   /* after Esc / double-click on the iMac */
+    uint64_t signin_last_console_check_ms;
     int      have_video_frame;
     /* A real streaming session has begun (the sender sent a session packet, not
      * just a transient probe like a UI-language push). Gates the fullscreen
@@ -1615,6 +1625,12 @@ static void on_packet(uint8_t type, const uint8_t *payload, size_t len, void *ud
         tb_receiver_apply_input_event(payload, len);
         break;
     case TB_PKT_INPUT_CONTROL:
+        /* Sign-in screen mode: the iMac's keyboard and mouse never control
+         * the Mac, so nobody at the locked iMac can use it. */
+        if (a->signin_mode) {
+            fprintf(stderr, "[signin] ignoring input control request\n");
+            break;
+        }
         tb_receiver_apply_input_control_mode(a, payload, len);
         break;
     case TB_PKT_HEARTBEAT:
@@ -1778,6 +1794,20 @@ static int send_all(int fd, const uint8_t *buf, size_t len) {
         return -1;
     }
     return 0;
+}
+
+/* Tells the Sender that the session was ended here on purpose, so it shows
+ * that and does not reconnect by itself. */
+static void tb_receiver_send_teardown(int fd, const char *reason) {
+    if (fd < 0) return;
+    char json[96];
+    const int json_len = snprintf(json, sizeof(json), "{\"reason\":\"%s\"}", reason ? reason : "");
+    if (json_len <= 0 || (size_t)json_len >= sizeof(json)) return;
+    uint8_t packet[5 + sizeof(json)];
+    write_be32(packet, (uint32_t)json_len + 1u);
+    packet[4] = TB_PKT_TEARDOWN;
+    memcpy(packet + 5, json, (size_t)json_len);
+    (void)send_all(fd, packet, 5u + (size_t)json_len);
 }
 
 static void tb_receiver_send_input_event(struct app *a,
@@ -2330,7 +2360,12 @@ static void tb_receiver_update_window_visibility(struct app *a) {
     if (visible) {
         tb_background_ui_update(a->background_mode, a->show_window_at_start, 1, session, a->status_text);
         tb_disp_set_window_visible(a->disp, 1);
+        if (a->signin_mode && !a->signin_window_shown) {
+            tb_signin_prepare_windows();
+            a->signin_window_shown = 1;
+        }
     } else {
+        a->signin_window_shown = 0;
         tb_disp_set_window_visible(a->disp, 0);
         tb_background_ui_update(a->background_mode, a->show_window_at_start, 0, session, a->status_text);
     }
@@ -2399,6 +2434,7 @@ static void build_display_host(char *buf, size_t bufsz, const char *ip_fallback,
 
 int main(int argc, char **argv) {
     int fullscreen = 1;
+    int signin_mode = 0;
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--permission-status") == 0) {
             printf(
@@ -2409,6 +2445,7 @@ int main(int argc, char **argv) {
             return 0;
         }
         if (strcmp(argv[i], "--windowed") == 0) fullscreen = 0;
+        if (strcmp(argv[i], "--login-window") == 0) signin_mode = 1;
     }
 
     char startup_language_pref[8];
@@ -2490,6 +2527,16 @@ int main(int argc, char **argv) {
 
     a.background_mode = tb_background_mode_load();
     a.show_window_at_start = tb_show_window_at_start_load();
+    a.signin_mode = signin_mode;
+    if (a.signin_mode) {
+        /* No waiting screen and no menu bar icon: the window exists only
+         * while a Mac streams, above the sign-in window. */
+        tb_signin_set_active(1);
+        a.background_mode = 1;
+        a.show_window_at_start = 0;
+        SDL_SetHint(SDL_HINT_VIDEO_MAC_FULLSCREEN_SPACES, "0");
+        fprintf(stderr, "[signin] sign-in screen mode (experimental)\n");
+    }
     a.window_requested = a.background_mode && a.show_window_at_start;
     a.perf_newest_frame = tb_pref_get("perfNewestFrameOnly", 1);
     a.perf_wake_on_data = tb_pref_get("perfWakeOnData", 1);
@@ -2502,7 +2549,12 @@ int main(int argc, char **argv) {
     a.disp = tb_disp_create(fullscreen, a.background_mode && !a.show_window_at_start, a.video_renderer);
     if (!a.disp) { fprintf(stderr, "tb_disp_create failed\n"); return 1; }
     tb_disp_set_display_sync(a.disp, a.display_sync);
-    tb_background_ui_install();
+    if (a.signin_mode) {
+        tb_disp_set_end_session_gestures(a.disp, 1);
+        tb_signin_prepare_windows();
+    } else {
+        tb_background_ui_install();
+    }
 
     /* SDL starts with screen-saver inhibition enabled. A Receiver that has not
      * accepted a client yet never reaches close_client(), so release the
@@ -2537,6 +2589,26 @@ int main(int argc, char **argv) {
         CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.0, true);
         if (disp_actions & TB_DISP_ACTION_QUIT) break;
         if (disp_actions & TB_DISP_ACTION_HIDE_WINDOW) a.window_requested = 0;
+        if (a.signin_mode) {
+            const uint64_t signin_now = now_ms();
+            /* Esc or a double-click on the iMac: end the session, give the
+             * sign-in window back and refuse new sessions for a while. */
+            if ((disp_actions & TB_DISP_ACTION_END_SESSION) && a.client_fd >= 0) {
+                fprintf(stderr, "[signin] session ended on the iMac\n");
+                tb_receiver_send_teardown(a.client_fd, "ended_on_receiver");
+                close_client(&a);
+                a.signin_refuse_until_ms = signin_now + TB_SIGNIN_REFUSE_MS;
+            }
+            /* Someone logged in: the normal Receiver takes over. */
+            if (signin_now - a.signin_last_console_check_ms >= 2000) {
+                a.signin_last_console_check_ms = signin_now;
+                if (tb_signin_console_user_logged_in()) {
+                    fprintf(stderr, "[signin] a user logged in; quitting\n");
+                    if (a.client_fd >= 0) close_client(&a);
+                    break;
+                }
+            }
+        }
 
         unsigned int ui_actions = tb_background_ui_take_actions();
         if (ui_actions & TB_BACKGROUND_UI_QUIT) break;
@@ -2563,6 +2635,20 @@ int main(int argc, char **argv) {
                           TB_BACKGROUND_UI_RENDERER_SDL_OPENGL)) {
             tb_pref_set_int("videoRenderer", a.video_renderer);
         }
+        if (ui_actions & (TB_BACKGROUND_UI_SIGNIN_INSTALL | TB_BACKGROUND_UI_SIGNIN_UNINSTALL)) {
+            const int install = (ui_actions & TB_BACKGROUND_UI_SIGNIN_INSTALL) != 0;
+            char error[256] = {0};
+            const int result = install ? tb_signin_install(error, sizeof(error))
+                                       : tb_signin_uninstall(error, sizeof(error));
+            if (result == 0) {
+                tb_background_ui_show_message(
+                    tb_i18n_get(install ? "receiver.signin.installed_title" : "receiver.signin.uninstalled_title"),
+                    tb_i18n_get(install ? "receiver.signin.installed_text" : "receiver.signin.uninstalled_text"));
+            } else if (result < 0) {
+                tb_background_ui_show_message(tb_i18n_get("receiver.signin.failed_title"), error);
+            }
+            tb_background_ui_set_signin_installed(tb_signin_installed());
+        }
         if (ui_actions & TB_BACKGROUND_UI_TOGGLE_DISPLAY_SYNC) {
             a.display_sync = !a.display_sync;
             tb_pref_set("metalDisplaySync", a.display_sync);
@@ -2588,6 +2674,7 @@ int main(int argc, char **argv) {
         uint64_t t = now_ms();
 
         if (t - a.last_ip_check_ms >= 1000) {
+            if (!a.signin_mode) tb_background_ui_set_signin_installed(tb_signin_installed());
             char refreshed_tb_ip[64] = {0};
             char refreshed_usb_ip[64] = {0};
             char refreshed_net_ip[64] = {0};
@@ -2641,6 +2728,13 @@ int main(int argc, char **argv) {
         /* Accept new client */
         if (a.client_fd < 0) {
             int c = tb_net_accept(a.server_fd);
+            if (c >= 0 && a.signin_mode && t < a.signin_refuse_until_ms) {
+                fprintf(stderr, "[signin] refusing a session for %llu s after it was ended on the iMac\n",
+                        (unsigned long long)((a.signin_refuse_until_ms - t) / 1000));
+                tb_receiver_send_teardown(c, "ended_on_receiver");
+                close(c);
+                c = -1;
+            }
             if (c >= 0) {
                 a.client_fd = c;
                 a.have_video_frame = 0;

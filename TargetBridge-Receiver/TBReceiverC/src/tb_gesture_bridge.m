@@ -1,4 +1,5 @@
 #import "tb_gesture_bridge.h"
+#import "tb_signin_mode.h"
 
 #import <AppKit/AppKit.h>
 #import <CoreGraphics/CoreGraphics.h>
@@ -53,6 +54,9 @@ static uint64_t g_monitor_shield_generation = 0;
 static NSMutableArray *g_monitor_shield_observers = nil;
 
 static NSWindowLevel tb_monitor_shield_level(void) {
+    /* Sign-in screen mode: above the sign-in window, which sits far above
+     * normal windows. */
+    if (tb_signin_active()) return (NSWindowLevel)CGShieldingWindowLevel();
     NSWindowLevel status_level =
         (NSWindowLevel)CGWindowLevelForKey(kCGStatusWindowLevelKey);
     NSWindowLevel popup_level =
@@ -78,7 +82,11 @@ static void tb_apply_monitor_shield(void) {
     if (level_changed) {
         content.level = desired;
     }
-    if (g_monitor_shield_active && level_changed) {
+    if (g_monitor_shield_active && tb_signin_active()) {
+        /* Sign-in screen mode: take the keyboard so Esc reaches the Receiver. */
+        tb_signin_prepare_windows();
+        [content makeKeyAndOrderFront:nil];
+    } else if (g_monitor_shield_active && level_changed) {
         /* Do not make the Receiver key, but keep it first within its level if
          * macOS or SDL has reordered windows during a fullscreen transition. */
         [content orderFrontRegardless];

@@ -35,7 +35,7 @@ LDFLAGS  += -framework ApplicationServices -framework AppKit -framework CoreFoun
 endif
 
 C_SRC = src/main.c src/net.c src/decoder.c src/display.c src/input_queue.c src/idle_watchdog.c src/receiver_profile.c src/raw_regions.c src/version_check.c src/tb_i18n.c
-OBJC_SRC = src/tb_gesture_bridge.m src/tb_display_tweaks.m src/tb_background_ui.m src/tb_metal_view.m
+OBJC_SRC = src/tb_gesture_bridge.m src/tb_display_tweaks.m src/tb_background_ui.m src/tb_metal_view.m src/tb_signin_mode.m
 OBJ = $(C_SRC:.c=.o) $(OBJC_SRC:.m=.o)
 BIN = tbreceiver
 
@@ -94,8 +94,8 @@ test: $(TEST_BIN) $(TEST_INPUT_QUEUE_BIN) $(TEST_IDLE_WATCHDOG_BIN) $(TEST_RECEI
 	./$(TEST_VERSION_CHECK_BIN)
 
 # AppKit lifecycle coverage requires a logged-in macOS GUI session.
-test_monitor_shield: tests/test_monitor_shield.m src/tb_gesture_bridge.m src/tb_gesture_bridge.h
-	$(CC) -fobjc-arc -framework AppKit -framework CoreGraphics tests/test_monitor_shield.m -o $@
+test_monitor_shield: tests/test_monitor_shield.m src/tb_gesture_bridge.m src/tb_gesture_bridge.h src/tb_signin_mode.m
+	$(CC) -fobjc-arc -framework AppKit -framework CoreGraphics -framework SystemConfiguration tests/test_monitor_shield.m src/tb_signin_mode.m -o $@
 
 test-monitor-shield: test_monitor_shield
 	./test_monitor_shield

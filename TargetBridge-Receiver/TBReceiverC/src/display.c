@@ -57,6 +57,7 @@ struct tb_display {
     int           is_connected;
     int           is_connecting;
     int           input_capture_active;
+    int           end_session_gestures;  /* sign-in screen mode: Esc / double-click end the session */
     int           input_intercept_active;
     struct tb_input_queue input_queue;
     uint32_t      last_target_switch_tick;
@@ -1499,9 +1500,26 @@ unsigned int tb_disp_poll_actions(struct tb_display *d) {
     unsigned int actions = TB_DISP_ACTION_NONE;
     SDL_Event ev;
     while (SDL_PollEvent(&ev)) {
-        if (ev.type == SDL_QUIT) {
+        if (ev.type == SDL_QUIT && d->end_session_gestures) {
+            /* Sign-in screen mode: Cmd+Q must not stop the mode. */
+            actions |= TB_DISP_ACTION_END_SESSION;
+        }
+        else if (ev.type == SDL_QUIT) {
             if (d->close_hides) actions |= TB_DISP_ACTION_HIDE_WINDOW;
             else d->quit = 1;
+        }
+        /* Sign-in screen mode: Esc or a double-click on the iMac ends the
+         * session and gives the sign-in window back. */
+        else if (d->end_session_gestures && ev.type == SDL_KEYDOWN &&
+                 ev.key.keysym.sym == SDLK_ESCAPE) {
+            actions |= TB_DISP_ACTION_END_SESSION;
+        }
+        else if (d->end_session_gestures && ev.type == SDL_MOUSEBUTTONDOWN &&
+                 ev.button.button == SDL_BUTTON_LEFT && ev.button.clicks == 2) {
+            actions |= TB_DISP_ACTION_END_SESSION;
+        }
+        else if (d->end_session_gestures) {
+            /* Nothing else at the iMac does anything in this mode. */
         }
         else if (!d->input_capture_active &&
                  !d->input_intercept_active &&
@@ -1727,6 +1745,10 @@ void tb_disp_set_window_visible(struct tb_display *d, int visible) {
 
 void tb_disp_set_close_hides(struct tb_display *d, int close_hides) {
     if (d) d->close_hides = close_hides;
+}
+
+void tb_disp_set_end_session_gestures(struct tb_display *d, int on) {
+    if (d) d->end_session_gestures = on ? 1 : 0;
 }
 
 void tb_disp_set_input_capture_active(struct tb_display *d, int active) {

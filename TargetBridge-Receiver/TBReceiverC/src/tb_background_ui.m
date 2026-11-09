@@ -18,6 +18,11 @@ static NSString *const kShowWindowAtStartKey = @"showWindowAtStart";
 @property(nonatomic, strong) NSMenuItem *showAtStartItem;
 @property(nonatomic, strong) NSMenuItem *quitItem;
 @property(nonatomic, strong) NSMenuItem *performanceItem;
+@property(nonatomic, strong) NSMenuItem *signinItem;
+@property(nonatomic, strong) NSMenuItem *signinStatusLine;
+@property(nonatomic, strong) NSMenuItem *signinInstallItem;
+@property(nonatomic, strong) NSMenuItem *signinUninstallItem;
+@property(nonatomic) int signinInstalled;
 @property(nonatomic, strong) NSMenuItem *newestFrameItem;
 @property(nonatomic, strong) NSMenuItem *wakeOnDataItem;
 @property(nonatomic, strong) NSMenuItem *expertItem;
@@ -116,6 +121,18 @@ static NSWindow *tb_ui_largest_window(void) {
     _expertItem.submenu = expert;
     _performanceItem = [menu addItemWithTitle:@"" action:nil keyEquivalent:@""];
     _performanceItem.submenu = performance;
+
+    /* Experimental: show a Mac's picture at the sign-in window. Nothing is
+     * installed until the user chooses Install. */
+    NSMenu *signin = [[NSMenu alloc] init];
+    signin.autoenablesItems = NO;
+    _signinStatusLine = [signin addItemWithTitle:@"" action:nil keyEquivalent:@""];
+    _signinStatusLine.enabled = NO;
+    [signin addItem:NSMenuItem.separatorItem];
+    _signinInstallItem = [self addItemTo:signin action:@selector(installSignin:)];
+    _signinUninstallItem = [self addItemTo:signin action:@selector(uninstallSignin:)];
+    _signinItem = [menu addItemWithTitle:@"" action:nil keyEquivalent:@""];
+    _signinItem.submenu = signin;
     [menu addItem:NSMenuItem.separatorItem];
     _quitItem = [menu addItemWithTitle:@"" action:@selector(quit:) keyEquivalent:@""];
     _quitItem.target = self;
@@ -126,6 +143,21 @@ static NSWindow *tb_ui_largest_window(void) {
 - (void)openDownload:(id)sender {
     NSURL *url = [NSURL URLWithString:@TB_RECEIVER_DOWNLOAD_URL];
     if (url) [NSWorkspace.sharedWorkspace openURL:url];
+}
+
+- (void)installSignin:(id)sender {
+    self.actions |= TB_BACKGROUND_UI_SIGNIN_INSTALL;
+}
+
+- (void)uninstallSignin:(id)sender {
+    self.actions |= TB_BACKGROUND_UI_SIGNIN_UNINSTALL;
+}
+
+- (void)refreshSigninItems {
+    self.signinStatusLine.title = tb_ui_text(self.signinInstalled ? "receiver.signin.installed"
+                                                                   : "receiver.signin.not_installed");
+    self.signinInstallItem.enabled = !self.signinInstalled;
+    self.signinUninstallItem.enabled = self.signinInstalled;
 }
 
 - (void)showWindow:(id)sender {
@@ -237,6 +269,10 @@ static NSWindow *tb_ui_largest_window(void) {
     self.quitItem.title = tb_ui_text("receiver.background.quit");
     self.downloadItem.title = tb_ui_text("receiver.version.download");
     self.performanceItem.title = tb_ui_text("receiver.performance.menu");
+    self.signinItem.title = tb_ui_text("receiver.signin.menu");
+    self.signinInstallItem.title = tb_ui_text("receiver.signin.install");
+    self.signinUninstallItem.title = tb_ui_text("receiver.signin.uninstall");
+    [self refreshSigninItems];
     self.newestFrameItem.title = tb_ui_text("receiver.performance.newest_frame");
     self.wakeOnDataItem.title = tb_ui_text("receiver.performance.wake_on_data");
     self.expertItem.title = tb_ui_text("receiver.expert.menu");
@@ -374,4 +410,19 @@ unsigned int tb_background_ui_take_actions(void) {
     unsigned int actions = g_background_ui.actions;
     g_background_ui.actions = 0;
     return actions;
+}
+
+void tb_background_ui_set_signin_installed(int installed) {
+    if (!g_background_ui) return;
+    if (g_background_ui.signinInstalled == (installed ? 1 : 0) && g_background_ui.signinStatusLine.title.length > 0) return;
+    g_background_ui.signinInstalled = installed ? 1 : 0;
+    [g_background_ui refreshSigninItems];
+}
+
+void tb_background_ui_show_message(const char *title, const char *text) {
+    NSAlert *alert = [[NSAlert alloc] init];
+    alert.messageText = [NSString stringWithUTF8String:title ? title : ""] ?: @"";
+    alert.informativeText = [NSString stringWithUTF8String:text ? text : ""] ?: @"";
+    [NSApp activateIgnoringOtherApps:YES];
+    [alert runModal];
 }

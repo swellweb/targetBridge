@@ -52,6 +52,10 @@ screen, in 8-bit or, experimentally, 10-bit colour:
 - the uncompressed modes can spread each frame over up to 4 parallel
   connections (*Parallel connections*, on by default)
 - one-click **5K 60** stream profiles for each uncompressed mode
+- experimental **sign-in screen mode**: use the iMac as a display while it
+  shows the sign-in window ([guide](docs/SignIn-Screen-Mode.md))
+- **Connect automatically** behaves like plugging in a display, and the new
+  **Keep alive** option reconnects after a lost connection
 - a version check: both apps point out when the other one needs an update,
   with a download link
 - a guide and a small script to sign the apps on your own Mac with one
@@ -192,15 +196,19 @@ Accessibility and Input Monitoring again after every update. To avoid that,
 sign the installed apps with your own certificate after each install, before
 the first launch:
 
-1. Once per Mac: import your code-signing certificate (`.p12`) into the login
-   keychain and set it to *Always Trust* for code signing.
-2. After each update: copy the apps to `/Applications`, then run
-   [`scripts/sign-local.sh`](scripts/sign-local.sh):
+1. Once: create a certificate named `TargetBridge Code Signing` in Keychain
+   Access and add it to every Mac, trusted for code signing.
+2. Once per Mac: download [`scripts/sign-local.sh`](scripts/sign-local.sh):
    ```bash
-   bash sign-local.sh
+   curl -fsSL -o ~/sign-local.sh https://raw.githubusercontent.com/mjfrank/targetBridge/performance/scripts/sign-local.sh
+   ```
+3. After each update: quit the app, drag the new one into Applications, and
+   before opening it run:
+   ```bash
+   bash ~/sign-local.sh
    ```
 
-The step-by-step guide, including how to create a certificate, is in
+The step-by-step guide with every click is in
 [Sender signing](docs/Sender-Signing.md#keep-permissions-on-your-own-macs-sign-after-installing).
 
 ## Permissions
@@ -226,6 +234,7 @@ The step-by-step guide, including how to create a certificate, is in
 - Addon manifests and capability model: [docs/Addons.md](docs/Addons.md)
 - Audio transport internals: [docs/audio.md](docs/audio.md)
 - Uncompressed video, parallel streams, and performance switches: [docs/Performance.md](docs/Performance.md)
+- Sign-in screen mode (experimental): [docs/SignIn-Screen-Mode.md](docs/SignIn-Screen-Mode.md)
 - Release notes: [docs/releases/4.0.md](docs/releases/4.0.md)
 - Hardware, cables, adapters, and Thunderbolt Bridge networking: [docs/Hardware.md](docs/Hardware.md)
 - Translation workflow: [docs/Translations.md](docs/Translations.md)

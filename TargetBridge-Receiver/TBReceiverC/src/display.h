@@ -26,7 +26,8 @@ enum tb_display_action {
     TB_DISP_ACTION_NONE = 0,
     TB_DISP_ACTION_QUIT = 1 << 0,
     TB_DISP_ACTION_CYCLE_LANGUAGE = 1 << 1,
-    TB_DISP_ACTION_HIDE_WINDOW = 1 << 2
+    TB_DISP_ACTION_HIDE_WINDOW = 1 << 2,
+    TB_DISP_ACTION_END_SESSION = 1 << 3   /* sign-in screen mode: Esc / double-click */
 };
 
 /* Video renderer (Receiver menu > Expert settings, applies at start). */
@@ -40,6 +41,9 @@ struct tb_display *tb_disp_create(int fullscreen, int start_hidden, int renderer
 void               tb_disp_destroy(struct tb_display *d);
 void               tb_disp_set_connection_state(struct tb_display *d, int connected);
 void               tb_disp_set_input_capture_active(struct tb_display *d, int active);
+/* Sign-in screen mode: Esc or a double-click ends the session; other local
+ * input does nothing. */
+void               tb_disp_set_end_session_gestures(struct tb_display *d, int on);
 
 /* Background mode: the window can hide, and closing it hides it instead of quitting. */
 void               tb_disp_set_window_visible(struct tb_display *d, int visible);
