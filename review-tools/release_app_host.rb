@@ -4,7 +4,7 @@ require 'shellwords'
 require 'timeout'
 
 root = File.expand_path('..', __dir__)
-out = File.join(root, 'review-results/app-host-rc2')
+out = File.join(root, 'review-results', ARGV.fetch(0, 'app-host-rc2'))
 FileUtils.mkdir_p(out)
 backup = File.join(out, 'sender-before.plist')
 helper = File.join(__dir__, 'release_preferences.swift')
@@ -37,12 +37,12 @@ begin
 ensure
   system('pkill', '-TERM', '-f', "^#{Regexp.escape(host)}( |$)")
   if File.exist?(backup)
-    system('xcrun', 'swift', helper, 'restore', backup, exception: true)
+    system('defaults', 'import', 'com.targetbridge.sender', backup, exception: true)
   end
   system('open', '-a', '/Applications/TargetBridge.app', '--args', *original_args, exception: true)
-  sleep 3
+  sleep 5
   if File.exist?(backup)
-    system('xcrun', 'swift', helper, 'restore', backup, exception: true)
+    system('defaults', 'import', 'com.targetbridge.sender', backup, exception: true)
     system('xcrun', 'swift', helper, 'verify', backup, exception: true)
   end
 end
