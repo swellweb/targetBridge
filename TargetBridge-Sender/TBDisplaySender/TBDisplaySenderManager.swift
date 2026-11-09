@@ -411,6 +411,7 @@ final class TBDisplaySenderService: ObservableObject {
         var codecPreference: String?
         var profileCodecPreference: String?
         var parallelStreams: Bool?
+        var keepAlive: Bool?
     }
 
     private var lastPersistedData: Data?
@@ -453,7 +454,8 @@ final class TBDisplaySenderService: ObservableObject {
                 matchRenderToStream: session.matchRenderToStream,
                 codecPreference: session.codecPreference.rawValue,
                 profileCodecPreference: session.profileCodecPreference?.rawValue,
-                parallelStreams: session.parallelStreams
+                parallelStreams: session.parallelStreams,
+                keepAlive: session.keepAlive
             )
         }
         guard let data = try? JSONEncoder().encode(configs) else { return }
@@ -554,6 +556,7 @@ final class TBDisplaySenderService: ObservableObject {
         session.profileCodecPreference = config.profileCodecPreference
             .flatMap(TBDisplayCodecPreference.init(rawValue:))
         session.parallelStreams = config.parallelStreams ?? true
+        session.keepAlive = config.keepAlive ?? false
     }
 
     func refreshLocalInterfaces() {
@@ -582,7 +585,14 @@ final class TBDisplaySenderService: ObservableObject {
     /// Bonjour can rediscover the same receiver with a new address after a
     /// cable reconnect or wake. Keep selected receivers on their active
     /// transport address, while leaving manually entered addresses untouched.
+    /// Receivers seen in the last discovery update; a receiver missing from it
+    /// counts as newly appeared (cable plugged in, receiver started).
+    private var presentReceiverIdentities: Set<String> = []
+
     private func reconcileDiscoveredReceivers(_ receivers: [TBDiscoveredReceiver]) {
+        let present = Set(receivers.map(\.stableIdentity))
+        let appeared = present.subtracting(presentReceiverIdentities)
+        presentReceiverIdentities = present
         for session in sessions where
             !session.selectedReceiverID.isEmpty &&
             !session.isConnected &&
@@ -598,8 +608,8 @@ final class TBDisplaySenderService: ObservableObject {
             session.receiverIP = receiver.ip(for: session.transportKind)
             session.receiverSupportsHEVCDecodeHint = receiver.supportsHEVCDecode
             restoreCodecPreference(for: receiver, to: session, defaultToAutomatic: false)
-            if session.shouldAutoConnect {
-                session.connect()
+            if appeared.contains(receiver.stableIdentity) {
+                session.connectBecauseReceiverAppeared()
             }
         }
     }

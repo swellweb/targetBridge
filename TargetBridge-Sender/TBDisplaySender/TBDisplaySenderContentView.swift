@@ -634,6 +634,14 @@ private struct TBDisplaySenderSessionSettingsSheet: View {
                             .labelsHidden()
                     }
 
+                    settingRow(
+                        TBDisplaySenderL10n.text("sender.session.keep_alive_label", service.language),
+                        details: TBDisplaySenderL10n.text("sender.session.keep_alive_details", service.language)
+                    ) {
+                        Toggle("", isOn: $session.keepAlive)
+                            .labelsHidden()
+                    }
+
                     settingRow(TBDisplaySenderL10n.transportKind(service.language), details: transportDetails) {
                         Picker(TBDisplaySenderL10n.transportKind(service.language), selection: $session.transportKind) {
                             ForEach(service.availableTransportKinds) { transportKind in

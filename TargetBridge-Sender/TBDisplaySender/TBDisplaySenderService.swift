@@ -1530,13 +1530,47 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         let name = customDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
         return name.isEmpty ? sessionTitleProvider?() : name
     }
-    @Published var autoConnect = false {
-        didSet { autoConnectSuspended = false }
+    /// Connects when the receiver appears (cable plugged in, receiver
+    /// started, Sender launched), like plugging in a display. A session that
+    /// ends while the receiver stays reachable is left alone; see `keepAlive`.
+    @Published var autoConnect = false
+    /// Reconnects after a connection is lost unexpectedly. Off by default.
+    /// Not after Stop, and not after the receiver ended the session (for
+    /// example Esc on the iMac).
+    @Published var keepAlive = false {
+        didSet { if !keepAlive { cancelKeepAliveReconnect() } }
     }
-    /// Set by a manual Stop so a rediscovered receiver does not reconnect.
+    /// Set by a manual Stop: keep alive does not reconnect.
     private var autoConnectSuspended = false
-    var shouldAutoConnect: Bool {
-        autoConnect && !autoConnectSuspended && !isConnected && !isStreaming
+    /// Set when the receiver ended the session: keep alive does not reconnect.
+    private var endedByReceiver = false
+    private var keepAliveWorkItem: DispatchWorkItem?
+    private static let keepAliveRetryDelay: TimeInterval = 3
+
+    /// The receiver just appeared on the network.
+    func connectBecauseReceiverAppeared() {
+        guard autoConnect, !isConnected, !isStreaming, connection == nil else { return }
+        TBLog.connection.info("auto connect: receiver appeared")
+        connect()
+    }
+
+    private func cancelKeepAliveReconnect() {
+        keepAliveWorkItem?.cancel()
+        keepAliveWorkItem = nil
+    }
+
+    private func scheduleKeepAliveReconnect() {
+        guard keepAlive, !autoConnectSuspended, !endedByReceiver else { return }
+        cancelKeepAliveReconnect()
+        let item = DispatchWorkItem { [weak self] in
+            guard let self, self.keepAlive, !self.autoConnectSuspended, !self.endedByReceiver,
+                  !self.isConnected, !self.isStreaming, self.connection == nil,
+                  !self.receiverIP.isEmpty else { return }
+            TBLog.connection.info("keep alive: reconnecting after a lost connection")
+            self.connect()
+        }
+        keepAliveWorkItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.keepAliveRetryDelay, execute: item)
     }
     @Published var brightness: Double = 1.0 {
         didSet {
@@ -1964,6 +1998,8 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     func connect() {
         guard connection == nil, !receiverIP.isEmpty, !localInterfaceIP.isEmpty else { return }
         autoConnectSuspended = false
+        endedByReceiver = false
+        cancelKeepAliveReconnect()
         versionNotice = nil
         connectTimeoutWorkItem?.cancel()
         connectTimeoutWorkItem = nil
@@ -2174,6 +2210,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     ) {
         TBSenderAutomation.suspendAutomaticReconnectAfterUserStop()
         autoConnectSuspended = true
+        cancelKeepAliveReconnect()
         stop(
             resetStatusTo: .stopped,
             persistArrangement: persistArrangement,
@@ -2200,8 +2237,14 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         resetStatusTo status: TBDisplaySenderStatusState?,
         persistArrangement: Bool = true,
         teardownReason: String = "sender_internal_stop",
+        allowKeepAlive: Bool = true,
         teardownCompletion: (@MainActor @Sendable () -> Void)? = nil
     ) {
+        // Keep alive applies to sessions that were connected or connecting
+        // and ended without Stop; never to a cable test.
+        let keepAliveCandidate = allowKeepAlive && !isCableTesting && !isCableTestConnection
+            && teardownReason != "sender_user_stop"
+            && (connection != nil || isConnected || isStreaming)
         let connectionToClose = connection
         stopLoopbackAudio()
         captureRestartGeneration &+= 1
@@ -2276,6 +2319,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         lastCursorPacket = nil
         captureDisplayText = TBDisplaySenderL10n.captureDisplayNotAvailable(language)
         displayStateText = TBDisplaySenderL10n.displayStateNotAvailable(language)
+        if keepAliveCandidate { scheduleKeepAliveReconnect() }
     }
 
     /// Stable per-receiver discriminator: the connection address when known
@@ -2591,6 +2635,10 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
             case .heartbeat:
                 break
             case .teardown:
+                // Ended on purpose on the receiver (Esc or double-click on
+                // the iMac): keep alive must not bring the picture back.
+                endedByReceiver = true
+                cancelKeepAliveReconnect()
                 setStatus(.receiverTerminatedSession)
                 stop(resetStatusTo: nil)
                 return
@@ -3019,7 +3067,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
                 }
                 self.isCableTestConnection = false
                 self.isCableTesting = false
-                self.stop(resetStatusTo: .stopped)
+                self.stop(resetStatusTo: .stopped, allowKeepAlive: false)
                 return
             }
 
