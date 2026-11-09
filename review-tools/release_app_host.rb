@@ -37,12 +37,13 @@ begin
 ensure
   system('pkill', '-TERM', '-f', "^#{Regexp.escape(host)}( |$)")
   if File.exist?(backup)
-    system('defaults', 'import', 'com.targetbridge.sender', backup, exception: true)
+    system('xcrun', 'swift', helper, 'restore', backup, exception: true)
   end
-  system('open', '-a', '/Applications/TargetBridge.app', '--args', *original_args, exception: true)
+  restored_pid = Process.spawn(installed, *original_args, out: File.join(out, 'restored-sender.log'), err: [:child, :out])
+  Process.detach(restored_pid)
   sleep 5
   if File.exist?(backup)
-    system('defaults', 'import', 'com.targetbridge.sender', backup, exception: true)
+    system('xcrun', 'swift', helper, 'restore', backup, exception: true)
     system('xcrun', 'swift', helper, 'verify', backup, exception: true)
   end
 end

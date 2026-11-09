@@ -3,12 +3,12 @@ require 'json'
 require 'shellwords'
 
 root = File.expand_path('..', __dir__)
-out = File.join(root, 'review-results/hardware-rc2')
+out = File.join(root, 'review-results', ARGV.fetch(0, 'hardware-rc2'))
 FileUtils.mkdir_p(out)
 ssh = ['ssh', '-o', 'IdentitiesOnly=yes', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=5', 'marco@marcos-imac.local']
 remote_root = '/Users/marco/TargetBridge-release-361-20261109'
 receiver = File.join(remote_root, 'build/TargetBridge Receiver.app/Contents/MacOS/TargetBridgeReceiver')
-remote_backup = File.join(remote_root, 'receiver-before-hardware.plist')
+remote_backup = File.join(remote_root, "receiver-before-#{File.basename(out)}.plist")
 sender = File.join(root, 'build/TargetBridge.app/Contents/MacOS/TargetBridge')
 backup = File.join(out, 'sender-before.plist')
 helper = File.join(__dir__, 'release_preferences.swift')
@@ -25,14 +25,15 @@ def stop(pid)
 end
 begin
   Process.kill('TERM', Integer(pid))
-  system(*ssh, 'pkill -TERM -f "^/Applications/TargetBridge Receiver.app/Contents/MacOS/TargetBridgeReceiver$"')
+  system(*ssh, 'pkill -TERM -f "^/Applications/TargetBridge Receiver.app/Contents/MacOS/TargetBridgeReceiver( |$)"')
   sleep 3
   system('xcrun', 'swift', helper, 'snapshot', backup, exception: true)
   system('xcrun', 'swift', helper, 'prepare', backup, exception: true)
   system(*ssh, "test ! -e #{remote_backup} && defaults export com.targetbridge.receiver #{remote_backup}", exception: true)
-  [['extended', '1440p', 60], ['mirror', '5k', 120], ['mirror', '5k', 40]].each_with_index do |(mode, preset, seconds), i|
+  cases = [['extended', '1440p', 60], ['mirror', '5k', 120], ['mirror', '5k', 40]]
+  cases.each_with_index do |(mode, preset, seconds), i|
     receiver_log = File.join(out, "receiver-#{i}.log")
-    remote = Process.spawn(*ssh, "exec #{Shellwords.escape(receiver)} --windowed", out: receiver_log, err: [:child, :out])
+    remote = Process.spawn(*ssh, '-tt', "exec #{Shellwords.escape(receiver)} --windowed", out: receiver_log, err: [:child, :out])
     children << remote
     sleep 3
     sender_log = File.join(out, "sender-#{i}.log")
@@ -59,14 +60,23 @@ begin
 ensure
   children.reverse_each { |child| stop(child) }
   system(*ssh, "pkill -TERM -f '^#{Regexp.escape(receiver)} --windowed$'")
-  system('defaults', 'import', 'com.targetbridge.sender', backup) if File.exist?(backup)
+  system('xcrun', 'swift', helper, 'restore', backup) if File.exist?(backup)
   system(*ssh, "test ! -f #{remote_backup} || defaults import com.targetbridge.receiver #{remote_backup}")
-  system(*ssh, 'open -a "/Applications/TargetBridge Receiver.app"')
-  system('open', '-a', '/Applications/TargetBridge.app', '--args', *original_args)
+  system(*ssh, 'nohup "/Applications/TargetBridge Receiver.app/Contents/MacOS/TargetBridgeReceiver" > /tmp/tb361-restored-receiver.log 2>&1 < /dev/null &')
+  restored_pid = Process.spawn(installed, *original_args, out: File.join(out, 'restored-sender.log'), err: [:child, :out])
+  Process.detach(restored_pid)
   sleep 8
-  system('defaults', 'import', 'com.targetbridge.sender', backup) if File.exist?(backup)
+  system('xcrun', 'swift', helper, 'restore', backup) if File.exist?(backup)
   system(*ssh, "test ! -f #{remote_backup} || defaults import com.targetbridge.receiver #{remote_backup}")
-  system('xcrun', 'swift', helper, 'verify', backup) if File.exist?(backup)
+  restored = false
+  if File.exist?(backup)
+    3.times do
+      system('xcrun', 'swift', helper, 'restore', backup, exception: true)
+      restored = system('xcrun', 'swift', helper, 'verify', backup)
+      break if restored
+      sleep 2
+    end
+  end
   File.write(File.join(out, 'results.json'), JSON.pretty_generate(results))
 end
-exit(results.size == 3 && results.all? { |r| r[:sender_alive] && r[:frames_presented] && r[:decode_errors].empty? } ? 0 : 1)
+exit(restored && results.size == 3 && results.all? { |r| r[:sender_alive] && r[:frames_presented] && r[:decode_errors].empty? } ? 0 : 1)

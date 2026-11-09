@@ -1,6 +1,6 @@
 import Foundation
 
-let domain = "com.targetbridge.sender"
+let domain = ProcessInfo.processInfo.environment["TB_RELEASE_PREFS_DOMAIN"] ?? "com.targetbridge.sender"
 let args = CommandLine.arguments
 guard args.count == 3 else { fatalError("Expected snapshot|prepare|restore|verify backup.plist") }
 let url = URL(fileURLWithPath: args[2])
@@ -25,12 +25,25 @@ if args[1] == "snapshot" {
         }
         defaults.setPersistentDomain(copy, forName: domain)
     case "restore":
-        defaults.setPersistentDomain(original, forName: domain)
-    case "verify":
-        guard NSDictionary(dictionary: original).isEqual(to: defaults.persistentDomain(forName: domain) ?? [:]) else {
-            fatalError("Sender preferences differ from this run's backup")
+        let current = defaults.persistentDomain(forName: domain) ?? [:]
+        let removed = Array(Set(current.keys).subtracting(original.keys))
+        CFPreferencesSetMultiple(original as CFDictionary, removed as CFArray,
+                                 domain as CFString, kCFPreferencesCurrentUser, kCFPreferencesAnyHost)
+        guard CFPreferencesSynchronize(domain as CFString, kCFPreferencesCurrentUser, kCFPreferencesAnyHost) else {
+            fatalError("Could not synchronize restored preferences")
         }
-        print("Sender preferences exactly restored")
+    case "verify":
+        var expected = original
+        var actual = defaults.persistentDomain(forName: domain) ?? [:]
+        // The running app may serialize identical session dictionaries in a different key order.
+        let sessionKey = "fd.tbdisplaysender.sessions.v1"
+        if let data = expected[sessionKey] as? Data { expected[sessionKey] = try JSONSerialization.jsonObject(with: data) }
+        if let data = actual[sessionKey] as? Data { actual[sessionKey] = try JSONSerialization.jsonObject(with: data) }
+        guard NSDictionary(dictionary: expected).isEqual(NSDictionary(dictionary: actual)) else {
+            fputs("Sender preferences differ from this run's backup\n", stderr)
+            exit(1)
+        }
+        print("\(domain) preferences restored; session JSON compared structurally")
     default: fatalError("Unknown operation")
     }
 }
