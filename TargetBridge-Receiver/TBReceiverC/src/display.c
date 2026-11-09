@@ -20,6 +20,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 #ifndef TB_RECEIVER_VERSION
 #define TB_RECEIVER_VERSION "4.0"
@@ -277,6 +278,34 @@ static void tb_disp_draw_text(CGContextRef ctx,
     CGColorRelease(color);
     CFRelease(font);
     CFRelease(cf_text);
+}
+
+/* Width of `text` in the given font, in pixels. */
+static CGFloat tb_disp_text_width(const char *text, const char *font_name, CGFloat font_size) {
+    if (!text || !*text) return 0.0;
+    CFStringRef cf_text = CFStringCreateWithCString(NULL, text, kCFStringEncodingUTF8);
+    CFStringRef cf_font_name = CFStringCreateWithCString(NULL, font_name, kCFStringEncodingUTF8);
+    CTFontRef font = cf_font_name ? CTFontCreateWithName(cf_font_name, font_size, NULL) : NULL;
+    CGFloat width = 0.0;
+    if (cf_text && font) {
+        const void *keys[] = { kCTFontAttributeName };
+        const void *values[] = { font };
+        CFDictionaryRef attrs = CFDictionaryCreate(NULL, keys, values, 1,
+                                                   &kCFTypeDictionaryKeyCallBacks,
+                                                   &kCFTypeDictionaryValueCallBacks);
+        CFAttributedStringRef attributed = attrs ? CFAttributedStringCreate(NULL, cf_text, attrs) : NULL;
+        CTLineRef line = attributed ? CTLineCreateWithAttributedString(attributed) : NULL;
+        if (line) {
+            width = (CGFloat)CTLineGetTypographicBounds(line, NULL, NULL, NULL);
+            CFRelease(line);
+        }
+        if (attributed) CFRelease(attributed);
+        if (attrs) CFRelease(attrs);
+    }
+    if (font) CFRelease(font);
+    if (cf_font_name) CFRelease(cf_font_name);
+    if (cf_text) CFRelease(cf_text);
+    return width;
 }
 
 static void tb_disp_fill_rect(CGContextRef ctx,
@@ -1219,8 +1248,25 @@ static void tb_disp_rebuild_stats_texture(struct tb_display *d, const char *text
     d->stats_visible = 0;
     if (!text || !*text) return;
 
-    const int w = 1200;
-    const int h = 46;
+    /* The box grows with the text; if the text is wider than the screen
+     * allows, the font shrinks so the whole line stays readable. */
+    int out_w = 0, out_h = 0;
+    if (SDL_GetRendererOutputSize(d->ren, &out_w, &out_h) != 0 || out_w <= 0) out_w = 1920;
+    const CGFloat padding = 16.0;
+    const CGFloat max_box = (CGFloat)(out_w - 48);
+    CGFloat font_size = 22.0;
+    CGFloat text_w = tb_disp_text_width(text, "Menlo", font_size);
+    if (text_w + 2.0 * padding > max_box && text_w > 0.0) {
+        font_size = font_size * (max_box - 2.0 * padding) / text_w;
+        if (font_size < 10.0) font_size = 10.0;
+        text_w = tb_disp_text_width(text, "Menlo", font_size);
+    }
+    /* Width in steps of 64 px, so the texture isn't recreated whenever a
+     * number gains a digit. */
+    int w = ((int)ceil(text_w + 2.0 * padding) + 63) & ~63;
+    if (w < 256) w = 256;
+    if (w > (int)max_box) w = (int)max_box;
+    const int h = (int)ceil(font_size * 2.1);
     const size_t bytes_per_row = (size_t)w * 4u;
     uint32_t *pixels = (uint32_t *)calloc((size_t)w * (size_t)h, sizeof(uint32_t));
     if (!pixels) return;
@@ -1236,9 +1282,13 @@ static void tb_disp_rebuild_stats_texture(struct tb_display *d, const char *text
     CGContextTranslateCTM(ctx, 0, (CGFloat)h);
     CGContextScaleCTM(ctx, 1.0, -1.0);
     tb_disp_fill_rounded_rect(ctx, 0, 0, (CGFloat)w, (CGFloat)h, 10.0, 0.0, 0.0, 0.0, 0.62);
-    tb_disp_draw_text(ctx, text, "Menlo", 22, 16, 31, 0.55, 1.0, 0.65);
+    tb_disp_draw_text(ctx, text, "Menlo", font_size, padding, (CGFloat)h * 0.67, 0.55, 1.0, 0.65);
     CGContextRelease(ctx);
 
+    if (d->stats_tex && (d->stats_w != w || d->stats_h != h)) {
+        SDL_DestroyTexture(d->stats_tex);
+        d->stats_tex = NULL;
+    }
     if (!d->stats_tex) {
         d->stats_tex = SDL_CreateTexture(d->ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, w, h);
         if (d->stats_tex) SDL_SetTextureBlendMode(d->stats_tex, SDL_BLENDMODE_BLEND);

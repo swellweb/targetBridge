@@ -709,9 +709,10 @@ private final class TBVideoPipeline: @unchecked Sendable {
     private var rawFrameSequence: UInt32 = 0
     /// A whole frame now and then repairs anything a missed dirty rect left behind.
     private static let rawFullFrameInterval: TimeInterval = 5
-    /// Full 10-bit colour compresses changed rows only while they cover less
-    /// than this share of the screen.
-    private static let rgb10CompressMaxPercent = 25
+    /// Full 10-bit colour: after a frame that LZ4 shrank by less than 20 %
+    /// (video), this many frames go out raw before LZ4 is tried again.
+    private static let rgb10RawFramesAfterPoorCompression = 30
+    private var rgb10RawFramesLeft = 0
 
     // Read from the main thread (fps timer / watchdog); guarded by `lock`.
     private let lock = NSLock()
@@ -1159,14 +1160,15 @@ private final class TBVideoPipeline: @unchecked Sendable {
             if rawFrameSequence == 0 { rawFrameSequence = 1 }
             frameSequence = rawFrameSequence
         }
-        // Full 10-bit colour: LZ4 only pays off for small changes (text,
-        // cursor). Video and scrolling change most of the screen, where LZ4
-        // costs more time than it saves at 4 bytes per pixel, so those rows
-        // go out raw, like DisplayBridge does.
+        // Full 10-bit colour: LZ4 shrinks desktop content (windows, text,
+        // scrolling pages) several times, which is what makes moving a window
+        // fast. Video barely compresses, so after a frame that LZ4 couldn't
+        // shrink, rows go out raw for a while, like DisplayBridge sends video.
+        let isRGB10 = CVPixelBufferGetPixelFormatType(nv12) == TBTenBitConverter.sourcePixelFormat
         var compress = compressesRawRegions
-        if compress, CVPixelBufferGetPixelFormatType(nv12) == TBTenBitConverter.sourcePixelFormat {
-            let changedRows = spans.reduce(0) { $0 + $1.rows }
-            compress = changedRows * 100 < CVPixelBufferGetHeight(nv12) * Self.rgb10CompressMaxPercent
+        if compress, isRGB10, rgb10RawFramesLeft > 0 {
+            rgb10RawFramesLeft -= 1
+            compress = false
         }
         guard let built = TBRawRegionPacketBuilder.makePackets(
             pixelBuffer: nv12,
@@ -1176,6 +1178,10 @@ private final class TBVideoPipeline: @unchecked Sendable {
             parts: max(1, streams.count),
             frameSequence: frameSequence
         ) else { return }
+        if compress, isRGB10, built.summary.rawBytes > 0,
+           built.summary.wireBytes * 10 > built.summary.rawBytes * 8 {
+            rgb10RawFramesLeft = Self.rgb10RawFramesAfterPoorCompression
+        }
 
         sendSessionAckIfNeeded()
         rawPendingSpans = []

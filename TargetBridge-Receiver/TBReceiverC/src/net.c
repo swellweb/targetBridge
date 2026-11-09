@@ -96,6 +96,16 @@ int tb_parser_feed(struct tb_parser *p, const uint8_t *data, size_t n) {
 
 /* ---- Server ----------------------------------------------------------- */
 
+/* The largest receive buffer the system allows, up to 16 MiB (macOS caps it
+ * at kern.ipc.maxsockbuf, 8 MiB by default). The kernel keeps receiving a
+ * whole 5K frame over the data streams while the Receiver is busy drawing
+ * the previous one, instead of making the Sender stop. */
+static void tb_net_set_large_rcvbuf(int fd) {
+    for (int size = 16 * 1024 * 1024; size >= 1024 * 1024; size /= 2) {
+        if (setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &size, sizeof(size)) == 0) return;
+    }
+}
+
 int tb_net_listen(uint16_t port) {
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) { perror("[net] socket"); return -1; }
@@ -103,6 +113,9 @@ int tb_net_listen(uint16_t port) {
     int yes = 1;
     setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
     setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &yes, sizeof(yes));
+    /* Set before listen() so accepted connections inherit it and the TCP
+     * window scale negotiated in the handshake is large enough. */
+    tb_net_set_large_rcvbuf(fd);
 
     struct sockaddr_in a;
     memset(&a, 0, sizeof(a));
@@ -126,8 +139,7 @@ int tb_net_accept(int server_fd) {
     if (c < 0) return -1;
     int fl = fcntl(c, F_GETFL, 0);
     fcntl(c, F_SETFL, fl | O_NONBLOCK);
-    int rcvbuf = 4 * 1024 * 1024;
-    setsockopt(c, SOL_SOCKET, SO_RCVBUF, &rcvbuf, sizeof(rcvbuf));
+    tb_net_set_large_rcvbuf(c);
     /* disable Nagle for low latency */
     int yes = 1;
     setsockopt(c, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(yes));
