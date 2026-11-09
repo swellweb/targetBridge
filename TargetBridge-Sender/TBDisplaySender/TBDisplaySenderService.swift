@@ -39,9 +39,9 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    /// Profiles for the uncompressed modes choose their video compression
-    /// themselves; the session's own setting applies to all other profiles.
-    var forcedCodecPreference: TBDisplayCodecPreference? {
+    /// Profiles for the uncompressed modes start with their own video
+    /// compression; the session's own setting applies to all other profiles.
+    var defaultCodecPreference: TBDisplayCodecPreference? {
         switch self {
         case .native5k60Uncompressed: return .uncompressed
         case .native5k60UncompressedLZ4: return .uncompressedLZ4
@@ -49,6 +49,14 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
         case .native5k60Full10Bit: return .uncompressedFull10Bit
         default: return nil
         }
+    }
+
+    /// The video compression options a profile allows. Profiles for the
+    /// uncompressed modes allow switching between those modes only.
+    var allowedCodecPreferences: [TBDisplayCodecPreference] {
+        defaultCodecPreference == nil
+            ? TBDisplayCodecPreference.allCases
+            : TBDisplayCodecPreference.allCases.filter(\.usesRawFrames)
     }
 
     var title: String {
@@ -456,7 +464,9 @@ enum TBDisplayCodecPreference: String, CaseIterable, Identifiable, Codable {
         self == .uncompressedLZ4 || self == .uncompressedEnhanced || self == .uncompressedFull10Bit
     }
 
-    var usesParallelStreams: Bool { self == .uncompressedEnhanced || self == .uncompressedFull10Bit }
+    /// All uncompressed modes can spread frames over parallel connections
+    /// (session setting "Parallel connections").
+    var usesParallelStreams: Bool { usesRawFrames }
 
     var id: String { rawValue }
 }
@@ -1589,6 +1599,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
 
     @Published var capturePreset: TBDisplayCapturePreset = .standard1440p {
         didSet {
+            if capturePreset != oldValue { profileCodecPreference = nil }
             if !isStreaming {
                 streamResolutionText = TBDisplaySenderL10n.streamSummary(preset: capturePreset, source: captureSource, language: language)
             }
@@ -1598,11 +1609,22 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     /// download button until the next connection.
     @Published var versionNotice: String?
 
-    /// The compression actually used: a profile for an uncompressed mode
-    /// overrides the session's own setting.
+    /// The compression actually used. A profile for an uncompressed mode uses
+    /// its own mode unless another uncompressed mode was picked for it.
     var effectiveCodecPreference: TBDisplayCodecPreference {
-        capturePreset.forcedCodecPreference ?? codecPreference
+        guard let profileDefault = capturePreset.defaultCodecPreference else { return codecPreference }
+        if let chosen = profileCodecPreference, capturePreset.allowedCodecPreferences.contains(chosen) {
+            return chosen
+        }
+        return profileDefault
     }
+
+    /// The uncompressed mode picked within an uncompressed-mode profile; nil
+    /// uses the profile's own mode. Reset when the profile changes.
+    @Published var profileCodecPreference: TBDisplayCodecPreference?
+
+    /// Uncompressed modes: spread each frame over up to 4 extra connections.
+    @Published var parallelStreams: Bool = true
 
     @Published var codecPreference: TBDisplayCodecPreference = .automatic {
         didSet {
@@ -3158,7 +3180,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
                     || effectiveCodecPreference == .uncompressedFull10Bit)
                 ? TBTenBitConverter() : nil
             let capturesTenBit = sendsRawRGB10 || tenBitConverter != nil
-            let dataStreams = usesRawRegions && effectiveCodecPreference.usesParallelStreams
+            let dataStreams = usesRawRegions && effectiveCodecPreference.usesParallelStreams && parallelStreams
                 ? await openDataStreams(for: profile)
                 : []
             let codecName: String

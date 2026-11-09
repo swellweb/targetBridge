@@ -539,6 +539,14 @@ enum TBDisplaySenderL10n {
         text("sender.codec.set_by_profile", language)
     }
 
+    static func parallelStreams(_ language: TBDisplaySenderLanguage) -> String {
+        text("sender.parallel_streams.title", language)
+    }
+
+    static func parallelStreamsHint(_ language: TBDisplaySenderLanguage) -> String {
+        text("sender.parallel_streams.hint", language)
+    }
+
     static func codecUnavailable(_ language: TBDisplaySenderLanguage) -> String {
         text("sender.codec.unavailable", language)
     }

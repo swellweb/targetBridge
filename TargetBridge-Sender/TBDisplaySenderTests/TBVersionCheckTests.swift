@@ -18,11 +18,16 @@ final class TBVersionCheckTests: XCTestCase {
     }
 
     func testUncompressedProfilesChooseTheirCompression() {
-        XCTAssertEqual(TBDisplayCapturePreset.native5k60Uncompressed.forcedCodecPreference, .uncompressed)
-        XCTAssertEqual(TBDisplayCapturePreset.native5k60UncompressedLZ4.forcedCodecPreference, .uncompressedLZ4)
-        XCTAssertEqual(TBDisplayCapturePreset.native5k60Enhanced10Bit.forcedCodecPreference, .uncompressedEnhanced)
-        XCTAssertEqual(TBDisplayCapturePreset.native5k60Full10Bit.forcedCodecPreference, .uncompressedFull10Bit)
-        XCTAssertNil(TBDisplayCapturePreset.native5k60Experimental.forcedCodecPreference)
+        XCTAssertEqual(TBDisplayCapturePreset.native5k60Uncompressed.defaultCodecPreference, .uncompressed)
+        XCTAssertEqual(TBDisplayCapturePreset.native5k60UncompressedLZ4.defaultCodecPreference, .uncompressedLZ4)
+        XCTAssertEqual(TBDisplayCapturePreset.native5k60Enhanced10Bit.defaultCodecPreference, .uncompressedEnhanced)
+        XCTAssertEqual(TBDisplayCapturePreset.native5k60Full10Bit.defaultCodecPreference, .uncompressedFull10Bit)
+        XCTAssertNil(TBDisplayCapturePreset.native5k60Experimental.defaultCodecPreference)
+        // Uncompressed profiles allow switching between the uncompressed modes only.
+        XCTAssertEqual(TBDisplayCapturePreset.native5k60Full10Bit.allowedCodecPreferences,
+                       [.uncompressed, .uncompressedLZ4, .uncompressedEnhanced, .uncompressedFull10Bit])
+        XCTAssertEqual(TBDisplayCapturePreset.native5k60Experimental.allowedCodecPreferences,
+                       TBDisplayCodecPreference.allCases)
         for preset in [TBDisplayCapturePreset.native5k60Uncompressed, .native5k60Full10Bit] {
             XCTAssertEqual(preset.width, 5120)
             XCTAssertEqual(preset.height, 2880)

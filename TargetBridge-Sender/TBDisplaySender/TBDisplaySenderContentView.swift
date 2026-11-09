@@ -714,10 +714,11 @@ private struct TBDisplaySenderSessionSettingsSheet: View {
                         .disabled(session.isConnected || session.isStreaming)
                     }
 
-                    // Profiles for the uncompressed modes set the compression themselves.
+                    // Profiles for the uncompressed modes start with their own mode
+                    // and allow switching between the uncompressed modes only.
                     settingRow(
                         TBDisplaySenderL10n.videoCompression(service.language),
-                        details: session.capturePreset.forcedCodecPreference == nil
+                        details: session.capturePreset.defaultCodecPreference == nil
                             ? TBDisplaySenderL10n.codecPreferenceHint(
                                 session.codecPreference,
                                 language: service.language
@@ -735,7 +736,7 @@ private struct TBDisplaySenderSessionSettingsSheet: View {
                                 set: { service.setCodecPreference($0, for: session) }
                             )
                         ) {
-                            ForEach(TBDisplayCodecPreference.allCases) { preference in
+                            ForEach(session.capturePreset.allowedCodecPreferences) { preference in
                                 Text(TBDisplaySenderL10n.codecPreferenceTitle(
                                     preference,
                                     language: service.language
@@ -744,8 +745,18 @@ private struct TBDisplaySenderSessionSettingsSheet: View {
                             }
                         }
                         .pickerStyle(.menu)
-                        .disabled(session.isConnected || session.isStreaming
-                            || session.capturePreset.forcedCodecPreference != nil)
+                        .disabled(session.isConnected || session.isStreaming)
+                    }
+
+                    if session.effectiveCodecPreference.usesParallelStreams {
+                        settingRow(
+                            TBDisplaySenderL10n.parallelStreams(service.language),
+                            details: TBDisplaySenderL10n.parallelStreamsHint(service.language)
+                        ) {
+                            Toggle("", isOn: $session.parallelStreams)
+                                .labelsHidden()
+                                .disabled(session.isConnected || session.isStreaming)
+                        }
                     }
 
                     // A native-scale profile already renders the desktop 1:1 with the

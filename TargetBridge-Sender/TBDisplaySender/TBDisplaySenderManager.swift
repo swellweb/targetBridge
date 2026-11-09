@@ -409,6 +409,8 @@ final class TBDisplaySenderService: ObservableObject {
         var inputBindings: [TBInputBinding]?
         var matchRenderToStream: Bool?
         var codecPreference: String?
+        var profileCodecPreference: String?
+        var parallelStreams: Bool?
     }
 
     private var lastPersistedData: Data?
@@ -449,7 +451,9 @@ final class TBDisplaySenderService: ObservableObject {
                 inputControlRole: session.inputControlRole.rawValue,
                 inputBindings: session.inputBindings,
                 matchRenderToStream: session.matchRenderToStream,
-                codecPreference: session.codecPreference.rawValue
+                codecPreference: session.codecPreference.rawValue,
+                profileCodecPreference: session.profileCodecPreference?.rawValue,
+                parallelStreams: session.parallelStreams
             )
         }
         guard let data = try? JSONEncoder().encode(configs) else { return }
@@ -547,6 +551,9 @@ final class TBDisplaySenderService: ObservableObject {
         session.codecPreference = config.codecPreference
             .flatMap(TBDisplayCodecPreference.init(rawValue:))
             ?? .automatic
+        session.profileCodecPreference = config.profileCodecPreference
+            .flatMap(TBDisplayCodecPreference.init(rawValue:))
+        session.parallelStreams = config.parallelStreams ?? true
     }
 
     func refreshLocalInterfaces() {
@@ -599,6 +606,13 @@ final class TBDisplaySenderService: ObservableObject {
 
     func setCodecPreference(_ preference: TBDisplayCodecPreference, for session: TBDisplaySenderSession) {
         guard !session.isConnected, !session.isStreaming else { return }
+        // Within an uncompressed-mode profile the choice belongs to the
+        // profile, not to the receiver's general setting.
+        if session.capturePreset.defaultCodecPreference != nil {
+            guard session.capturePreset.allowedCodecPreferences.contains(preference) else { return }
+            session.profileCodecPreference = preference
+            return
+        }
         session.codecPreference = preference
         guard let key = receiverCodecPreferenceKey(for: session) else { return }
         var preferences = persistedCodecPreferences

@@ -49,7 +49,8 @@ screen, in 8-bit or, experimentally, 10-bit colour:
   10-bit colour in 10 bits; SDL's renderers remain as expert settings
 - only the changed rows of the screen are sent, so a still desktop costs almost
   no bandwidth, and the Receiver uploads only those rows to the GPU
-- the 10-bit modes spread each frame over up to 4 parallel connections
+- the uncompressed modes can spread each frame over up to 4 parallel
+  connections (*Parallel connections*, on by default)
 - one-click **5K 60** stream profiles for each uncompressed mode
 - a version check: both apps point out when the other one needs an update,
   with a download link
