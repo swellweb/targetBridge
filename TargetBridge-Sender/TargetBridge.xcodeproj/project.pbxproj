@@ -415,7 +415,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -euo pipefail\n# Use the same resolved build setting as CFBundleVersion.\nSTAMP=\"${CURRENT_PROJECT_VERSION}\"\ncat > \"${SRCROOT}/TBDisplaySender/TBDisplaySenderBuildInfo.swift\" <<EOI\nenum TBDisplaySenderBuildInfo {\n    static let marketingVersion = \"3.6.1-rc.2\"\n    static let buildNumber = \"${STAMP}\"\n    static let versionDisplay = \"\\\\(marketingVersion) + build \\\\(buildNumber)\"\n}\nEOI\n";
+			shellScript = "set -euo pipefail\n# Use the same resolved build setting as CFBundleVersion.\nSTAMP=\"${CURRENT_PROJECT_VERSION}\"\ncat > \"${SRCROOT}/TBDisplaySender/TBDisplaySenderBuildInfo.swift\" <<EOI\nenum TBDisplaySenderBuildInfo {\n    static let marketingVersion = \"3.6.1\"\n    static let buildNumber = \"${STAMP}\"\n    static let versionDisplay = \"\\\\(marketingVersion) + build \\\\(buildNumber)\"\n}\nEOI\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -518,7 +518,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 20261109180000;
+				CURRENT_PROJECT_VERSION = 20261112201228;
 				ENABLE_HARDENED_RUNTIME = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = TargetBridgeSupport/Info.plist;
@@ -527,7 +527,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = "3.6.1-rc.2";
+				MARKETING_VERSION = 3.6.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.targetbridge.sender;
 				PRODUCT_NAME = TargetBridge;
 				SDKROOT = macosx;
@@ -542,7 +542,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 20261109180000;
+				CURRENT_PROJECT_VERSION = 20261112201228;
 				ENABLE_HARDENED_RUNTIME = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = TargetBridgeSupport/Info.plist;
@@ -551,7 +551,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = "3.6.1-rc.2";
+				MARKETING_VERSION = 3.6.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.targetbridge.sender;
 				PRODUCT_NAME = TargetBridge;
 				SDKROOT = macosx;
