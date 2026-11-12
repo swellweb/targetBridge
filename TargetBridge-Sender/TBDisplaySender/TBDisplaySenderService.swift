@@ -30,6 +30,8 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
     case smooth1800p60
     case crisp2160p60
     case retina4k60
+    case retina16x10
+    case retina16x10MoreSpace
     case native5k
     case native5k60Experimental
 
@@ -51,6 +53,10 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
             return "Crisp"
         case .retina4k60:
             return "Retina 4K"
+        case .retina16x10:
+            return "Retina 16:10"
+        case .retina16x10MoreSpace:
+            return "Retina 16:10 More Space"
         case .native5k:
             return "5K"
         case .native5k60Experimental:
@@ -74,6 +80,10 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
             return "3840 × 2160 @ 60"
         case .retina4k60:
             return "4096 × 2304 @ 60"
+        case .retina16x10:
+            return "3072 × 1920 @ 60"
+        case .retina16x10MoreSpace:
+            return "3584 × 2240 @ 60"
         case .native5k:
             return "5120 × 2880 @ 48"
         case .native5k60Experimental:
@@ -93,6 +103,10 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
             return 3840
         case .retina4k60:
             return 4096
+        case .retina16x10:
+            return 3072
+        case .retina16x10MoreSpace:
+            return 3584
         case .native5k, .native5k60Experimental:
             return 5120
         }
@@ -110,6 +124,10 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
             return 2160
         case .retina4k60:
             return 2304
+        case .retina16x10:
+            return 1920
+        case .retina16x10MoreSpace:
+            return 2240
         case .native5k, .native5k60Experimental:
             return 2880
         }
@@ -131,6 +149,10 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
             return 105_000_000
         case .retina4k60:
             return 120_000_000
+        case .retina16x10:
+            return 78_000_000
+        case .retina16x10MoreSpace:
+            return 105_000_000
         case .native5k:
             return 120_000_000
         case .native5k60Experimental:
@@ -142,7 +164,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
         switch self {
         case .standard1080p, .smooth1080p60, .standard1440p, .smooth1440p60, .smooth1800p60:
             return "H.264"
-        case .crisp2160p60, .retina4k60, .native5k, .native5k60Experimental:
+        case .crisp2160p60, .retina4k60, .retina16x10, .retina16x10MoreSpace, .native5k, .native5k60Experimental:
             return "HEVC"
         }
     }
@@ -151,7 +173,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
         switch self {
         case .standard1080p, .smooth1080p60, .standard1440p, .smooth1440p60, .smooth1800p60:
             return kCMVideoCodecType_H264
-        case .crisp2160p60, .retina4k60, .native5k, .native5k60Experimental:
+        case .crisp2160p60, .retina4k60, .retina16x10, .retina16x10MoreSpace, .native5k, .native5k60Experimental:
             return kCMVideoCodecType_HEVC
         }
     }
@@ -163,7 +185,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
         switch self {
         case .standard1080p, .standard1440p:
             return 3
-        case .smooth1080p60, .smooth1440p60, .smooth1800p60, .crisp2160p60, .retina4k60,
+        case .smooth1080p60, .smooth1440p60, .smooth1800p60, .crisp2160p60, .retina4k60, .retina16x10, .retina16x10MoreSpace,
              .native5k, .native5k60Experimental:
             // Five surfaces protect WindowServer from starvation during
             // high-frame-rate 4K capture while the serial pipeline prevents an
@@ -184,7 +206,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
             return 60
         case .smooth1800p60:
             return 60
-        case .crisp2160p60, .retina4k60:
+        case .crisp2160p60, .retina4k60, .retina16x10, .retina16x10MoreSpace:
             return 60
         case .native5k:
             return 48
@@ -210,7 +232,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
             return 60
         case .smooth1800p60:
             return 60
-        case .crisp2160p60, .retina4k60:
+        case .crisp2160p60, .retina4k60, .retina16x10, .retina16x10MoreSpace:
             return 60
         case .native5k:
             return 48
@@ -230,7 +252,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
             return 2
         case .smooth1440p60:
             return 1
-        case .smooth1800p60, .crisp2160p60, .retina4k60:
+        case .smooth1800p60, .crisp2160p60, .retina4k60, .retina16x10, .retina16x10MoreSpace:
             return 1
         case .native5k:
             return 1
@@ -265,7 +287,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
         switch self {
         case .standard1080p, .standard1440p:
             return false
-        case .smooth1080p60, .smooth1440p60, .smooth1800p60, .crisp2160p60, .retina4k60, .native5k, .native5k60Experimental:
+        case .smooth1080p60, .smooth1440p60, .smooth1800p60, .crisp2160p60, .retina4k60, .retina16x10, .retina16x10MoreSpace, .native5k, .native5k60Experimental:
             return true
         }
     }
@@ -281,7 +303,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
         switch self {
         case .standard1080p, .standard1440p:
             return 1
-        case .smooth1080p60, .smooth1440p60, .smooth1800p60, .crisp2160p60, .retina4k60, .native5k, .native5k60Experimental:
+        case .smooth1080p60, .smooth1440p60, .smooth1800p60, .crisp2160p60, .retina4k60, .retina16x10, .retina16x10MoreSpace, .native5k, .native5k60Experimental:
             return 0
         }
     }
@@ -290,7 +312,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
         switch self {
         case .standard1080p, .standard1440p:
             return false
-        case .smooth1080p60, .smooth1440p60, .smooth1800p60, .crisp2160p60, .retina4k60, .native5k, .native5k60Experimental:
+        case .smooth1080p60, .smooth1440p60, .smooth1800p60, .crisp2160p60, .retina4k60, .retina16x10, .retina16x10MoreSpace, .native5k, .native5k60Experimental:
             return true
         }
     }
@@ -306,7 +328,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
         switch self {
         case .standard1080p, .smooth1080p60, .standard1440p, .smooth1440p60, .smooth1800p60:
             return .nominal
-        case .crisp2160p60, .retina4k60, .native5k, .native5k60Experimental:
+        case .crisp2160p60, .retina4k60, .retina16x10, .retina16x10MoreSpace, .native5k, .native5k60Experimental:
             return .best
         }
     }
@@ -319,13 +341,19 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
             return 60
         case .smooth1440p60, .smooth1800p60:
             return 60
-        case .crisp2160p60, .retina4k60:
+        case .crisp2160p60, .retina4k60, .retina16x10, .retina16x10MoreSpace:
             return 60
         case .native5k:
             return 48
         case .native5k60Experimental:
             return 60
         }
+    }
+
+    /// Only the explicit 16:10 presets may advertise a backing store larger
+    /// than a 16:10 receiver panel. Geometry validation bounds the exception.
+    var permits16x10Supersampling: Bool {
+        self == .retina16x10 || self == .retina16x10MoreSpace
     }
 
     /// Virtual display mode that makes the render resolution equal the stream
@@ -364,7 +392,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
         switch self {
         case .standard1080p, .smooth1080p60:
             return true
-        case .standard1440p, .smooth1440p60, .smooth1800p60, .crisp2160p60, .retina4k60,
+        case .standard1440p, .smooth1440p60, .smooth1800p60, .crisp2160p60, .retina4k60, .retina16x10, .retina16x10MoreSpace,
              .native5k, .native5k60Experimental:
             return false
         }
@@ -2707,6 +2735,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
                 from: profile,
                 refreshRate: self.capturePreset.virtualDisplayRefreshRate,
                 modeOverride: modeOverride,
+                allow16x10Supersampling: self.capturePreset.permits16x10Supersampling,
                 identity: self.captureSource.virtualDisplayIdentity(receiverKey: receiverKey),
                 receiverKey: receiverKey
             ) else {

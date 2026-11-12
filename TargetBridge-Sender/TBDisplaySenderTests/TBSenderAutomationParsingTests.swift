@@ -660,3 +660,190 @@ final class TBSenderAutomationParsingTests: XCTestCase {
         XCTAssertNil(TBSenderAutomation.resolveSessionIndex("-1", sessionCount: 3, createDefaultIfNeeded: true))
     }
 }
+
+// These tests exercise the same profiles and geometry used by session creation.
+// They do not create a display, start capture, or connect to a Receiver.
+extension TBSenderAutomationParsingTests {
+    private func retinaProfile(width: Int = 3072, height: Int = 1920) -> TBMonitorDisplayProfile {
+        TBMonitorDisplayProfile(
+            receiverName: "16:10 test fixture", panelWidth: width, panelHeight: height,
+            modeWidth: width / 2, modeHeight: height / 2, refreshRate: 60,
+            hiDPI: true, captureWidth: width, captureHeight: height
+        )
+    }
+
+    func test16x10ProfilesAreSelectable() throws {
+        for raw in ["retina16x10", "retina16x10MoreSpace"] {
+            let preset = try XCTUnwrap(TBDisplayCapturePreset(rawValue: raw))
+            XCTAssertTrue(TBDisplayCapturePreset.allCases.contains(preset))
+            XCTAssertEqual(preset.width * 5, preset.height * 8)
+            XCTAssertEqual(preset.width % 2, 0)
+            XCTAssertEqual(preset.height % 2, 0)
+            XCTAssertFalse(preset.rendersAtNativeScale)
+        }
+    }
+
+    func test16x10NativeRetinaHasExactPanelBacking() {
+        let preset = TBDisplayCapturePreset.retina16x10
+        let mode = preset.renderMatchedDisplayMode
+        XCTAssertEqual(mode, TBVirtualDisplayModeSize(width: 1536, height: 960))
+        XCTAssertEqual(mode.backingWidth, 3072)
+        XCTAssertEqual(mode.backingHeight, 1920)
+        XCTAssertEqual(preset.renderMatchedDesktopDescription, "1536 × 960")
+        let geometry = TBVirtualDisplayGeometry(profile: retinaProfile(), modeOverride: mode,
+                                               allow16x10Supersampling: preset.permits16x10Supersampling)
+        XCTAssertEqual(geometry.mode, mode)
+        XCTAssertEqual(geometry.maxPixelsWide, 3072)
+        XCTAssertEqual(geometry.maxPixelsHigh, 1920)
+    }
+
+    func test16x10MoreSpaceKeeps1792HiDPIAndAdvertisesLargerBacking() {
+        let preset = TBDisplayCapturePreset.retina16x10MoreSpace
+        let profile = retinaProfile()
+        let mode = preset.renderMatchedDisplayMode
+        XCTAssertEqual(mode, TBVirtualDisplayModeSize(width: 1792, height: 1120))
+        XCTAssertEqual(preset.renderMatchedDesktopDescription, "1792 × 1120")
+        let geometry = TBVirtualDisplayGeometry(profile: profile, modeOverride: mode,
+                                               allow16x10Supersampling: preset.permits16x10Supersampling)
+        XCTAssertEqual(geometry.mode, mode)
+        XCTAssertEqual(geometry.maxPixelsWide, 3584)
+        XCTAssertEqual(geometry.maxPixelsHigh, 2240)
+        // The receiver's physical panel and its physical-size metadata stay intact.
+        XCTAssertEqual(profile.panelWidth, 3072)
+        XCTAssertEqual(profile.panelHeight, 1920)
+    }
+
+    func test16x10SupersamplingRequiresExplicitOptIn() {
+        let geometry = TBVirtualDisplayGeometry(profile: retinaProfile(),
+            modeOverride: TBDisplayCapturePreset.retina16x10MoreSpace.renderMatchedDisplayMode)
+        XCTAssertEqual(geometry.mode, TBVirtualDisplayModeSize(width: 1536, height: 960))
+        XCTAssertEqual(geometry.maxPixelsWide, 3072)
+        XCTAssertEqual(geometry.maxPixelsHigh, 1920)
+    }
+
+    func test16x10WithoutRenderOverrideKeepsReceiverDefault() {
+        var profile = retinaProfile()
+        profile.modeWidth = 1344
+        profile.modeHeight = 840
+        let geometry = TBVirtualDisplayGeometry(profile: profile, modeOverride: nil,
+                                               allow16x10Supersampling: true)
+        XCTAssertEqual(geometry.mode, TBVirtualDisplayModeSize(width: 1344, height: 840))
+        XCTAssertEqual(geometry.maxPixelsWide, 3072)
+        XCTAssertEqual(geometry.maxPixelsHigh, 1920)
+    }
+
+    func test16x10LargerBackingIsNotGrantedToOtherPanelShapes() {
+        for (width, height) in [(1920, 1080), (2560, 1440), (1600, 1200), (1920, 3072)] {
+            let profile = retinaProfile(width: width, height: height)
+            let geometry = TBVirtualDisplayGeometry(profile: profile,
+                modeOverride: TBDisplayCapturePreset.retina16x10MoreSpace.renderMatchedDisplayMode,
+                allow16x10Supersampling: true)
+            XCTAssertEqual(geometry.mode, TBVirtualDisplayModeSize(width: width / 2, height: height / 2))
+            XCTAssertEqual(geometry.maxPixelsWide, width)
+            XCTAssertEqual(geometry.maxPixelsHigh, height)
+        }
+    }
+
+    func test16x10SupersamplingIsBoundedAndRequiresMatchingModeAspect() {
+        for mode in [TBVirtualDisplayModeSize(width: 1800, height: 1125),
+                     TBVirtualDisplayModeSize(width: 1792, height: 1119),
+                     TBVirtualDisplayModeSize(width: 3584, height: 2240, isHiDPI: false)] {
+            let geometry = TBVirtualDisplayGeometry(profile: retinaProfile(), modeOverride: mode,
+                                                   allow16x10Supersampling: true)
+            XCTAssertEqual(geometry.mode, TBVirtualDisplayModeSize(width: 1536, height: 960))
+            XCTAssertEqual(geometry.maxPixelsWide, 3072)
+            XCTAssertEqual(geometry.maxPixelsHigh, 1920)
+        }
+    }
+
+    func test16x10ProfilesAlsoFitSmallerAndLarger16x10Panels() {
+        for preset in [TBDisplayCapturePreset.retina16x10, .retina16x10MoreSpace] {
+            for (width, height) in [(2560, 1600), (2880, 1800), (3840, 2400)] {
+                let mode = preset.renderMatchedDisplayMode
+                let geometry = TBVirtualDisplayGeometry(profile: retinaProfile(width: width, height: height),
+                    modeOverride: mode, allow16x10Supersampling: preset.permits16x10Supersampling)
+                XCTAssertEqual(geometry.mode, mode)
+                XCTAssertEqual(geometry.maxPixelsWide, max(width, mode.backingWidth))
+                XCTAssertEqual(geometry.maxPixelsHigh, max(height, mode.backingHeight))
+            }
+        }
+    }
+
+    func test16x9PresetsKeepAllExistingPanelLimits() {
+        for preset in TBDisplayCapturePreset.allCases where !preset.permits16x10Supersampling {
+            for (width, height) in [(1920, 1080), (3072, 1920), (4096, 2304), (5120, 2880)] {
+                let profile = retinaProfile(width: width, height: height)
+                let requested = preset.rendersAtNativeScale ? preset.nativeScaleDisplayMode : preset.renderMatchedDisplayMode
+                let expected = requested.backingWidth > width || requested.backingHeight > height
+                    ? TBVirtualDisplayModeSize(width: width / 2, height: height / 2) : requested
+                let geometry = TBVirtualDisplayGeometry(profile: profile, modeOverride: requested,
+                    allow16x10Supersampling: preset.permits16x10Supersampling)
+                XCTAssertEqual(geometry.mode, expected, preset.rawValue)
+                XCTAssertEqual(geometry.maxPixelsWide, width)
+                XCTAssertEqual(geometry.maxPixelsHigh, height)
+            }
+        }
+    }
+
+    func test16x9PresetDimensionsRatesAndBitratesRemainUnchanged() throws {
+        let expected: [(String, Int, Int, Int, Int)] = [
+            ("standard1080p", 1920, 1080, 30, 20_000_000),
+            ("smooth1080p60", 1920, 1080, 60, 30_000_000),
+            ("standard1440p", 2560, 1440, 30, 36_000_000),
+            ("smooth1440p60", 2560, 1440, 60, 52_000_000),
+            ("smooth1800p60", 3200, 1800, 60, 78_000_000),
+            ("crisp2160p60", 3840, 2160, 60, 105_000_000),
+            ("retina4k60", 4096, 2304, 60, 120_000_000),
+            ("native5k", 5120, 2880, 48, 120_000_000),
+            ("native5k60Experimental", 5120, 2880, 60, 150_000_000)
+        ]
+        for (raw, width, height, fps, bitrate) in expected {
+            let preset = try XCTUnwrap(TBDisplayCapturePreset(rawValue: raw))
+            XCTAssertEqual(preset.width, width)
+            XCTAssertEqual(preset.height, height)
+            XCTAssertEqual(preset.expectedFrameRate, fps)
+            XCTAssertEqual(preset.averageBitRate, bitrate)
+            XCTAssertFalse(preset.permits16x10Supersampling)
+        }
+    }
+
+    func test16x10KeepsHEVCAndH264FallbackPolicies() {
+        for preset in [TBDisplayCapturePreset.retina16x10, .retina16x10MoreSpace] {
+            XCTAssertEqual(preset.expectedFrameRate, 60)
+            XCTAssertEqual(preset.virtualDisplayRefreshRate, 60)
+            XCTAssertEqual(preset.codecType, kCMVideoCodecType_HEVC)
+            XCTAssertEqual(preset.queueDepth, TBDisplayCapturePreset.retina4k60.queueDepth)
+            XCTAssertEqual(preset.maxPendingVideoPackets, TBDisplayCapturePreset.retina4k60.maxPendingVideoPackets)
+            XCTAssertEqual(preset.maxInFlightEncodeFrames, TBDisplayCapturePreset.retina4k60.maxInFlightEncodeFrames)
+            for supportsHEVC in [false, true] {
+                let decision = TBDisplaySenderSession.chooseCodec(preference: .automatic, preset: preset,
+                    receiverSupportsHEVC: supportsHEVC, senderSupportsH264: true, senderSupportsHEVC: true)
+                XCTAssertEqual(decision?.codecType, supportsHEVC ? kCMVideoCodecType_HEVC : kCMVideoCodecType_H264)
+                XCTAssertEqual(decision?.usedFallback, !supportsHEVC)
+            }
+        }
+    }
+
+    func test16x10AutomationAliasesAndPersistenceNames() {
+        for name in ["16x10", "retina16x10", "3072x1920", "RETINA16X10"] {
+            XCTAssertEqual(TBSenderAutomation.parsePreset(name), .retina16x10)
+        }
+        for name in ["16x10-more-space", "retina16x10MoreSpace", "3584x2240", "RETINA16X10MORESPACE"] {
+            XCTAssertEqual(TBSenderAutomation.parsePreset(name), .retina16x10MoreSpace)
+        }
+        XCTAssertNil(TBSenderAutomation.parsePreset("16x10-unknown"))
+        XCTAssertEqual(TBSenderAutomation.parsePreset("imac4k"), .retina4k60)
+        XCTAssertEqual(TBSenderAutomation.parsePreset("5k"), .native5k)
+    }
+
+    func test16x10LabelsExistInEveryLanguage() {
+        for language in TBDisplaySenderLanguage.allCases {
+            for preset in [TBDisplayCapturePreset.retina16x10, .retina16x10MoreSpace] {
+                let title = preset.title(language)
+                XCTAssertTrue(title.contains("16:10"))
+                XCTAssertFalse(title.contains("[["))
+            }
+        }
+        XCTAssertEqual(TBDisplayCapturePreset.retina16x10MoreSpace.title(.italian), "Retina 16:10 più spazio")
+    }
+}
