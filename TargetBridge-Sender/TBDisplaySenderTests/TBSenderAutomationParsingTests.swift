@@ -243,6 +243,32 @@ final class TBSenderAutomationParsingTests: XCTestCase {
         XCTAssertEqual(h264ToHEVC?.usedFallback, true)
     }
 
+    func testCodecSelectionUsesSoftwareDecodedHEVCWhenH264CannotEncodeTheSize() {
+        // e.g. a Haswell iMac receiver (no HEVC decode block) at 5K: H.264 has no hardware
+        // encoder at 5120x2880, so HEVC (software-decoded on the receiver) is the only path.
+        let decision = TBDisplaySenderSession.chooseCodec(
+            preference: .automatic,
+            preset: .native5k,
+            receiverSupportsHEVC: false,
+            senderSupportsH264: false,
+            senderSupportsHEVC: true,
+            receiverSupportsHEVCSoftware: true
+        )
+        XCTAssertEqual(decision?.codecType, kCMVideoCodecType_HEVC)
+        XCTAssertEqual(decision?.usedFallback, true)
+
+        // Where H.264 can be hardware-encoded, it is still preferred over software HEVC.
+        let at4k = TBDisplaySenderSession.chooseCodec(
+            preference: .automatic,
+            preset: .retina4k60,
+            receiverSupportsHEVC: false,
+            senderSupportsH264: true,
+            senderSupportsHEVC: true,
+            receiverSupportsHEVCSoftware: true
+        )
+        XCTAssertEqual(at4k?.codecType, kCMVideoCodecType_H264)
+    }
+
     func testCodecSelectionFailsCleanlyWhenNoHardwarePathExists() {
         XCTAssertNil(TBDisplaySenderSession.chooseCodec(
             preference: .automatic,
@@ -430,6 +456,21 @@ final class TBSenderAutomationParsingTests: XCTestCase {
         XCTAssertEqual(preset.virtualDisplayRefreshRate, 60)
         XCTAssertEqual(preset.codecName, "HEVC")
         XCTAssertEqual(preset.averageBitRate, 150_000_000)
+    }
+
+    func test5K60SpacesKeyframesAndCapsPeakRate() {
+        let preset = TBDisplayCapturePreset.native5k60Experimental
+
+        XCTAssertEqual(preset.maxKeyFrameIntervalDuration, 4)
+        XCTAssertEqual(preset.maxKeyFrameInterval, 240)
+        XCTAssertEqual(preset.peakBitRate, 225_000_000)
+    }
+
+    func testStableProfilesKeepPreviousEncoderTuning() {
+        XCTAssertEqual(TBDisplayCapturePreset.native5k.maxKeyFrameIntervalDuration, 1)
+        XCTAssertEqual(TBDisplayCapturePreset.native5k.maxKeyFrameInterval, 48)
+        XCTAssertNil(TBDisplayCapturePreset.native5k.peakBitRate)
+        XCTAssertNil(TBDisplayCapturePreset.retina4k60.peakBitRate)
     }
 
     func testRetina4KPresetMatches215InchIMacPanel() {

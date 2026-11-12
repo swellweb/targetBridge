@@ -215,7 +215,8 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
         case .native5k:
             return 48
         case .native5k60Experimental:
-            return 60
+            // See maxKeyFrameIntervalDuration.
+            return 240
         }
     }
 
@@ -231,8 +232,32 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
             return 1
         case .smooth1800p60, .crisp2160p60, .retina4k60:
             return 1
-        case .native5k, .native5k60Experimental:
+        case .native5k:
             return 1
+        case .native5k60Experimental:
+            // A 5K IDR is several times the size of a P-frame and costs the
+            // receiver several frame budgets to transfer, decode and upload.
+            // One per second produced a regular once-a-second hitch at 60 fps.
+            // The link is reliable TCP and the sender never drops a frame
+            // after encoding, so periodic IDRs only bound recovery time;
+            // every new session still starts on an IDR.
+            return 4
+        }
+    }
+
+    /// Optional hard ceiling on the encoder's output rate, applied through
+    /// `kVTCompressionPropertyKey_DataRateLimits` over a one-second window.
+    /// `AverageBitRate` alone lets the hardware encoder overshoot for long
+    /// stretches on detailed motion (scrolling text, window drags), which at
+    /// 5K60 pushes receiver decode past its frame budget exactly when the
+    /// picture is busiest.
+    var peakBitRate: Int? {
+        switch self {
+        case .native5k60Experimental:
+            return averageBitRate * 3 / 2
+        case .standard1080p, .smooth1080p60, .standard1440p, .smooth1440p60, .smooth1800p60,
+             .crisp2160p60, .retina4k60, .native5k:
+            return nil
         }
     }
 
@@ -705,6 +730,15 @@ private final class TBVideoPipeline: @unchecked Sendable {
         VTSessionSetProperty(session, key: kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration, value: NSNumber(value: preset.maxKeyFrameIntervalDuration))
         VTSessionSetProperty(session, key: kVTCompressionPropertyKey_MaxFrameDelayCount, value: NSNumber(value: preset.maxFrameDelayCount))
         VTSessionSetProperty(session, key: kVTCompressionPropertyKey_AverageBitRate, value: NSNumber(value: preset.averageBitRate))
+        if let peakBitRate = preset.peakBitRate {
+            let limits = [NSNumber(value: peakBitRate / 8), NSNumber(value: 1.0)] as CFArray
+            let status = VTSessionSetProperty(session, key: kVTCompressionPropertyKey_DataRateLimits, value: limits)
+            if status != noErr {
+                // Not every encoder accepts a rate ceiling; average-only is the
+                // previous behaviour, so carry on without it.
+                NSLog("[TBVideoPipeline] DataRateLimits not supported (status %d); using average bitrate only", status)
+            }
+        }
         if preset.prioritizeSpeed {
             VTSessionSetProperty(session, key: kVTCompressionPropertyKey_PrioritizeEncodingSpeedOverQuality, value: kCFBooleanTrue)
         }
@@ -1148,8 +1182,9 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     @Published var localInterfaceIP = ""
     @Published var selectedReceiverID = "" {
         didSet {
-            if selectedReceiverID.isEmpty {
+            if selectedReceiverID != oldValue {
                 receiverSupportsHEVCDecodeHint = nil
+                receiverSupportsHEVCSoftwareDecodeHint = nil
                 receiverInputMonitoringTrustedHint = nil
                 receiverAccessibilityTrustedHint = nil
             }
@@ -1163,6 +1198,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
             UserDefaults.standard.set(receiverIP, forKey: Self.receiverIPDefaultsKey)
             if receiverIP != oldValue {
                 receiverSupportsHEVCDecodeHint = nil
+                receiverSupportsHEVCSoftwareDecodeHint = nil
                 receiverInputMonitoringTrustedHint = nil
                 receiverAccessibilityTrustedHint = nil
             }
@@ -1226,6 +1262,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     @Published var receiverSupportsTrueTone = false
     var audioAddonAvailable = true
     var receiverSupportsHEVCDecodeHint: Bool?
+    var receiverSupportsHEVCSoftwareDecodeHint: Bool?
     var receiverInputMonitoringTrustedHint: Bool?
     var receiverAccessibilityTrustedHint: Bool?
     @Published var senderFPS = 0
@@ -1464,7 +1501,8 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         preset: TBDisplayCapturePreset,
         receiverSupportsHEVC: Bool,
         senderSupportsH264: Bool,
-        senderSupportsHEVC: Bool
+        senderSupportsHEVC: Bool,
+        receiverSupportsHEVCSoftware: Bool = false
     ) -> TBDisplayCodecDecision? {
         let h264Available = senderSupportsH264
         let hevcAvailable = receiverSupportsHEVC && senderSupportsHEVC
@@ -1493,6 +1531,10 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         if preferredCodec == kCMVideoCodecType_H264, hevcAvailable {
             return TBDisplayCodecDecision(codecType: kCMVideoCodecType_HEVC, usedFallback: true)
         }
+        // Software HEVC is a last resort, and requires an explicit receiver capability.
+        if receiverSupportsHEVCSoftware && senderSupportsHEVC {
+            return TBDisplayCodecDecision(codecType: kCMVideoCodecType_HEVC, usedFallback: true)
+        }
 
         return nil
     }
@@ -1517,7 +1559,9 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
                 codecType: kCMVideoCodecType_HEVC,
                 width: preset.width,
                 height: preset.height
-            )
+            ),
+            receiverSupportsHEVCSoftware: profile.map { $0.supportsHEVCSoftwareDecode ?? false }
+                ?? receiverSupportsHEVCSoftwareDecodeHint ?? false
         )
     }
 
@@ -1697,7 +1741,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
 
     private func performCableTest() async throws -> Double {
         guard let conn = connection else {
-            throw NSError(domain: "TBDisplaySenderService", code: -1, userInfo: [NSLocalizedDescriptionKey: "No connection"])
+            throw NSError(domain: "TBDisplaySenderService", code: -1, userInfo: [NSLocalizedDescriptionKey: TBDisplaySenderL10n.text("sender.error.no_connection", language)])
         }
 
         let totalBytes: Int64 = 20 * 1000 * 1000 * 1000
@@ -2591,6 +2635,8 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         else { return }
 
         activeProfile = profile
+        // The connected peer is authoritative, including legacy profiles without this field.
+        receiverSupportsHEVCSoftwareDecodeHint = profile.supportsHEVCSoftwareDecode
         if let supportsHEVCDecode = profile.supportsHEVCDecode {
             receiverSupportsHEVCDecodeHint = supportsHEVCDecode
         }
@@ -2728,7 +2774,13 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
                 self.scheduleDesktopMirrorRecovery(for: self.session.displayID)
             }
 
-            self.setStatus(.captureStartedWaitingFirstFrame)
+            // The first frame may already have arrived while startCapture() was
+            // suspended (see the sessionAckSent reset above), so the status is
+            // already captureActive. Writing "waiting for the first frame" over it
+            // would stick for the whole stream: handleFirstEncodedFrame runs once.
+            if !self.sessionAckSent {
+                self.setStatus(.captureStartedWaitingFirstFrame)
+            }
             self.startFirstFrameWatchdog()
         }
     }

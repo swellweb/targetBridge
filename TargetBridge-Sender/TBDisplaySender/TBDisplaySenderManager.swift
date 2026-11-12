@@ -16,7 +16,7 @@ enum TBTransportKind: String, CaseIterable, Identifiable {
         case (.thunderboltBridge, .english): return "Thunderbolt Bridge"
         case (.thunderboltBridge, .german): return "Thunderbolt Bridge"
         case (.thunderboltBridge, .french): return "Thunderbolt Bridge"
-        case (.thunderboltBridge, .chinese): return "Thunderbolt Bridge"
+        case (.thunderboltBridge, .chinese): return "雷雳网桥"
         case (.networkLink, .italian): return "Network Link (sperimentale)"
         case (.networkLink, .english): return "Network Link (experimental)"
         case (.networkLink, .german): return "Network Link (experimentell)"
@@ -58,7 +58,9 @@ final class TBDisplaySenderService: ObservableObject {
             objectWillChange.send()
         }
     }
-    @Published var showsMenuBarIcon = true
+    @Published var showsMenuBarIcon = TBMenuBarIconPreference.load() {
+        didSet { TBMenuBarIconPreference.save(showsMenuBarIcon) }
+    }
     @Published var largeCursor: Bool = UserDefaults.standard.bool(forKey: "fd.tbdisplaysender.largeCursor") {
         didSet {
             UserDefaults.standard.set(largeCursor, forKey: "fd.tbdisplaysender.largeCursor")
@@ -524,6 +526,7 @@ final class TBDisplaySenderService: ObservableObject {
         session.selectedReceiverID = receiver.stableIdentity
         session.receiverIP = receiver.ip(for: session.transportKind)
         session.receiverSupportsHEVCDecodeHint = receiver.supportsHEVCDecode
+        session.receiverSupportsHEVCSoftwareDecodeHint = receiver.supportsHEVCSoftwareDecode
         restoreCodecPreference(for: receiver, to: session, defaultToAutomatic: true)
         if session.localInterfaceIP.isEmpty {
             session.localInterfaceIP = suggestedInterfaceForNewSession(transportKind: session.transportKind)?.ip
@@ -552,6 +555,7 @@ final class TBDisplaySenderService: ObservableObject {
             session.selectedReceiverID = receiver.stableIdentity
             session.receiverIP = receiver.ip(for: session.transportKind)
             session.receiverSupportsHEVCDecodeHint = receiver.supportsHEVCDecode
+            session.receiverSupportsHEVCSoftwareDecodeHint = receiver.supportsHEVCSoftwareDecode
             restoreCodecPreference(for: receiver, to: session, defaultToAutomatic: false)
         }
     }
@@ -690,7 +694,7 @@ final class TBDisplaySenderService: ObservableObject {
     }
 
     func importAddonManifest(from url: URL) throws {
-        _ = try addonStore.importManifest(from: url)
+        _ = try addonStore.importManifest(from: url, language: language)
         normalizeAddonState()
     }
 

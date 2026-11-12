@@ -55,11 +55,19 @@ static uint32_t read_be32(const uint8_t *p) {
 }
 
 int tb_parser_feed(struct tb_parser *p, const uint8_t *data, size_t n) {
-    if (parser_reserve(p, p->len + n + 1) < 0) return -1;  /* +1 for NUL sentinel */
-    memcpy(p->buf + p->len, data, n);
-    p->len += n;
+    return tb_parser_feed_until(p, data, n, NULL, NULL);
+}
+
+int tb_parser_feed_until(struct tb_parser *p, const uint8_t *data, size_t n,
+                         tb_parser_yield_cb should_yield, void *yield_ud) {
+    if (n > 0) {
+        if (parser_reserve(p, p->len + n + 1) < 0) return -1;
+        memcpy(p->buf + p->len, data, n);
+        p->len += n;
+    }
 
     size_t off = 0;
+    int yielded = 0;
     while (p->len - off >= TB_HDR_BYTES) {
         uint32_t pkt_len = read_be32(p->buf + off);
         if (pkt_len < 1 || pkt_len > 64 * 1024 * 1024) {  /* sanity */
@@ -83,6 +91,10 @@ int tb_parser_feed(struct tb_parser *p, const uint8_t *data, size_t n) {
         p->cb(type, payload, plen, p->ud);
         *sentinel = saved;
         off += 4 + pkt_len;
+        if (should_yield && should_yield(yield_ud)) {
+            yielded = 1;
+            break;
+        }
     }
 
     /* shift remainder to front */
@@ -91,7 +103,7 @@ int tb_parser_feed(struct tb_parser *p, const uint8_t *data, size_t n) {
         if (rem > 0) memmove(p->buf, p->buf + off, rem);
         p->len = rem;
     }
-    return 0;
+    return yielded;
 }
 
 /* ---- Server ----------------------------------------------------------- */
@@ -126,8 +138,14 @@ int tb_net_accept(int server_fd) {
     if (c < 0) return -1;
     int fl = fcntl(c, F_GETFL, 0);
     fcntl(c, F_SETFL, fl | O_NONBLOCK);
-    int rcvbuf = 4 * 1024 * 1024;
-    setsockopt(c, SOL_SOCKET, SO_RCVBUF, &rcvbuf, sizeof(rcvbuf));
+    /* A 5K HEVC keyframe can approach several MB. Ask for the largest buffer
+     * the kernel accepts (macOS caps it below kern.ipc.maxsockbuf, 8 MB by
+     * default) so a keyframe burst does not stall the sender's send window. */
+    static const int rcvbuf_sizes[] = { 8 << 20, 6 << 20, 4 << 20 };
+    for (size_t i = 0; i < sizeof(rcvbuf_sizes) / sizeof(rcvbuf_sizes[0]); i++) {
+        int rcvbuf = rcvbuf_sizes[i];
+        if (setsockopt(c, SOL_SOCKET, SO_RCVBUF, &rcvbuf, sizeof(rcvbuf)) == 0) break;
+    }
     /* disable Nagle for low latency */
     int yes = 1;
     setsockopt(c, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(yes));

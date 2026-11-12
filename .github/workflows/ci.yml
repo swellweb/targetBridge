@@ -2,9 +2,9 @@ name: CI Build Verification
 
 on:
   push:
-    branches: [ main, 3.1-maint, maint-3.5, 3.2-dev, dev-3.3.0, dev-3.4.0, dev-3.6.0 ]
+    branches: [ main, 3.1-maint, maint-3.5, maint-3.6, 3.2-dev, dev-3.3.0, dev-3.4.0, dev-3.6.0 ]
   pull_request:
-    branches: [ main, 3.1-maint, maint-3.5, 3.2-dev, dev-3.3.0, dev-3.4.0, dev-3.6.0 ]
+    branches: [ main, 3.1-maint, maint-3.5, maint-3.6, 3.2-dev, dev-3.3.0, dev-3.4.0, dev-3.6.0 ]
 
 jobs:
   build-sender:
@@ -25,6 +25,9 @@ jobs:
         run: |
           brew install jq xcodegen
 
+      - name: Test Localization Checker
+        run: ./TargetBridge-Shared/scripts/test_localizations.sh
+
       - name: Check Localizations
         run: |
           ./TargetBridge-Shared/scripts/check_localizations.sh
@@ -42,6 +45,9 @@ jobs:
 
       - name: Check Integrated Video Queue Guards
         run: ruby TargetBridge-Sender/scripts/test_video_queue_budget.rb
+
+      - name: Check Codec Capability Fallback
+        run: ruby review-tools/codec_capability_probe.rb
 
       - name: Check Sender Permission Probe
         run: ruby TargetBridge-Sender/scripts/test_permission_status.rb sender build/TargetBridge.app/Contents/MacOS/TargetBridge
@@ -77,6 +83,9 @@ jobs:
         run: |
           cd TargetBridge-Receiver
           ./scripts/build_tbreceiver_c_app.sh
+
+      - name: Check Cooperative Drain Under Sanitizers
+        run: ruby review-tools/drain_budget_probe.rb
 
       - name: Check Receiver Permission Probe
         run: ruby TargetBridge-Sender/scripts/test_permission_status.rb receiver 'build/TargetBridge Receiver.app/Contents/MacOS/TargetBridgeReceiver'

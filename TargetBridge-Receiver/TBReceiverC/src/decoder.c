@@ -19,6 +19,7 @@
 
 #if defined(__APPLE__)
 #  include <CoreVideo/CoreVideo.h>
+#  include <VideoToolbox/VideoToolbox.h>
 #endif
 
 #define ANNEXB_START   "\x00\x00\x00\x01"
@@ -45,6 +46,7 @@ struct tb_decoder {
     size_t            scratch_cap;
 
     tb_frame_cb       cb;
+    tb_pixbuf_cb      pixbuf_cb;
     void             *ud;
 
     int               opened;
@@ -101,9 +103,27 @@ struct tb_decoder *tb_dec_create(tb_frame_cb cb, void *ud) {
     return d;
 }
 
+void tb_dec_set_pixbuf_cb(struct tb_decoder *d, tb_pixbuf_cb cb) {
+    if (d) d->pixbuf_cb = cb;
+}
+
+int tb_dec_supports_hevc_softwaredecode(void) {
+    return avcodec_find_decoder(AV_CODEC_ID_HEVC) != NULL;
+}
+
 int tb_dec_supports_hevc_hwdecode(void) {
     const AVCodec *codec = avcodec_find_decoder(AV_CODEC_ID_HEVC);
     if (!codec) return 0;
+
+#if defined(__APPLE__)
+    /* FFmpeg's videotoolbox hwaccel config and a successful hwdevice context
+     * only prove that VideoToolbox exists, not that this GPU can decode HEVC.
+     * On Macs without an HEVC decode block (e.g. Haswell/Broadwell iMacs)
+     * VideoToolbox silently falls back to its software decoder in
+     * VTDecoderXPCService, so advertising HEVC makes the sender pick a codec
+     * this receiver can only decode on the CPU. Ask VideoToolbox directly. */
+    if (!VTIsHardwareDecodeSupported(kCMVideoCodecType_HEVC)) return 0;
+#endif
 
     enum AVHWDeviceType type = pick_hwdev();
     if (type == AV_HWDEVICE_TYPE_NONE) return 0;
@@ -368,6 +388,13 @@ int tb_dec_feed_frame(struct tb_decoder *d, const uint8_t *avcc, size_t len) {
          * Major win on Intel iMac + Radeon (~6× faster in practice). */
         if (d->hw_frame->format == d->hw_pix_fmt && d->hw_frame->data[3]) {
             CVPixelBufferRef pb = (CVPixelBufferRef)d->hw_frame->data[3];
+            if (d->pixbuf_cb) {
+                /* Hand the decoded surface to the caller, which decides when
+                 * (and whether) to upload it. */
+                d->pixbuf_cb((void *)pb, d->ud);
+                av_frame_unref(d->hw_frame);
+                continue;
+            }
             if (CVPixelBufferLockBaseAddress(pb, kCVPixelBufferLock_ReadOnly) == 0) {
                 uint8_t *y   = (uint8_t *)CVPixelBufferGetBaseAddressOfPlane(pb, 0);
                 size_t   ys  =            CVPixelBufferGetBytesPerRowOfPlane(pb, 0);

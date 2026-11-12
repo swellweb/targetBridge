@@ -16,11 +16,21 @@ typedef void (*tb_frame_cb)(const uint8_t *y, int y_stride,
                             const uint8_t *uv, int uv_stride,
                             int width, int height, void *ud);
 
+/* Optional hardware-frame callback (macOS VideoToolbox only).
+ * Receives the decoded CVPixelBufferRef (passed as void*) instead of mapped
+ * NV12 planes. The buffer is only guaranteed alive for the duration of the
+ * call; a callee that keeps it must CVPixelBufferRetain() it. Lets the caller
+ * decode every frame (the reference chain must stay intact) but upload and
+ * present only the newest one when it is running behind. */
+typedef void (*tb_pixbuf_cb)(void *cv_pixel_buffer, void *ud);
+
 struct tb_decoder;
 
 struct tb_decoder *tb_dec_create(tb_frame_cb cb, void *ud);
 void               tb_dec_destroy(struct tb_decoder *d);
+void               tb_dec_set_pixbuf_cb(struct tb_decoder *d, tb_pixbuf_cb cb);
 int                tb_dec_supports_hevc_hwdecode(void);
+int                tb_dec_supports_hevc_softwaredecode(void);
 
 /* Reset decoder state on client disconnect.
  * Forces re-open on next param sets so a stale FFmpeg context doesn't

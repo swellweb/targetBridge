@@ -1,3 +1,4 @@
+import CFNetwork
 import Foundation
 
 struct TBDiscoveredReceiver: Identifiable, Equatable {
@@ -15,6 +16,7 @@ struct TBDiscoveredReceiver: Identifiable, Equatable {
     let version: String
     let supportsHEVCDecode: Bool
     let hostName: String?
+    let supportsHEVCSoftwareDecode: Bool?
 
     init(
         serviceName: String,
@@ -30,7 +32,8 @@ struct TBDiscoveredReceiver: Identifiable, Equatable {
         panelSummary: String,
         version: String,
         supportsHEVCDecode: Bool,
-        hostName: String?
+        hostName: String?,
+        supportsHEVCSoftwareDecode: Bool? = nil
     ) {
         self.serviceName = serviceName
         self.receiverName = receiverName
@@ -46,6 +49,7 @@ struct TBDiscoveredReceiver: Identifiable, Equatable {
         self.version = version
         self.supportsHEVCDecode = supportsHEVCDecode
         self.hostName = hostName
+        self.supportsHEVCSoftwareDecode = supportsHEVCSoftwareDecode
     }
 
     /// SwiftUI selection and persisted sessions both use this stable identity.
@@ -179,10 +183,13 @@ final class TBReceiverDiscovery: NSObject, ObservableObject {
 
     private func upsertReceiver(from service: NetService) {
         guard let txtData = service.txtRecordData() else { return }
-        let txt = NetService.dictionary(fromTXTRecord: txtData)
+        guard let record = CFNetServiceCreateDictionaryWithTXTData(nil, txtData as CFData)?.takeRetainedValue()
+        else { return }
+        // Key-only TXT entries are NSNull, not Data; avoid Foundation's forced typed bridge.
+        let txt = record as NSDictionary
 
         func stringValue(_ key: String) -> String {
-            guard let data = txt[key], !data.isEmpty else { return "" }
+            guard let data = txt[key] as? Data, !data.isEmpty else { return "" }
             return String(decoding: data, as: UTF8.self)
         }
 
@@ -209,6 +216,7 @@ final class TBReceiverDiscovery: NSObject, ObservableObject {
         let panelHeight = stringValue("panelHeight")
         let version = stringValue("version")
         let supportsHEVCDecode = stringValue("supportsHEVCDecode") == "1"
+        let softwareHEVC = stringValue("supportsHEVCSoftwareDecode")
 
         let panelSummary: String
         if !panelWidth.isEmpty, !panelHeight.isEmpty, !panelName.isEmpty {
@@ -235,7 +243,8 @@ final class TBReceiverDiscovery: NSObject, ObservableObject {
             panelSummary: panelSummary,
             version: version,
             supportsHEVCDecode: supportsHEVCDecode,
-            hostName: service.hostName
+            hostName: service.hostName,
+            supportsHEVCSoftwareDecode: softwareHEVC == "1" ? true : (softwareHEVC == "0" ? false : nil)
         )
 
         if let index = receivers.firstIndex(where: {
