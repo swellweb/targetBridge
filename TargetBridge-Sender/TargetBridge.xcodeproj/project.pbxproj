@@ -55,6 +55,8 @@
 		A2F19D69DD3375C9388BBB9C /* TBReceiverPreferenceMigrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAD8054BAF22B0176188F75E /* TBReceiverPreferenceMigrationTests.swift */; };
 		A3FD74604472363535D63273 /* TBDisplaySenderSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B95D015FB8DF172C7418CB5D /* TBDisplaySenderSettingsView.swift */; };
 		AB66DEF6790324891146EE6E /* TBDisplaySenderPermissionAssistant.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD2DBAD89D0448890049E949 /* TBDisplaySenderPermissionAssistant.swift */; };
+		B30133440D78F4CC530DEBBB /* TBHeartbeatTimer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF668B207017DF52501BD660 /* TBHeartbeatTimer.swift */; };
+		B81097D7987E893A0B2DF39E /* TBHeartbeatTimerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16C124BF216F93EBFFE5B43B /* TBHeartbeatTimerTests.swift */; };
 		B9FA5989F04108E9FBFA8D3B /* TBDisplaySenderApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD235429FA67D231F565C93E /* TBDisplaySenderApp.swift */; };
 		BB4D986A5A0F32BC1480BD4D /* TBDisplaySenderSurfaceViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD33D06A2FA6BA7E075A9E46 /* TBDisplaySenderSurfaceViews.swift */; };
 		BB61FDD4D950F325E9D2ADAC /* TBInjectedPointerEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10EC09EEBA6EA9B2EA6ACD1F /* TBInjectedPointerEvent.swift */; };
@@ -97,6 +99,7 @@
 		0B483A658326FE85720BCBE2 /* TBDisplaySenderService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBDisplaySenderService.swift; sourceTree = "<group>"; };
 		0D738763F68AC918C4DE5F1D /* TBSenderLocalizationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBSenderLocalizationTests.swift; sourceTree = "<group>"; };
 		10EC09EEBA6EA9B2EA6ACD1F /* TBInjectedPointerEvent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBInjectedPointerEvent.swift; sourceTree = "<group>"; };
+		16C124BF216F93EBFFE5B43B /* TBHeartbeatTimerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBHeartbeatTimerTests.swift; sourceTree = "<group>"; };
 		17D2B1A011B9446090DA60A7 /* TBReceiverDiscoveryModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBReceiverDiscoveryModelTests.swift; sourceTree = "<group>"; };
 		17FD38CAA4E2CF350CC210D2 /* TBDisplaySender.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TBDisplaySender.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		1819A55F8D993D9347F0E407 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -130,6 +133,7 @@
 		A7086193EE5710E2C37F86F1 /* TBConfigurationDiagnosticsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBConfigurationDiagnosticsTests.swift; sourceTree = "<group>"; };
 		A9C165547D004FCF9222DB8D /* TBExtendedArrangementMigrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBExtendedArrangementMigrationTests.swift; sourceTree = "<group>"; };
 		AD2DBAD89D0448890049E949 /* TBDisplaySenderPermissionAssistant.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBDisplaySenderPermissionAssistant.swift; sourceTree = "<group>"; };
+		AF668B207017DF52501BD660 /* TBHeartbeatTimer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBHeartbeatTimer.swift; sourceTree = "<group>"; };
 		B6C4B2F1027EDAF5206CF728 /* TBMenuBarIconPreferenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBMenuBarIconPreferenceTests.swift; sourceTree = "<group>"; };
 		B8DD299CAF964F041C2A4D1A /* TBExtendedArrangementMigration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBExtendedArrangementMigration.swift; sourceTree = "<group>"; };
 		B95D015FB8DF172C7418CB5D /* TBDisplaySenderSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBDisplaySenderSettingsView.swift; sourceTree = "<group>"; };
@@ -188,6 +192,7 @@
 				6AC1AF99431D4889F947CE1B /* TBDisplaySenderStatusItemController.swift */,
 				DD33D06A2FA6BA7E075A9E46 /* TBDisplaySenderSurfaceViews.swift */,
 				B8DD299CAF964F041C2A4D1A /* TBExtendedArrangementMigration.swift */,
+				AF668B207017DF52501BD660 /* TBHeartbeatTimer.swift */,
 				4134F78ABD695DF9DB5D485B /* TBInjectedClickStateTracker.swift */,
 				10EC09EEBA6EA9B2EA6ACD1F /* TBInjectedPointerEvent.swift */,
 				4A72C42968FA2A6B2A0515B9 /* TBInputBinding.swift */,
@@ -224,6 +229,7 @@
 				D419C88EEEA66EE0829BA975 /* TBDisplayProfileTests.swift */,
 				0A866A203CF5F6E286566C1F /* TBDisplaySenderVersionTests.swift */,
 				A9C165547D004FCF9222DB8D /* TBExtendedArrangementMigrationTests.swift */,
+				16C124BF216F93EBFFE5B43B /* TBHeartbeatTimerTests.swift */,
 				69E2222AF5FED196C59330C1 /* TBHEVCSoftwareCapabilityTests.swift */,
 				EF17070AC1C6F9E9F3B4DFDF /* TBInjectedClickStateTrackerTests.swift */,
 				99FECDAFCED370C001F6BBB7 /* TBInjectedPointerEventTests.swift */,
@@ -431,6 +437,7 @@
 				FED0E1C59B336F27A37BBFD7 /* TBDisplaySenderVersionTests.swift in Sources */,
 				E33935435790CAAA328B7A99 /* TBExtendedArrangementMigrationTests.swift in Sources */,
 				15A4BB3EDF6FE49CD7B78BCF /* TBHEVCSoftwareCapabilityTests.swift in Sources */,
+				B81097D7987E893A0B2DF39E /* TBHeartbeatTimerTests.swift in Sources */,
 				0E118FC7EFBBF44A70799B03 /* TBInjectedClickStateTrackerTests.swift in Sources */,
 				6FBBB12A4345F23FAD561DC9 /* TBInjectedPointerEventTests.swift in Sources */,
 				15D142162EDD10261447EC43 /* TBInputBindingTests.swift in Sources */,
@@ -470,6 +477,7 @@
 				E9F7A263085592067562F768 /* TBDisplaySenderStatusItemController.swift in Sources */,
 				BB4D986A5A0F32BC1480BD4D /* TBDisplaySenderSurfaceViews.swift in Sources */,
 				A0A4DF680F60E7D98C8813D5 /* TBExtendedArrangementMigration.swift in Sources */,
+				B30133440D78F4CC530DEBBB /* TBHeartbeatTimer.swift in Sources */,
 				4C59B780CEA3CC5F563BC86F /* TBInjectedClickStateTracker.swift in Sources */,
 				BB61FDD4D950F325E9D2ADAC /* TBInjectedPointerEvent.swift in Sources */,
 				5A8811B2F7DB1830CBA7B538 /* TBInputBinding.swift in Sources */,

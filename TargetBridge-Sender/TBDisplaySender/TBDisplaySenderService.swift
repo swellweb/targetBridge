@@ -1883,6 +1883,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         teardownCompletion: (@MainActor @Sendable () -> Void)? = nil
     ) {
         let connectionToClose = connection
+        TBLog.connection.notice("stop: reason=\(teardownReason, privacy: .public) connected=\(self.isConnected, privacy: .public) streaming=\(self.isStreaming, privacy: .public)")
         captureRestartGeneration &+= 1
         isRestartingCaptureAfterWake = false
         if persistArrangement {
@@ -2188,6 +2189,8 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
                     self.drainPackets()
                 }
                 if error != nil || isDone {
+                    let failure = error.map { $0 as NSError }
+                    TBLog.connection.notice("receive: ended eof=\(isDone, privacy: .public) domain=\(failure?.domain ?? "none", privacy: .public) code=\(failure?.code ?? 0, privacy: .public)")
                     if let error {
                         self.setStatus(.connectionClosed(error.localizedDescription))
                     } else if case .startingCapture = self.statusState {
@@ -2250,6 +2253,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
             case .heartbeat:
                 break
             case .teardown:
+                TBLog.connection.notice("receive: Receiver requested teardown")
                 setStatus(.receiverTerminatedSession)
                 stop(resetStatusTo: nil)
                 return
@@ -2907,6 +2911,8 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
             delegate.onError = { [weak self] error in
                 Task { @MainActor [weak self] in
                     guard let self, self.pipeline === pipeline else { return }
+                    let failure = error as NSError
+                    TBLog.connection.error("capture: delegate stopped domain=\(failure.domain, privacy: .public) code=\(failure.code, privacy: .public)")
                     self.setStatus(.captureError(self.formattedCaptureErrorMessage(for: error)))
                     self.stop(resetStatusTo: nil)
                 }
@@ -3808,10 +3814,8 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
 
     private func startHeartbeat() {
         heartbeatTimer?.invalidate()
-        heartbeatTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.sendHeartbeat()
-            }
+        heartbeatTimer = TBHeartbeatTimer.scheduled { [weak self] in
+            self?.sendHeartbeat()
         }
     }
 

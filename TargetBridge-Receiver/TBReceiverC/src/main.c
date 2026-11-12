@@ -17,6 +17,7 @@
 #include "decoder.h"
 #include "display.h"
 #include "idle_watchdog.h"
+#include "connection_log.h"
 #include "receiver_profile.h"
 #include "proto.h"
 #include "tb_gesture_bridge.h"
@@ -1355,6 +1356,7 @@ static void on_packet(uint8_t type, const uint8_t *payload, size_t len, void *ud
         /* Performance test data; discard */
         break;
     case TB_PKT_TEARDOWN:
+        tb_connection_log("sender_teardown", 0);
         fprintf(stderr, "[main] teardown requested by sender\n");
         tb_copy_i18n(a->status_text, sizeof(a->status_text), "receiver.status.session_closed_by_sender");
         a->close_requested = 1;
@@ -1982,6 +1984,7 @@ static void send_receiver_info(struct app *a) {
 }
 
 static void close_client(struct app *a) {
+    if (a->client_fd >= 0) tb_connection_log("session_closed", 0);
     if (a->client_fd >= 0) close(a->client_fd);
     a->client_fd = -1;
     a->session_active = 0;
@@ -2225,6 +2228,7 @@ int main(int argc, char **argv) {
                 a.last_recv_ms = t;
                 SDL_DisableScreenSaver();
                 fprintf(stderr, "[main] client connected\n");
+                tb_connection_log("client_connected", 0);
                 tb_parser_free(&a.parser);
                 tb_parser_init(&a.parser, on_packet, &a);
                 tb_receiver_refresh_input_capture(&a);
@@ -2233,6 +2237,7 @@ int main(int argc, char **argv) {
         } else {
             int drain_result = drain_socket(&a);
             if (drain_result < 0) {
+                tb_connection_log("receive_closed_or_invalid", 0);
                 close_client(&a);
             } else {
                 socket_activity = drain_result;
@@ -2252,6 +2257,7 @@ int main(int argc, char **argv) {
                                 "[main] monotonic clock moved backwards; "
                                 "rebasing sender idle watchdog\n");
                     } else if (watchdog_result == TB_IDLE_WATCHDOG_EXPIRED) {
+                        tb_connection_log("sender_idle_timeout_ms", (int64_t)idle_ms);
                         /* The sender streams frames continuously and heartbeats
                          * every 2s. Total silence means it died without a FIN
                          * (crash, pulled cable, force sleep). Without this reap,

@@ -22,6 +22,7 @@ test_net_parser
 test_parser_yield
 test_input_queue
 test_idle_watchdog
+test_connection_log
 test_receiver_profile
 test_status_layout
 test_monitor_shield
