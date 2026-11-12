@@ -38,12 +38,19 @@ struct TBDisplaySenderApp: App {
                 .task {
                     statusItemController.activate()
                 }
+                // Every control URL belongs to this shared Sender. Without an
+                // explicit match SwiftUI creates a new window for each request.
+                .handlesExternalEvents(preferring: ["*"], allowing: ["*"])
                 .onOpenURL { url in
                     TBSenderAutomation.handle(url: url)
                 }
         }
+        .handlesExternalEvents(matching: ["*"])
         .defaultSize(width: 860, height: 860)
         .commands {
+            // Keep WindowGroup's background lifetime when the panel closes,
+            // but do not offer another panel for the same shared service.
+            CommandGroup(replacing: .newItem) { }
             CommandGroup(replacing: .appTermination) {
                 Button(TBDisplaySenderL10n.quitApp(service.language)) {
                     service.quitAfterUserRequest()
