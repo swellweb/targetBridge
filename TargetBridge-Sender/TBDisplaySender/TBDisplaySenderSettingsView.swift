@@ -25,7 +25,7 @@ struct TBDisplaySenderSettingsView: View {
                                 )
                             Image(systemName: "slider.horizontal.3")
                                 .font(.system(size: 24, weight: .semibold))
-                                .foregroundStyle(.white.opacity(0.95))
+                                .foregroundStyle(Color.primary.opacity(0.95))
                         }
                         .frame(width: 68, height: 68)
 
@@ -135,7 +135,7 @@ struct TBDisplaySenderSettingsView: View {
             }
             .padding(20)
         }
-        .background(appBackground)
+        .background(TBSettingsBackground())
         .alert(addonImportErrorTitle, isPresented: Binding(
             get: { importError != nil },
             set: { if !$0 { importError = nil } }
@@ -168,7 +168,7 @@ struct TBDisplaySenderSettingsView: View {
             .padding(.vertical, 6)
             .background(
                 Capsule(style: .continuous)
-                    .fill(Color.white.opacity(0.06))
+                    .fill(Color.primary.opacity(0.06))
             )
     }
 
@@ -256,18 +256,6 @@ struct TBDisplaySenderSettingsView: View {
         } catch {
             importError = error.localizedDescription
         }
-    }
-
-    private var appBackground: some View {
-        LinearGradient(
-            colors: [
-                Color(red: 0.12, green: 0.13, blue: 0.14),
-                Color(red: 0.08, green: 0.09, blue: 0.10)
-            ],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
-        .ignoresSafeArea()
     }
 
     private var settingsTitle: String {

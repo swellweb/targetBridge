@@ -17,6 +17,7 @@
 		24481F31E6A64909C94CEB56 /* TBLocalPointerModifierBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 051ACEA420DA015B4F108362 /* TBLocalPointerModifierBridge.swift */; };
 		2819CE06D15CA7EDD1069062 /* TBConfigurationDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3F0782C970AA23871AE73A6 /* TBConfigurationDiagnostics.swift */; };
 		28603CE079A0E36D4FC1A227 /* TBReceiverPreferenceMigration.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE4AF4080420FAAFB177EE26 /* TBReceiverPreferenceMigration.swift */; };
+		292A3C1972E98F6EA165DA92 /* TBSettingsAppearanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF1A8A4D3CEF29FF15DB43BA /* TBSettingsAppearanceTests.swift */; };
 		2C4E1C76CA81F640C700F6BF /* TBMonitorProtocolTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9583EB47BCD79FA719EEA77 /* TBMonitorProtocolTests.swift */; };
 		2DD92F479C2B9BBFCF159644 /* TBMenuBarIconPreferenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6C4B2F1027EDAF5206CF728 /* TBMenuBarIconPreferenceTests.swift */; };
 		337BD561622AA19F43D3B95B /* ReceiverBackedVirtualDisplaySession.swift in Sources */ = {isa = PBXBuildFile; fileRef = C242540F9DE94E1364F106F4 /* ReceiverBackedVirtualDisplaySession.swift */; };
@@ -61,6 +62,7 @@
 		C1A77120267A12D9E355DCEA /* network-link.json in Resources */ = {isa = PBXBuildFile; fileRef = 6579B499CBC11196966318EA /* network-link.json */; };
 		C2CCAB017BC3CAB1DCFA5CCC /* TBMonitorProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA01317B43B46B1B323A7008 /* TBMonitorProtocol.swift */; };
 		CBA7C2F0FA57CC475E2307AF /* TBInputRelayController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E3DC447E3E8E522565E725B /* TBInputRelayController.swift */; };
+		D253E61ADB0E65F0BC90F6E4 /* TBSettingsBackground.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65B2C3532C3A2806DA45E9E /* TBSettingsBackground.swift */; };
 		D5E6B5B7B49E740C92010C6F /* TBInputDebugLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80543A7A5A3B583C1543ABC7 /* TBInputDebugLog.swift */; };
 		D81394631056BA19B9032116 /* TBDisplayProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E4C95A1820A99E5DAED17DE /* TBDisplayProfile.swift */; };
 		E33935435790CAAA328B7A99 /* TBExtendedArrangementMigrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9C165547D004FCF9222DB8D /* TBExtendedArrangementMigrationTests.swift */; };
@@ -145,10 +147,12 @@
 		DA01317B43B46B1B323A7008 /* TBMonitorProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBMonitorProtocol.swift; sourceTree = "<group>"; };
 		DD33D06A2FA6BA7E075A9E46 /* TBDisplaySenderSurfaceViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBDisplaySenderSurfaceViews.swift; sourceTree = "<group>"; };
 		DE62A96622D84886F41AB207 /* it */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = it; path = it.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		DF1A8A4D3CEF29FF15DB43BA /* TBSettingsAppearanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBSettingsAppearanceTests.swift; sourceTree = "<group>"; };
 		DFB8219C144AA88D16BB4F59 /* TBDisplaySenderTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TBDisplaySenderTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		ED08E3D2FCC8194F8B8185C9 /* TBSenderAutomationParsingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBSenderAutomationParsingTests.swift; sourceTree = "<group>"; };
 		EF17070AC1C6F9E9F3B4DFDF /* TBInjectedClickStateTrackerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBInjectedClickStateTrackerTests.swift; sourceTree = "<group>"; };
 		F08C140ECFEDAE11AD68D12B /* TBMenuMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBMenuMetrics.swift; sourceTree = "<group>"; };
+		F65B2C3532C3A2806DA45E9E /* TBSettingsBackground.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBSettingsBackground.swift; sourceTree = "<group>"; };
 		FB4246C458E3CD81617F83AA /* TBMenuBarIconPreference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBMenuBarIconPreference.swift; sourceTree = "<group>"; };
 		FD6EB41D253E67E350F5E25D /* TBConnectionDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBConnectionDiagnostics.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -196,6 +200,7 @@
 				040912357013932AE29CFD6A /* TBMenuToggleRowView.swift */,
 				06BABA1447D1E8DD50A6C2F0 /* TBReceiverDiscovery.swift */,
 				CE4AF4080420FAAFB177EE26 /* TBReceiverPreferenceMigration.swift */,
+				F65B2C3532C3A2806DA45E9E /* TBSettingsBackground.swift */,
 				6630386DB9C3D210849E6211 /* TBVirtualDisplayModeMemory.swift */,
 			);
 			path = TBDisplaySender;
@@ -231,6 +236,7 @@
 				ED08E3D2FCC8194F8B8185C9 /* TBSenderAutomationParsingTests.swift */,
 				2EC03CAC8921A4511E017BBC /* TBSenderLanguageTests.swift */,
 				0D738763F68AC918C4DE5F1D /* TBSenderLocalizationTests.swift */,
+				DF1A8A4D3CEF29FF15DB43BA /* TBSettingsAppearanceTests.swift */,
 			);
 			path = TBDisplaySenderTests;
 			sourceTree = "<group>";
@@ -436,6 +442,7 @@
 				4A8719A8C13A6560F4F0EB0D /* TBSenderAutomationParsingTests.swift in Sources */,
 				FEFFC9A867E0E1EFE79A2AAB /* TBSenderLanguageTests.swift in Sources */,
 				89B9EA9041C126CBE38B1C81 /* TBSenderLocalizationTests.swift in Sources */,
+				292A3C1972E98F6EA165DA92 /* TBSettingsAppearanceTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -478,6 +485,7 @@
 				C2CCAB017BC3CAB1DCFA5CCC /* TBMonitorProtocol.swift in Sources */,
 				06E4F7B33C77762A5E2CB616 /* TBReceiverDiscovery.swift in Sources */,
 				28603CE079A0E36D4FC1A227 /* TBReceiverPreferenceMigration.swift in Sources */,
+				D253E61ADB0E65F0BC90F6E4 /* TBSettingsBackground.swift in Sources */,
 				58980FE95A48D8F8EDB42055 /* TBVirtualDisplayModeMemory.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
