@@ -31,9 +31,13 @@ fail:
 
 int tb_heartbeat_write(int socket) {
     const char packet[] = "\0\0\0\x0f\x30{\"sequence\":0}";
+    return tb_heartbeat_write_data(socket, packet, sizeof(packet) - 1);
+}
+
+int tb_heartbeat_write_data(int socket, const void *data, size_t size) {
     ssize_t count;
-    do { count = send(socket, packet, sizeof(packet) - 1, 0); } while (count < 0 && errno == EINTR);
-    return count == sizeof(packet) - 1 ? 0 : -1;
+    do { count = send(socket, data, size, 0); } while (count < 0 && errno == EINTR);
+    return count == (ssize_t)size ? 0 : -1;
 }
 
 int tb_heartbeat_read(int socket) {

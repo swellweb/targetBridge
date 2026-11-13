@@ -33,6 +33,7 @@
 		5A8811B2F7DB1830CBA7B538 /* TBInputBinding.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A72C42968FA2A6B2A0515B9 /* TBInputBinding.swift */; };
 		5C0CB53005B6D67362F14719 /* TBDisplaySenderContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 186812C77BFF98DBE0118100 /* TBDisplaySenderContentView.swift */; };
 		69C27FB23C2EF4078DD3D2F5 /* TBReceiverDiscoveryModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17D2B1A011B9446090DA60A7 /* TBReceiverDiscoveryModelTests.swift */; };
+		69FDC31E53A88CBDD1346D09 /* TBHeartbeatCancellationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04924EE27AA930F29BC0CC6C /* TBHeartbeatCancellationTests.swift */; };
 		6A54029FE56DEECA996A07B4 /* TBDisplaySenderService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B483A658326FE85720BCBE2 /* TBDisplaySenderService.swift */; };
 		6DB5F29F60382A0CA97568F3 /* TBMenuMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = F08C140ECFEDAE11AD68D12B /* TBMenuMetrics.swift */; };
 		6FBBB12A4345F23FAD561DC9 /* TBInjectedPointerEventTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99FECDAFCED370C001F6BBB7 /* TBInjectedPointerEventTests.swift */; };
@@ -42,6 +43,7 @@
 		7F103818097EEBD191C5ADBF /* TBConnectionDiagnosticsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 405452C4DA622D0B8887623E /* TBConnectionDiagnosticsTests.swift */; };
 		7F1AE9053DA59169FB761FAA /* de.json in Resources */ = {isa = PBXBuildFile; fileRef = C3658E86F5BE2168F4591491 /* de.json */; };
 		7FB34AA1E75B01E7D1EC3E21 /* it.json in Resources */ = {isa = PBXBuildFile; fileRef = 036E14097FA59989FFC456FD /* it.json */; };
+		80AA308FCBD6E44FE5301FB7 /* TBHeartbeatStopTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7472CE9BC8ECED7A3B990134 /* TBHeartbeatStopTests.swift */; };
 		83FB3853596BEDEFAC5E129A /* TBCaptureHealthTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11B4EB862393E5CE95426D4 /* TBCaptureHealthTests.swift */; };
 		89B9EA9041C126CBE38B1C81 /* TBSenderLocalizationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D738763F68AC918C4DE5F1D /* TBSenderLocalizationTests.swift */; };
 		8A729C68ECAC4642FA20A284 /* TBLocalizationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C932E960346E674A0659624 /* TBLocalizationStore.swift */; };
@@ -91,6 +93,7 @@
 		030454BB0F968B90719A2A3F /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		036E14097FA59989FFC456FD /* it.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = it.json; sourceTree = "<group>"; };
 		040912357013932AE29CFD6A /* TBMenuToggleRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBMenuToggleRowView.swift; sourceTree = "<group>"; };
+		04924EE27AA930F29BC0CC6C /* TBHeartbeatCancellationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBHeartbeatCancellationTests.swift; sourceTree = "<group>"; };
 		051ACEA420DA015B4F108362 /* TBLocalPointerModifierBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBLocalPointerModifierBridge.swift; sourceTree = "<group>"; };
 		06BABA1447D1E8DD50A6C2F0 /* TBReceiverDiscovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBReceiverDiscovery.swift; sourceTree = "<group>"; };
 		06D011FF8AF7BB6D26EDC25B /* TBAddonStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBAddonStore.swift; sourceTree = "<group>"; };
@@ -122,6 +125,7 @@
 		69E2222AF5FED196C59330C1 /* TBHEVCSoftwareCapabilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBHEVCSoftwareCapabilityTests.swift; sourceTree = "<group>"; };
 		6AC1AF99431D4889F947CE1B /* TBDisplaySenderStatusItemController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBDisplaySenderStatusItemController.swift; sourceTree = "<group>"; };
 		73EDC0FF3A4EA4DC1ED63528 /* fr.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = fr.json; sourceTree = "<group>"; };
+		7472CE9BC8ECED7A3B990134 /* TBHeartbeatStopTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBHeartbeatStopTests.swift; sourceTree = "<group>"; };
 		7E3DC447E3E8E522565E725B /* TBInputRelayController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBInputRelayController.swift; sourceTree = "<group>"; };
 		80543A7A5A3B583C1543ABC7 /* TBInputDebugLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBInputDebugLog.swift; sourceTree = "<group>"; };
 		99FECDAFCED370C001F6BBB7 /* TBInjectedPointerEventTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TBInjectedPointerEventTests.swift; sourceTree = "<group>"; };
@@ -229,6 +233,8 @@
 				D419C88EEEA66EE0829BA975 /* TBDisplayProfileTests.swift */,
 				0A866A203CF5F6E286566C1F /* TBDisplaySenderVersionTests.swift */,
 				A9C165547D004FCF9222DB8D /* TBExtendedArrangementMigrationTests.swift */,
+				04924EE27AA930F29BC0CC6C /* TBHeartbeatCancellationTests.swift */,
+				7472CE9BC8ECED7A3B990134 /* TBHeartbeatStopTests.swift */,
 				16C124BF216F93EBFFE5B43B /* TBHeartbeatTimerTests.swift */,
 				69E2222AF5FED196C59330C1 /* TBHEVCSoftwareCapabilityTests.swift */,
 				EF17070AC1C6F9E9F3B4DFDF /* TBInjectedClickStateTrackerTests.swift */,
@@ -437,6 +443,8 @@
 				FED0E1C59B336F27A37BBFD7 /* TBDisplaySenderVersionTests.swift in Sources */,
 				E33935435790CAAA328B7A99 /* TBExtendedArrangementMigrationTests.swift in Sources */,
 				15A4BB3EDF6FE49CD7B78BCF /* TBHEVCSoftwareCapabilityTests.swift in Sources */,
+				69FDC31E53A88CBDD1346D09 /* TBHeartbeatCancellationTests.swift in Sources */,
+				80AA308FCBD6E44FE5301FB7 /* TBHeartbeatStopTests.swift in Sources */,
 				B81097D7987E893A0B2DF39E /* TBHeartbeatTimerTests.swift in Sources */,
 				0E118FC7EFBBF44A70799B03 /* TBInjectedClickStateTrackerTests.swift in Sources */,
 				6FBBB12A4345F23FAD561DC9 /* TBInjectedPointerEventTests.swift in Sources */,

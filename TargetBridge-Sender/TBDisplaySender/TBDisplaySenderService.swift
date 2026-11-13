@@ -1371,7 +1371,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     private var sessionAckSent = false
     private var captureBlockedByScreenRecordingPermission = false
     private var fpsTimer: Timer?
-    private var heartbeatTimer: Timer?
+    private var heartbeatTimer: TBHeartbeatTimer?
     private var firstFrameTimer: Timer?
     private var cursorTimer: Timer?
     private var connectTimeoutWorkItem: DispatchWorkItem?
@@ -1382,7 +1382,6 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     /// "waiting(No route to host)") — surfaced when a connect fails or times
     /// out so the real reason is not lost.
     private var lastConnectionStateDetail: String?
-    private var heartbeatSequence: UInt64 = 0
     private var statusState: TBDisplaySenderStatusState = .ready
     private var streamingActivity: NSObjectProtocol?
     private var displayWakeAssertionID = IOPMAssertionID(0)
@@ -2132,15 +2131,6 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         guard let packet = TBMonitorProtocol.makeJSONPacket(
             type: .clipboard,
             value: TBMonitorClipboard(text: text)
-        ) else { return }
-        send(packet)
-    }
-
-    private func sendHeartbeat() {
-        heartbeatSequence += 1
-        guard let packet = TBMonitorProtocol.makeJSONPacket(
-            type: .heartbeat,
-            value: TBMonitorHeartbeat(sequence: heartbeatSequence)
         ) else { return }
         send(packet)
     }
@@ -3814,8 +3804,13 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
 
     private func startHeartbeat() {
         heartbeatTimer?.invalidate()
-        heartbeatTimer = TBHeartbeatTimer.scheduled { [weak self] in
-            self?.sendHeartbeat()
+        guard let connection else { return }
+        // Capture this connection, not mutable session state or the main actor.
+        heartbeatTimer = TBHeartbeatTimer.scheduled { [weak connection] sequence in
+            guard let connection, let packet = TBMonitorProtocol.makeJSONPacket(
+                type: .heartbeat, value: TBMonitorHeartbeat(sequence: sequence)
+            ) else { return }
+            connection.send(content: packet, completion: .contentProcessed { _ in })
         }
     }
 
