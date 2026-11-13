@@ -37,11 +37,15 @@ and improves the project. A special thank-you for this release goes to:
 - [@preggocl](https://github.com/preggocl) for the physical Receiver display profile and the software decode fallback.
 - [@Betafer](https://github.com/Betafer) for input-queue safety, cursor work, idle audio/display handling, watchdog protection, monitor shielding, and build improvements.
 
-## TargetBridge 3.6.0
+## TargetBridge 3.6.1
 
-Maintenance work is being validated on `maint-3.6`; see the
-[unreleased 3.6.1 candidate notes](docs/releases/3.6.1.md).
-The current published release remains **3.6.0** until validation is complete.
+See the [3.6.1 release notes](docs/releases/3.6.1.md) for the maintenance fixes,
+Settings appearance correction and UI-independent heartbeat.
+The owner approved **ad-hoc signed, non-notarized** distribution for this release;
+macOS may show security warnings and require privacy permissions again.
+Physical reconnect/sleep and all intermittent disconnects are not certified fixed.
+
+## Previous Release: 3.6.0
 
 TargetBridge 3.6.0 improves everyday connection setup and makes the display
 pipeline more adaptable without changing the stable default workflows:
