@@ -101,6 +101,34 @@ but no screen recording or input permissions. This is separate from `make test`
 so the portable test suite remains usable without a GUI. It does not replace
 live verification of notification suppression during a real stream.
 
+## 7. Sender window lifecycle (macOS GUI session)
+
+From the repository root, with Python 3 and Xcode command-line tools available:
+
+```bash
+test_root=$(mktemp -d)
+python3 TargetBridge-Sender/scripts/test_window_lifecycle.py \
+  TargetBridge-Sender/TBDisplaySender/TBDisplaySenderApp.swift \
+  "$test_root/result"
+```
+
+The runner compiles the actual Sender App scene with inert service and automation
+collaborators. It uses a unique bundle identifier and URL scheme, controls only
+its own disposable process, and requires no capture or input permissions. It
+does not launch TargetBridge or connect to a Receiver.
+
+It checks exactly-once delivery of 46 control URLs, a single main window across
+repeated and batched requests, hidden and minimized panels, open Settings, panel
+closure with the process still alive, URL-driven reopening, and five normal app
+reopens. The New Window command must be absent. Closed windows are tracked through
+AppKit close notifications because AppKit may retain their objects after closure.
+
+Results and snapshots remain in the output directory; the fixture process exits
+on both success and assertion failure. To check the regression, pass the original
+App source as the first argument and a new output directory: the uncorrected
+scene fails after 12 requests create 13 main windows. This local regression does
+not measure streaming performance or exercise the production capture service.
+
 ## Debugging a live connection
 
 For the Receiver idle-sleep report (#132), build the Receiver and run
