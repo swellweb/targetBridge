@@ -37,7 +37,15 @@ and improves the project. A special thank-you for this release goes to:
 - [@preggocl](https://github.com/preggocl) for the physical Receiver display profile and the software decode fallback.
 - [@Betafer](https://github.com/Betafer) for input-queue safety, cursor work, idle audio/display handling, watchdog protection, monitor shielding, and build improvements.
 
-## TargetBridge 3.6.1
+## TargetBridge 3.6.2
+
+The [3.6.2 patch notes](docs/releases/3.6.2.md) describe the restored 4 MiB
+Receiver TCP receive-window budget, which reduces queued-video age under a
+controlled slow-reader workload. Issue #237 is not claimed fully resolved.
+Packages remain ad-hoc signed and non-notarized; macOS may require permissions
+again. Installed apps are not changed by preparing or publishing this release.
+
+## Previous Release: 3.6.1
 
 See the [3.6.1 release notes](docs/releases/3.6.1.md) for the maintenance fixes,
 Settings appearance correction and UI-independent heartbeat.

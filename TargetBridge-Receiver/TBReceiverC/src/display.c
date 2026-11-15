@@ -22,7 +22,7 @@
 #include <string.h>
 
 #ifndef TB_RECEIVER_VERSION
-#define TB_RECEIVER_VERSION "3.6.1"
+#define TB_RECEIVER_VERSION "3.6.2"
 #endif
 
 #ifndef TB_RECEIVER_BUILD

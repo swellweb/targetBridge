@@ -27,3 +27,4 @@ test_receiver_profile
 test_status_layout
 test_monitor_shield
 *.dSYM/
+test_receive_buffer
