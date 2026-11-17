@@ -83,7 +83,7 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          brew install ffmpeg sdl2 sdl3 dylibbundler
+          brew install dylibbundler pkgconf cmake nasm
 
       - name: Import release signing certificate
         if: ${{ env.TARGETBRIDGE_SIGNING_CONFIGURED == 'true' }}
@@ -92,7 +92,13 @@ jobs:
           certificate-base64: ${{ secrets.TARGETBRIDGE_CODESIGN_P12_BASE64 }}
           certificate-password: ${{ secrets.TARGETBRIDGE_CODESIGN_P12_PASSWORD }}
 
+      - name: Build Receiver Runtime (macOS 11+)
+        run: ./TargetBridge-Receiver/scripts/build_receiver_runtime.sh "$PWD/build/receiver-runtime"
+
       - name: Build Receiver App
+        env:
+          PKG_CONFIG_PATH: ${{ github.workspace }}/build/receiver-runtime/lib/pkgconfig
+          TARGETBRIDGE_RECEIVER_MAX_MIN_OS: "11.0"
         run: |
           cd TargetBridge-Receiver
           TB_BUILD="$(grep -m1 'CURRENT_PROJECT_VERSION:' ../TargetBridge-Sender/project.yml | sed -E 's/.*\"([^\"]+)\".*/\1/')"
