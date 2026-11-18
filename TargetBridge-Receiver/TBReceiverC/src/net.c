@@ -113,8 +113,10 @@ int tb_net_listen(uint16_t port) {
     if (fd < 0) { perror("[net] socket"); return -1; }
 
     int yes = 1;
+    /* SO_REUSEADDR only. SO_REUSEPORT would let a second receiver bind the
+     * same port and advertise itself while the first one keeps every incoming
+     * sender. Without it the second bind fails with EADDRINUSE. */
     setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
-    setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &yes, sizeof(yes));
 
     struct sockaddr_in a;
     memset(&a, 0, sizeof(a));
@@ -122,10 +124,13 @@ int tb_net_listen(uint16_t port) {
     a.sin_port        = htons(port);
     a.sin_addr.s_addr = htonl(INADDR_ANY);
     if (bind(fd, (struct sockaddr *)&a, sizeof(a)) < 0) {
-        perror("[net] bind"); close(fd); return -1;
+        /* The caller reads errno (EADDRINUSE); close() must not clobber it. */
+        const int saved = errno;
+        perror("[net] bind"); close(fd); errno = saved; return -1;
     }
     if (listen(fd, 1) < 0) {
-        perror("[net] listen"); close(fd); return -1;
+        const int saved = errno;
+        perror("[net] listen"); close(fd); errno = saved; return -1;
     }
 
     int fl = fcntl(fd, F_GETFL, 0);
