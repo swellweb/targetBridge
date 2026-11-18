@@ -156,6 +156,15 @@ jobs:
           name: TargetBridge-Receiver-arm64.app.zip
           path: ./artifacts
 
+      - name: Fetch FFmpeg Source (LGPL 2.1 s.4)
+        run: |
+          RUNTIME=TargetBridge-Receiver/scripts/build_receiver_runtime.sh
+          VERSION="$(sed -n 's/^FFMPEG_VERSION=//p' "$RUNTIME")"
+          SHA256="$(sed -n 's/^FFMPEG_SHA256=//p' "$RUNTIME")"
+          test -n "$VERSION" && test -n "$SHA256"
+          curl -fsSL --retry 3 -o "./artifacts/ffmpeg-${VERSION}.tar.xz" "https://ffmpeg.org/releases/ffmpeg-${VERSION}.tar.xz"
+          echo "${SHA256}  ./artifacts/ffmpeg-${VERSION}.tar.xz" | sha256sum -c -
+
       - name: Create Draft Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -165,6 +174,7 @@ jobs:
             ./artifacts/TargetBridge-arm64.app.zip \
             ./artifacts/TargetBridge-Receiver-x86_64.app.zip \
             ./artifacts/TargetBridge-Receiver-arm64.app.zip \
+            ./artifacts/ffmpeg-*.tar.xz \
             --title "TargetBridge ${{ github.ref_name }}" \
             --draft \
             --generate-notes
