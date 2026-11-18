@@ -40,22 +40,43 @@ fetch() {  # url sha256 dest
 # libraries (iconv, zlib, SecureTransport, ...) out of the bundle.
 fetch "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz" "$FFMPEG_SHA256" "$WORK/ffmpeg.tar.xz"
 tar -xf "$WORK/ffmpeg.tar.xz" -C "$WORK"
+FFMPEG_CONFIGURE=(
+  --enable-shared --disable-static
+  --disable-programs --disable-doc --disable-network --disable-autodetect
+  --disable-everything
+  --enable-videotoolbox
+  --enable-decoder=h264,hevc
+  --enable-hwaccel=h264_videotoolbox,hevc_videotoolbox
+  --enable-parser=h264,hevc
+  --disable-avdevice --disable-avformat --disable-avfilter --disable-swresample
+  --extra-cflags="-mmacosx-version-min=$MACOSX_DEPLOYMENT_TARGET"
+  --extra-ldflags="-mmacosx-version-min=$MACOSX_DEPLOYMENT_TARGET"
+)
 (
   cd "$WORK/ffmpeg-${FFMPEG_VERSION}"
-  ./configure --prefix="$PREFIX" \
-    --enable-shared --disable-static \
-    --disable-programs --disable-doc --disable-network --disable-autodetect \
-    --disable-everything \
-    --enable-videotoolbox \
-    --enable-decoder=h264,hevc \
-    --enable-hwaccel=h264_videotoolbox,hevc_videotoolbox \
-    --enable-parser=h264,hevc \
-    --disable-avdevice --disable-avformat --disable-avfilter --disable-swresample \
-    --extra-cflags="-mmacosx-version-min=$MACOSX_DEPLOYMENT_TARGET" \
-    --extra-ldflags="-mmacosx-version-min=$MACOSX_DEPLOYMENT_TARGET"
+  ./configure --prefix="$PREFIX" "${FFMPEG_CONFIGURE[@]}"
   make -j"$JOBS"
   make install
 )
+
+# LGPL 2.1 s.6: ship the licence text, the exact configuration and where the
+# matching source lives. build_tbreceiver_c_app.sh copies this into the app.
+NOTICE_DIR="$PREFIX/share/licenses/ffmpeg"
+mkdir -p "$NOTICE_DIR"
+cp "$WORK/ffmpeg-${FFMPEG_VERSION}/COPYING.LGPLv2.1" "$NOTICE_DIR/"
+{
+  print -- "TargetBridge Receiver bundles FFmpeg ${FFMPEG_VERSION} (libavcodec, libavutil, libswscale)"
+  print -- "as shared libraries under the GNU LGPL version 2.1 or later (see COPYING.LGPLv2.1)."
+  print -- ""
+  print -- "Source: https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz"
+  print -- "SHA-256: ${FFMPEG_SHA256}"
+  print -- "Build script: TargetBridge-Receiver/scripts/build_receiver_runtime.sh"
+  print -- ""
+  print -- "Configured with:"
+  print -- "  ./configure ${FFMPEG_CONFIGURE[*]}"
+  print -- ""
+  print -- "You may replace the libraries in Contents/Frameworks with your own build."
+} > "$NOTICE_DIR/FFmpeg-NOTICE.txt"
 
 # Genuine SDL2 (not Homebrew's sdl2-compat, which dlopens SDL3 at runtime).
 fetch "https://github.com/libsdl-org/SDL/releases/download/release-${SDL2_VERSION}/SDL2-${SDL2_VERSION}.tar.gz" "$SDL2_SHA256" "$WORK/sdl2.tar.gz"
