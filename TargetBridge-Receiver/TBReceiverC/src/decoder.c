@@ -6,6 +6,7 @@
  */
 
 #include "decoder.h"
+#include "log_ratelimit.h"
 
 #include <libavcodec/avcodec.h>
 #include <libavutil/hwcontext.h>
@@ -16,6 +17,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #if defined(__APPLE__)
 #  include <CoreVideo/CoreVideo.h>
@@ -50,6 +52,17 @@ struct tb_decoder {
     void             *ud;
 
     int               opened;
+
+    /* One line per 10 s for each kind of decode error (log_ratelimit.h). */
+    struct tb_log_ratelimit error_limit[5];
+};
+
+enum tb_dec_error_kind {
+    TB_DEC_ERR_SEND = 0,
+    TB_DEC_ERR_RECV,
+    TB_DEC_ERR_HW_TRANSFER,
+    TB_DEC_ERR_SW_ALLOC,
+    TB_DEC_ERR_SW_CONVERT,
 };
 
 /* Detect available HW device type (platform-specific). */
@@ -359,6 +372,27 @@ static int avcc_to_annexb(struct tb_decoder *d,
     return 0;
 }
 
+/* A bad stretch of stream fails on every frame. Log the first error of each
+ * kind, then at most one line per 10 s with FFmpeg's description and a count
+ * of the errors held back. `r` is FFmpeg's error code, or 0 when there is none. */
+static void tb_dec_log_error(struct tb_decoder *d, enum tb_dec_error_kind kind,
+                             const char *what, int r) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    const uint64_t now_ms = (uint64_t)ts.tv_sec * 1000ull + (uint64_t)ts.tv_nsec / 1000000ull;
+    unsigned long quiet = 0;
+    if (!tb_log_ratelimit_allow(&d->error_limit[kind], now_ms, 10000, &quiet)) return;
+    if (r) {
+        char why[AV_ERROR_MAX_STRING_SIZE];
+        av_strerror(r, why, sizeof(why));
+        fprintf(stderr, "[dec] %s=%d (%s)", what, r, why);
+    } else {
+        fprintf(stderr, "[dec] %s", what);
+    }
+    if (quiet) fprintf(stderr, "; %lu more since the last report", quiet);
+    fputc('\n', stderr);
+}
+
 int tb_dec_feed_frame(struct tb_decoder *d, const uint8_t *avcc, size_t len) {
     if (!d->opened) return -1;
 
@@ -371,14 +405,14 @@ int tb_dec_feed_frame(struct tb_decoder *d, const uint8_t *avcc, size_t len) {
 
     int r = avcodec_send_packet(d->ctx, d->pkt);
     if (r < 0 && r != AVERROR(EAGAIN)) {
-        fprintf(stderr, "[dec] send_packet=%d\n", r);
+        tb_dec_log_error(d, TB_DEC_ERR_SEND, "send_packet", r);
         return -1;
     }
 
     while (1) {
         r = avcodec_receive_frame(d->ctx, d->hw_frame);
         if (r == AVERROR(EAGAIN) || r == AVERROR_EOF) return 0;
-        if (r < 0) { fprintf(stderr, "[dec] recv_frame=%d\n", r); return -1; }
+        if (r < 0) { tb_dec_log_error(d, TB_DEC_ERR_RECV, "recv_frame", r); return -1; }
 
 #if defined(__APPLE__)
         /* Zero-copy fast path: VideoToolbox decoded frames carry a
@@ -415,7 +449,7 @@ int tb_dec_feed_frame(struct tb_decoder *d, const uint8_t *avcc, size_t len) {
         if (d->hw_frame->format == d->hw_pix_fmt) {
             d->sw_frame->format = AV_PIX_FMT_NV12;
             if (av_hwframe_transfer_data(d->sw_frame, d->hw_frame, 0) < 0) {
-                fprintf(stderr, "[dec] hwframe_transfer failed\n");
+                tb_dec_log_error(d, TB_DEC_ERR_HW_TRANSFER, "hwframe_transfer failed", 0);
                 av_frame_unref(d->hw_frame);
                 continue;
             }
@@ -436,10 +470,10 @@ int tb_dec_feed_frame(struct tb_decoder *d, const uint8_t *avcc, size_t len) {
             d->nv12_frame->width = out->width;
             d->nv12_frame->height = out->height;
             if (!d->sws || av_frame_get_buffer(d->nv12_frame, 32) < 0) {
-                fprintf(stderr, "[dec] could not allocate NV12 software frame\n");
+                tb_dec_log_error(d, TB_DEC_ERR_SW_ALLOC, "could not allocate NV12 software frame", 0);
             } else if (sws_scale(d->sws, (const uint8_t * const *)out->data, out->linesize,
                                  0, out->height, d->nv12_frame->data, d->nv12_frame->linesize) <= 0) {
-                fprintf(stderr, "[dec] software frame conversion failed\n");
+                tb_dec_log_error(d, TB_DEC_ERR_SW_CONVERT, "software frame conversion failed", 0);
             } else {
                 d->cb(d->nv12_frame->data[0], d->nv12_frame->linesize[0],
                       d->nv12_frame->data[1], d->nv12_frame->linesize[1],
