@@ -6,6 +6,7 @@
  */
 
 #include "decoder.h"
+#include "keyframe_nal.h"
 #include "log_ratelimit.h"
 
 #include <libavcodec/avcodec.h>
@@ -55,6 +56,13 @@ struct tb_decoder {
 
     /* One line per 10 s for each kind of decode error (log_ratelimit.h). */
     struct tb_log_ratelimit error_limit[5];
+
+    /* After a decode error, or when the decoder has just been opened, frames
+     * that are not keyframes would decode against missing references into
+     * smeared blocks. They are dropped instead until the next keyframe, and
+     * the display keeps the last good picture. */
+    int               await_keyframe;
+    unsigned long     dropped_awaiting;
 };
 
 enum tb_dec_error_kind {
@@ -305,6 +313,8 @@ static int open_decoder(struct tb_decoder *d) {
         return -1;
     }
     d->opened = 1;
+    d->await_keyframe = 1;
+    d->dropped_awaiting = 0;
     return 0;
 }
 
@@ -342,7 +352,8 @@ int tb_dec_set_param_sets(struct tb_decoder *d, const uint8_t *payload, size_t l
 /* Convert AVCC (length-prefixed) frame to Annex B (start codes) in scratch. */
 static int avcc_to_annexb(struct tb_decoder *d,
                           const uint8_t *in, size_t in_len,
-                          uint8_t **out, size_t *out_len) {
+                          uint8_t **out, size_t *out_len, int *is_keyframe) {
+    *is_keyframe = 0;
     if (d->scratch_cap < in_len + AV_INPUT_BUFFER_PADDING_SIZE) {
         size_t nc = in_len + AV_INPUT_BUFFER_PADDING_SIZE;
         uint8_t *nb = (uint8_t *)realloc(d->scratch, nc);
@@ -360,6 +371,9 @@ static int avcc_to_annexb(struct tb_decoder *d,
         off += 4;
         if (off + nal > in_len) return -1;
         if (dst + 4 + nal > d->scratch_cap) return -1;
+        if (nal > 0 && tb_nal_is_keyframe(d->codec_id == AV_CODEC_ID_HEVC, in[off])) {
+            *is_keyframe = 1;
+        }
         memcpy(d->scratch + dst, ANNEXB_START, ANNEXB_START_N);
         dst += ANNEXB_START_N;
         memcpy(d->scratch + dst, in + off, nal);
@@ -393,12 +407,34 @@ static void tb_dec_log_error(struct tb_decoder *d, enum tb_dec_error_kind kind,
     fputc('\n', stderr);
 }
 
+/* Forget the broken references and hold the last good picture until the
+ * next keyframe. The sender sends one at least every few seconds. */
+static void tb_dec_hold_until_keyframe(struct tb_decoder *d) {
+    if (d->ctx) avcodec_flush_buffers(d->ctx);
+    if (!d->await_keyframe) d->dropped_awaiting = 0;
+    d->await_keyframe = 1;
+}
+
 int tb_dec_feed_frame(struct tb_decoder *d, const uint8_t *avcc, size_t len) {
     if (!d->opened) return -1;
 
     uint8_t *anb = NULL;
     size_t   anb_len = 0;
-    if (avcc_to_annexb(d, avcc, len, &anb, &anb_len) < 0) return -1;
+    int      keyframe = 0;
+    if (avcc_to_annexb(d, avcc, len, &anb, &anb_len, &keyframe) < 0) return -1;
+
+    if (d->await_keyframe) {
+        if (!keyframe) {
+            d->dropped_awaiting++;
+            return 0;
+        }
+        if (d->dropped_awaiting) {
+            fprintf(stderr, "[dec] keyframe: decoding again after %lu dropped frames\n",
+                    d->dropped_awaiting);
+        }
+        d->await_keyframe = 0;
+        d->dropped_awaiting = 0;
+    }
 
     d->pkt->data = anb;
     d->pkt->size = (int)anb_len;
@@ -406,13 +442,18 @@ int tb_dec_feed_frame(struct tb_decoder *d, const uint8_t *avcc, size_t len) {
     int r = avcodec_send_packet(d->ctx, d->pkt);
     if (r < 0 && r != AVERROR(EAGAIN)) {
         tb_dec_log_error(d, TB_DEC_ERR_SEND, "send_packet", r);
+        tb_dec_hold_until_keyframe(d);
         return -1;
     }
 
     while (1) {
         r = avcodec_receive_frame(d->ctx, d->hw_frame);
         if (r == AVERROR(EAGAIN) || r == AVERROR_EOF) return 0;
-        if (r < 0) { tb_dec_log_error(d, TB_DEC_ERR_RECV, "recv_frame", r); return -1; }
+        if (r < 0) {
+            tb_dec_log_error(d, TB_DEC_ERR_RECV, "recv_frame", r);
+            tb_dec_hold_until_keyframe(d);
+            return -1;
+        }
 
 #if defined(__APPLE__)
         /* Zero-copy fast path: VideoToolbox decoded frames carry a

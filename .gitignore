@@ -21,6 +21,7 @@ tbreceiver
 test_net_parser
 test_parser_yield
 test_log_ratelimit
+test_keyframe_nal
 test_input_queue
 test_idle_watchdog
 test_receiver_profile
