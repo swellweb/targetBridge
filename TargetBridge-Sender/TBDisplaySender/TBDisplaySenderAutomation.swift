@@ -144,6 +144,8 @@ enum TBSenderAutomation {
     private static func connectContinuously(_ params: [String: String]) async {
         var attempt = 0
         while !Task.isCancelled {
+            await TBSystemSleepGate.waitUntilAwake()
+            guard !Task.isCancelled else { return }
             attempt += 1
             NSLog("[automation] automatic connection attempt \(attempt)")
 
@@ -274,6 +276,10 @@ enum TBSenderAutomation {
         }
         guard !session.localInterfaceIP.isEmpty else {
             NSLog("[automation] no local interface for transport \(session.transportKind.rawValue); aborting connect")
+            return nil
+        }
+        guard !TBSystemSleepGate.isSleeping else {
+            NSLog("[automation] the system is going to sleep; not connecting")
             return nil
         }
         NSLog("[automation] connecting to \(session.receiverIP) from \(session.localInterfaceIP) via \(session.transportKind.rawValue) — \(session.captureSource.rawValue)/\(session.capturePreset.rawValue)")
@@ -544,6 +550,57 @@ enum TBSenderAutomation {
         case "5k60", "native5k60": return .native5k60Experimental
         case "5k", "native", "5120x2880": return .native5k
         default: return nil
+        }
+    }
+}
+
+/// Between `willSleep` and `didWake` the sender must not reconnect or declare
+/// user activity: either one wakes the Mac that is going to sleep. When the
+/// link drops as the Mac goes to sleep, the retry loop used to reconnect within
+/// a second or two and wake it again (3 of 6 sleeps on an iMac18,3).
+@MainActor
+enum TBSystemSleepGate {
+    private static var sleepingSince: TimeInterval?
+    private static var observers: [NSObjectProtocol] = []
+    /// A refused sleep posts `willSleep` but no `didWake`. Uptime does not
+    /// advance while the Mac sleeps, so this much of it means the Mac never slept.
+    static let refusedSleepTimeout: TimeInterval = 120
+
+    static var isSleeping: Bool {
+        guard let since = sleepingSince else { return false }
+        guard ProcessInfo.processInfo.systemUptime - since < refusedSleepTimeout else {
+            NSLog("[automation] still awake \(Int(refusedSleepTimeout)) s after willSleep; the sleep was refused")
+            sleepingSince = nil
+            return false
+        }
+        return true
+    }
+
+    static func install() {
+        guard observers.isEmpty else { return }
+        let center = NSWorkspace.shared.notificationCenter
+        observers.append(center.addObserver(
+            forName: NSWorkspace.willSleepNotification, object: nil, queue: .main
+        ) { _ in
+            MainActor.assumeIsolated {
+                sleepingSince = ProcessInfo.processInfo.systemUptime
+                NSLog("[automation] the system is going to sleep; no reconnects until it wakes")
+            }
+        })
+        for name in [NSWorkspace.didWakeNotification, NSWorkspace.screensDidWakeNotification] {
+            observers.append(center.addObserver(forName: name, object: nil, queue: .main) { _ in
+                MainActor.assumeIsolated {
+                    guard sleepingSince != nil else { return }
+                    sleepingSince = nil
+                    NSLog("[automation] the system is awake; reconnects allowed")
+                }
+            })
+        }
+    }
+
+    static func waitUntilAwake() async {
+        while isSleeping, !Task.isCancelled {
+            try? await Task.sleep(nanoseconds: 500_000_000)
         }
     }
 }
