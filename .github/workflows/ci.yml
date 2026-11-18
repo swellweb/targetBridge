@@ -68,7 +68,7 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          brew install ffmpeg jq sdl2 sdl3 dylibbundler
+          brew install jq dylibbundler pkgconf cmake nasm
 
       - name: Check Localizations
         run: |
@@ -79,7 +79,19 @@ jobs:
           cd TargetBridge-Receiver/TBReceiverC
           make test
 
+      - name: Restore Receiver Runtime Cache
+        uses: actions/cache@v4
+        with:
+          path: build/receiver-runtime
+          key: receiver-runtime-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('TargetBridge-Receiver/scripts/build_receiver_runtime.sh') }}
+
+      - name: Build Receiver Runtime (macOS 11+)
+        run: ./TargetBridge-Receiver/scripts/build_receiver_runtime.sh "$PWD/build/receiver-runtime"
+
       - name: Build Receiver App
+        env:
+          PKG_CONFIG_PATH: ${{ github.workspace }}/build/receiver-runtime/lib/pkgconfig
+          TARGETBRIDGE_RECEIVER_MAX_MIN_OS: "11.0"
         run: |
           cd TargetBridge-Receiver
           ./scripts/build_tbreceiver_c_app.sh

@@ -72,6 +72,13 @@ else
   echo "Bundled SDL2 is native; SDL3 runtime is not required."
 fi
 
+# Ship FFmpeg's LGPL notice when the runtime came from build_receiver_runtime.sh.
+FFMPEG_NOTICE_DIR="$(pkgconf --variable=prefix libavcodec 2>/dev/null || true)/share/licenses/ffmpeg"
+if [[ -d "$FFMPEG_NOTICE_DIR" ]]; then
+  mkdir -p "$APP_DIR/Contents/Resources/Licenses"
+  cp "$FFMPEG_NOTICE_DIR/"* "$APP_DIR/Contents/Resources/Licenses/"
+fi
+
 if [[ -f "$ICON_FILE" ]]; then
   mkdir -p "${ICONSET_DIR}/TargetBridgeReceiver.iconset"
   sips -z 16 16     "$ICON_FILE" --out "${ICONSET_DIR}/TargetBridgeReceiver.iconset/icon_16x16.png" >/dev/null
