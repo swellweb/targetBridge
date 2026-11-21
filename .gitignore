@@ -25,5 +25,7 @@ test_idle_watchdog
 test_receiver_profile
 test_rgb10_metal
 test_hevc_startup
+test_parser_yield
+test_status_layout
 test_monitor_shield
 *.dSYM/

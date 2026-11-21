@@ -25,6 +25,12 @@ fi
 
 cd "$ROOT"
 
+BUILD_SETTINGS=()
+if [[ -n "${TB_SENDER_BUILD:-}" ]]; then
+  [[ "$TB_SENDER_BUILD" =~ '^[0-9]+(\.[0-9]+){0,2}$' ]] || { print -u2 'Invalid Sender build number'; exit 1; }
+  BUILD_SETTINGS+=("CURRENT_PROJECT_VERSION=$TB_SENDER_BUILD")
+fi
+
 xcodegen generate
 
 # Package a standalone app, not Xcode's preview executor plus unsigned debug
@@ -37,6 +43,7 @@ xcodebuild \
   CODE_SIGNING_REQUIRED=NO \
   CODE_SIGNING_ALLOWED=NO \
   ENABLE_DEBUG_DYLIB=NO \
+  "${BUILD_SETTINGS[@]}" \
   build
 
 mkdir -p "$DEST_DIR"

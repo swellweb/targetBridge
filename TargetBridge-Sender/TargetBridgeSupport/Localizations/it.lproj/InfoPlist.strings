@@ -1,0 +1,3 @@
+"NSScreenCaptureUsageDescription" = "TargetBridge richiede il permesso di registrare lo schermo per acquisire lo schermo virtuale o duplicare il desktop sull’iMac.";
+"NSAppleEventsUsageDescription" = "TargetBridge usa System Events per eseguire le scorciatoie selezionate per la modalità «Receiver è Master».";
+"NSLocalNetworkUsageDescription" = "TargetBridge si collega al Receiver tramite Thunderbolt Bridge o la rete locale.";

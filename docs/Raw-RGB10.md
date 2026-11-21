@@ -33,6 +33,22 @@ measurement. The synthetic drawable test verifies the production Metal render
 pass before Core Animation, including all 1024 levels and single-pixel detail.
 See [Testing](Testing.md) for the synthetic and real-device validation boundaries.
 
+## Mainline integration and performance claims
+
+This branch includes the 3.6.1 maintenance sources from main (`7008853`).
+The Receiver preserves cooperative packet-boundary draining while reading
+straight into parser storage, keeps only the newest decoded HEVC surface for
+presentation, and retains the mainline receive-buffer and explicit software
+HEVC capability fallbacks. RAW RGB10 keeps its own negotiated transport.
+
+Releasing a local send slot immediately at Network completion corrects stale
+backpressure accounting when the capture queue is busy. This does not imply a
+universal FPS gain: a remote decode or presentation bottleneck can dominate.
+A [reported 5K HEVC experiment](https://github.com/swellweb/targetBridge/pull/229#issuecomment-6653990468)
+with a two-frame remote credit limit measured no throughput gain from this
+accounting change. That credit/ACK extension is not
+part of this branch, and the result does not measure 4.5K RAW RGB10.
+
 ## Shared implementation provenance
 
 The Metal video/cursor plane and receiver health instrumentation derive from

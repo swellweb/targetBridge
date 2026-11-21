@@ -27,6 +27,11 @@ abort 'cable must bypass preset capability rejection' unless profile.include?('!
 fixture = <<~'SWIFT'
 import Foundation
 import Dispatch
+// Localization is outside this network-state fixture; preserve the key so the
+// no-connection error can still be asserted without loading the application UI.
+enum TBDisplaySenderL10n {
+    static func text(_ key: String, _ language: String) -> String { key }
+}
 enum TBMonitorPacketType: UInt8 { case testData = 0x40 }
 enum TBMonitorProtocol {
     static func appendBE32(_ data: inout Data, _ value: UInt32) {
@@ -88,6 +93,7 @@ final class NWConnection: @unchecked Sendable {
 }
 @MainActor
 final class Session {
+    var language = "en"
     var connection: NWConnection?
     var cableTestTransfer: TBCableTestTransfer?
     var isCableTestConnection = true
@@ -172,6 +178,10 @@ struct Tests {
     @MainActor
     static func main() async throws {
         try stateTests()
+        let disconnected = Session(NWConnection())
+        disconnected.connection = nil
+        do { _ = try await disconnected.run(); preconditionFailure("missing connection accepted") }
+        catch { precondition((error as NSError).localizedDescription == "sender.error.no_connection") }
         let connection = NWConnection()
         let session = Session(connection)
         session.setupForTest()

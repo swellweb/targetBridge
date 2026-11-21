@@ -44,6 +44,7 @@ struct TBMonitorDisplayProfile: Codable {
     var captureWidth: Int
     var captureHeight: Int
     var supportsHEVCDecode: Bool?
+    var supportsHEVCSoftwareDecode: Bool?
     var supportsRawNV12: Bool?
     /// RAW_FRAME format 2: tightly packed little-endian ARGB2101010 in Display P3.
     /// Absent on older receivers; never send format 2 without this capability.

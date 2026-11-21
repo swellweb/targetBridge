@@ -80,7 +80,7 @@ final class TBAddonStore: ObservableObject {
     }
 
     @discardableResult
-    func importManifest(from url: URL) throws -> TBAddonRecord {
+    func importManifest(from url: URL, language: TBDisplaySenderLanguage = .english) throws -> TBAddonRecord {
         ensureAddonsDirectoryExists()
         let manifest = try decodeManifest(at: url)
         let destination = userAddonsDirectoryURL.appendingPathComponent("\(manifest.id).json")
@@ -91,7 +91,7 @@ final class TBAddonStore: ObservableObject {
         refresh()
         guard let imported = addons.first(where: { $0.id == manifest.id }) else {
             throw NSError(domain: "TargetBridge.Addons", code: 3, userInfo: [
-                NSLocalizedDescriptionKey: "Imported addon could not be reloaded."
+                NSLocalizedDescriptionKey: TBDisplaySenderL10n.text("sender.error.addon_reload_failed", language)
             ])
         }
         return imported

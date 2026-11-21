@@ -60,6 +60,7 @@ int tb_disp_get_info(struct tb_display *d,struct tb_display_info *info){
 
 int tb_disp_raw_rgb10_available(struct tb_display *d){(void)d;return packed_support;}
 static int tb_dec_supports_hevc_hwdecode(void){return 1;}
+static int tb_dec_supports_hevc_softwaredecode(void){return 1;}
 static int tb_receiver_input_monitoring_trusted(void){return 0;}
 static int tb_receiver_accessibility_trusted(void){return 0;}
 static int tb_night_shift_supported(void){return 0;}

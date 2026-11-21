@@ -40,7 +40,7 @@ static void encoded(void *opaque, void *source, OSStatus status,
     });
 }
 
-typedef struct { int width, height, count; } Decoded;
+typedef struct { int width, height, count; CVPixelBufferRef retained; } Decoded;
 static void decoded(const uint8_t *y, int ys, const uint8_t *uv, int uvs,
                     int width, int height, void *opaque) {
     Decoded *d = opaque;
@@ -51,6 +51,21 @@ static void decoded(const uint8_t *y, int ys, const uint8_t *uv, int uvs,
     assert(abs((int)y[width / 2] - 96) <= 8);
     assert(abs((int)uv[width / 2] - 128) <= 8);
     d->count++;
+}
+
+/* Exercise the new deferred presentation callback with a real VideoToolbox
+ * surface. It must survive av_frame_unref in the production decoder. */
+static void decoded_pixbuf(void *opaque, void *context) {
+    Decoded *d = context;
+    CVPixelBufferRef pb = (CVPixelBufferRef)opaque;
+    assert(pb);
+    if (d->retained) CVPixelBufferRelease(d->retained);
+    d->retained = CVPixelBufferRetain(pb);
+    assert(CVPixelBufferLockBaseAddress(pb, kCVPixelBufferLock_ReadOnly) == kCVReturnSuccess);
+    decoded(CVPixelBufferGetBaseAddressOfPlane(pb, 0), (int)CVPixelBufferGetBytesPerRowOfPlane(pb, 0),
+            CVPixelBufferGetBaseAddressOfPlane(pb, 1), (int)CVPixelBufferGetBytesPerRowOfPlane(pb, 1),
+            (int)CVPixelBufferGetWidth(pb), (int)CVPixelBufferGetHeight(pb), d);
+    CVPixelBufferUnlockBaseAddress(pb, kCVPixelBufferLock_ReadOnly);
 }
 
 static void set_params(struct tb_decoder *decoder, CMSampleBufferRef sample) {
@@ -160,22 +175,33 @@ static void probe(int width, int height, int frame_count, int bgra) {
     CVPixelBufferRelease(pixel);
     assert(e->errors == 0 && preflush_count == frame_count);
 
-    Decoded d = {.width = width, .height = height};
-    struct tb_decoder *decoder = tb_dec_create(decoded, &d);
-    assert(decoder && tb_dec_supports_hevc_hwdecode());
-    for (CFIndex i = 0; i < preflush_count; ++i) {
-        CMSampleBufferRef sample = (CMSampleBufferRef)CFArrayGetValueAtIndex(e->samples, i);
-        if (i == 0) set_params(decoder, sample);
-        CMBlockBufferRef block = CMSampleBufferGetDataBuffer(sample);
-        size_t length = CMBlockBufferGetDataLength(block);
-        NSMutableData *data = [NSMutableData dataWithLength:length];
-        assert(CMBlockBufferCopyDataBytes(block, 0, length, data.mutableBytes) == kCMBlockBufferNoErr);
-        assert(tb_dec_feed_frame(decoder, data.bytes, data.length) == 0);
-        /* Includes the first AVCC packet: the Receiver must not need a later
-         * keyframe or extra packets to produce its first NV12 callback. */
-        assert(d.count == i + 1);
+    for (int use_pixbuf = 0; use_pixbuf <= 1; ++use_pixbuf) {
+        Decoded d = {.width = width, .height = height};
+        struct tb_decoder *decoder = tb_dec_create(decoded, &d);
+        assert(decoder && tb_dec_supports_hevc_hwdecode());
+        if (use_pixbuf) tb_dec_set_pixbuf_cb(decoder, decoded_pixbuf);
+        for (CFIndex i = 0; i < preflush_count; ++i) {
+            CMSampleBufferRef sample = (CMSampleBufferRef)CFArrayGetValueAtIndex(e->samples, i);
+            if (i == 0) set_params(decoder, sample);
+            CMBlockBufferRef block = CMSampleBufferGetDataBuffer(sample);
+            size_t length = CMBlockBufferGetDataLength(block);
+            NSMutableData *data = [NSMutableData dataWithLength:length];
+            assert(CMBlockBufferCopyDataBytes(block, 0, length, data.mutableBytes) == kCMBlockBufferNoErr);
+            assert(tb_dec_feed_frame(decoder, data.bytes, data.length) == 0);
+            /* Includes the first AVCC packet: the Receiver must not need a later
+             * keyframe or extra packets to produce its first NV12 callback. */
+            assert(d.count == i + 1);
+        }
+        tb_dec_destroy(decoder);
+        if (use_pixbuf) {
+            assert(d.retained && CVPixelBufferGetWidth(d.retained) == (size_t)width);
+            assert(CVPixelBufferLockBaseAddress(d.retained, kCVPixelBufferLock_ReadOnly) == kCVReturnSuccess);
+            const uint8_t *y = CVPixelBufferGetBaseAddressOfPlane(d.retained, 0);
+            assert(y && abs((int)y[width / 2] - 96) <= 8);
+            CVPixelBufferUnlockBaseAddress(d.retained, kCVPixelBufferLock_ReadOnly);
+            CVPixelBufferRelease(d.retained);
+        }
     }
-    tb_dec_destroy(decoder);
     CFRelease(e->samples);
 }
 
@@ -192,7 +218,7 @@ int main(int argc, char **argv) {
         for (int bgra = 0; bgra <= 1; ++bgra) {
             for (int frames = 1; frames <= 3; ++frames) probe(width, height, frames, bgra);
         }
-        puts("HEVC startup: all NV12/BGRA 1/2/3-frame cases passed without startup flush");
+        puts("HEVC startup: all NV12/BGRA 1/2/3-frame cases and deferred surfaces passed without startup flush");
     }
     return 0;
 }

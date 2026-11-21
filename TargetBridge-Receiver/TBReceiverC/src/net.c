@@ -122,24 +122,86 @@ int tb_parser_commit_write(struct tb_parser *p, size_t n) {
     return 0;
 }
 
-int tb_parser_feed(struct tb_parser *p, const uint8_t *data, size_t n) {
+/* Drain a backlog retained by feed_until(). Direct reads never read past a
+ * packet boundary, so this is only needed when a caller supplies batched data.
+ * Keep the same discard-only TEST_DATA and NUL-sentinel contract as commit. */
+static int parser_dispatch_buffered(struct tb_parser *p,
+                                     tb_parser_yield_cb should_yield, void *yield_ud) {
+    size_t off = 0;
+    int yielded = 0;
+    while (off < p->len) {
+        if (p->discard_remaining) {
+            size_t take = p->len - off;
+            if (take > p->discard_remaining) take = p->discard_remaining;
+            p->discard_remaining -= take;
+            off += take;
+            if (p->discard_remaining) break;
+        } else {
+            if (p->len - off < TB_HDR_BYTES) break;
+            const uint32_t pkt_len = read_be32(p->buf + off);
+            if (pkt_len < 1 || pkt_len > 64u * 1024 * 1024) return -1;
+            if (p->buf[off + 4] == TB_PKT_TEST_DATA) {
+                off += TB_HDR_BYTES;
+                p->discard_remaining = (size_t)pkt_len - 1;
+                if (p->discard_remaining) continue;
+            } else {
+                const size_t total = 4 + (size_t)pkt_len;
+                if (p->len - off < total) break;
+                uint8_t *sentinel = p->buf + off + total;
+                const uint8_t saved = *sentinel;
+                *sentinel = '\0';
+                p->cb(p->buf[off + 4], p->buf + off + TB_HDR_BYTES,
+                      (size_t)pkt_len - 1, p->ud);
+                *sentinel = saved;
+                off += total;
+            }
+        }
+        if (should_yield && should_yield(yield_ud)) {
+            yielded = 1;
+            break;
+        }
+    }
+    if (off) {
+        p->len -= off;
+        if (p->len) memmove(p->buf, p->buf + off, p->len);
+    }
+    return yielded;
+}
+
+int tb_parser_feed_until(struct tb_parser *p, const uint8_t *data, size_t n,
+                         tb_parser_yield_cb should_yield, void *yield_ud) {
+    if (!p || (n && !data)) return -1;
     p->write_capacity = 0;
-    if (n && !data) return -1;
-    while (n) {
+    int yielded = parser_dispatch_buffered(p, should_yield, yield_ud);
+    if (yielded < 0) return -1;
+    while (n && !yielded) {
         if (p->discard_remaining) {
             const size_t take = n < p->discard_remaining ? n : p->discard_remaining;
             p->discard_remaining -= take;
             data += take; n -= take;
-            continue;
+        } else {
+            uint8_t *dst;
+            size_t take;
+            if (tb_parser_prepare_write(p, n, &dst, &take) < 0) return -1;
+            memcpy(dst, data, take);
+            if (tb_parser_commit_write(p, take) < 0) return -1;
+            data += take; n -= take;
         }
-        uint8_t *dst;
-        size_t take;
-        if (tb_parser_prepare_write(p, n, &dst, &take) < 0) return -1;
-        memcpy(dst, data, take);
-        if (tb_parser_commit_write(p, take) < 0) return -1;
-        data += take; n -= take;
+        /* Check only at packet boundaries, including a discarded test packet.
+         * A partial header or payload remains intact for the next read. */
+        if (!p->len && !p->discard_remaining && should_yield && should_yield(yield_ud))
+            yielded = 1;
     }
-    return 0;
+    if (n) {
+        if (n > SIZE_MAX - p->len - 1 || parser_reserve(p, p->len + n + 1) < 0) return -1;
+        memcpy(p->buf + p->len, data, n);
+        p->len += n;
+    }
+    return yielded;
+}
+
+int tb_parser_feed(struct tb_parser *p, const uint8_t *data, size_t n) {
+    return tb_parser_feed_until(p, data, n, NULL, NULL);
 }
 
 /* ---- Server ----------------------------------------------------------- */
@@ -174,8 +236,14 @@ int tb_net_accept(int server_fd) {
     if (c < 0) return -1;
     int fl = fcntl(c, F_GETFL, 0);
     fcntl(c, F_SETFL, fl | O_NONBLOCK);
-    int rcvbuf = 4 * 1024 * 1024;
-    setsockopt(c, SOL_SOCKET, SO_RCVBUF, &rcvbuf, sizeof(rcvbuf));
+    /* A 5K HEVC keyframe can approach several MB. Ask for the largest buffer
+     * the kernel accepts (macOS caps it below kern.ipc.maxsockbuf, 8 MB by
+     * default) so a keyframe burst does not stall the sender's send window. */
+    static const int rcvbuf_sizes[] = { 8 << 20, 6 << 20, 4 << 20 };
+    for (size_t i = 0; i < sizeof(rcvbuf_sizes) / sizeof(rcvbuf_sizes[0]); i++) {
+        int rcvbuf = rcvbuf_sizes[i];
+        if (setsockopt(c, SOL_SOCKET, SO_RCVBUF, &rcvbuf, sizeof(rcvbuf)) == 0) break;
+    }
     /* disable Nagle for low latency */
     int yes = 1;
     setsockopt(c, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(yes));

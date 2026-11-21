@@ -11,6 +11,7 @@
 /* Packet callback: called for each complete packet except discard-only
  * TB_PKT_TEST_DATA. Delivered payloads have a NUL sentinel at payload[len]. */
 typedef void (*tb_pkt_cb)(uint8_t type, const uint8_t *payload, size_t len, void *ud);
+typedef int (*tb_parser_yield_cb)(void *ud);
 
 /* Streaming packet parser (handles fragmented TCP reads). */
 struct tb_parser {
@@ -26,6 +27,11 @@ struct tb_parser {
 void tb_parser_init  (struct tb_parser *p, tb_pkt_cb cb, void *ud);
 void tb_parser_free  (struct tb_parser *p);
 int  tb_parser_feed  (struct tb_parser *p, const uint8_t *data, size_t n);
+/* Cooperative dispatch: 1 = yielded after a packet, 0 = drained, -1 = error.
+ * Retains undispatched bytes; call with NULL/0 before reading more data,
+ * including before switching back to prepare_write/commit_write. */
+int tb_parser_feed_until(struct tb_parser *p, const uint8_t *data, size_t n,
+                         tb_parser_yield_cb should_yield, void *yield_ud);
 
 /* Borrow a writable tail for a nonblocking socket read. The offer is bounded
  * by limit and the current header/payload boundary; TEST_DATA uses at most

@@ -473,6 +473,7 @@ enum TBSenderAutomation {
         session.localInterfaceIP = measurement.candidate.localIP
         session.receiverIP = measurement.candidate.receiverIP
         session.receiverSupportsHEVCDecodeHint = receiver.supportsHEVCDecode
+        session.receiverSupportsHEVCSoftwareDecodeHint = receiver.supportsHEVCSoftwareDecode
     }
 
     private static func waitForConnection(_ session: TBDisplaySenderSession) async -> Bool {

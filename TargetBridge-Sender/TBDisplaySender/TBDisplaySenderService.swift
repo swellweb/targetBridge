@@ -545,8 +545,11 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
             return 60
         case .native5k:
             return 48
-        case .native5k60Experimental, .native4_5kRGB10Raw60:
+        case .native4_5kRGB10Raw60:
             return 60
+        case .native5k60Experimental:
+            // See maxKeyFrameIntervalDuration.
+            return 240
         }
     }
 
@@ -562,8 +565,32 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
             return 1
         case .smooth1800p60, .crisp2160p60, .retina4k60, .retina4_5k60:
             return 1
-        case .native5k, .native5k60Experimental, .native4_5kRGB10Raw60:
+        case .native5k, .native4_5kRGB10Raw60:
             return 1
+        case .native5k60Experimental:
+            // A 5K IDR is several times the size of a P-frame and costs the
+            // receiver several frame budgets to transfer, decode and upload.
+            // One per second produced a regular once-a-second hitch at 60 fps.
+            // The link is reliable TCP and the sender never drops a frame
+            // after encoding, so periodic IDRs only bound recovery time;
+            // every new session still starts on an IDR.
+            return 4
+        }
+    }
+
+    /// Optional hard ceiling on the encoder's output rate, applied through
+    /// `kVTCompressionPropertyKey_DataRateLimits` over a one-second window.
+    /// `AverageBitRate` alone lets the hardware encoder overshoot for long
+    /// stretches on detailed motion (scrolling text, window drags), which at
+    /// 5K60 pushes receiver decode past its frame budget exactly when the
+    /// picture is busiest.
+    var peakBitRate: Int? {
+        switch self {
+        case .native5k60Experimental:
+            return averageBitRate * 3 / 2
+        case .standard1080p, .smooth1080p60, .standard1440p, .smooth1440p60, .smooth1800p60,
+             .crisp2160p60, .retina4k60, .retina4_5k60, .native4_5kRGB10Raw60, .native5k:
+            return nil
         }
     }
 
@@ -1557,6 +1584,15 @@ private final class TBVideoPipeline: @unchecked Sendable {
         setProperty(kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration, NSNumber(value: preset.maxKeyFrameIntervalDuration))
         setProperty(kVTCompressionPropertyKey_MaxFrameDelayCount, NSNumber(value: preset.maxFrameDelayCount))
         setProperty(kVTCompressionPropertyKey_AverageBitRate, NSNumber(value: preset.averageBitRate))
+        if let peakBitRate = preset.peakBitRate {
+            let limits = [NSNumber(value: peakBitRate / 8), NSNumber(value: 1.0)] as CFArray
+            let status = VTSessionSetProperty(session, key: kVTCompressionPropertyKey_DataRateLimits, value: limits)
+            if status != noErr {
+                // Not every encoder accepts a rate ceiling; average-only is the
+                // previous behaviour, so carry on without it.
+                NSLog("[TBVideoPipeline] DataRateLimits not supported (status %d); using average bitrate only", status)
+            }
+        }
         if preset.prioritizeSpeed {
             setProperty(kVTCompressionPropertyKey_PrioritizeEncodingSpeedOverQuality, kCFBooleanTrue)
         }
@@ -2113,8 +2149,9 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     @Published var localInterfaceIP = ""
     @Published var selectedReceiverID = "" {
         didSet {
-            if selectedReceiverID.isEmpty {
+            if selectedReceiverID != oldValue {
                 receiverSupportsHEVCDecodeHint = nil
+                receiverSupportsHEVCSoftwareDecodeHint = nil
                 receiverInputMonitoringTrustedHint = nil
                 receiverAccessibilityTrustedHint = nil
             }
@@ -2129,6 +2166,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
             UserDefaults.standard.set(receiverIP, forKey: Self.receiverIPDefaultsKey)
             if receiverIP != oldValue {
                 receiverSupportsHEVCDecodeHint = nil
+                receiverSupportsHEVCSoftwareDecodeHint = nil
                 receiverInputMonitoringTrustedHint = nil
                 receiverAccessibilityTrustedHint = nil
             }
@@ -2192,6 +2230,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     @Published var receiverSupportsTrueTone = false
     var audioAddonAvailable = true
     var receiverSupportsHEVCDecodeHint: Bool?
+    var receiverSupportsHEVCSoftwareDecodeHint: Bool?
     var receiverInputMonitoringTrustedHint: Bool?
     var receiverAccessibilityTrustedHint: Bool?
     @Published var senderFPS = 0
@@ -2256,6 +2295,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         selectedReceiverID = receiver.stableIdentity
         receiverIP = receiver.ip(for: transportKind)
         receiverSupportsHEVCDecodeHint = receiver.supportsHEVCDecode
+        receiverSupportsHEVCSoftwareDecodeHint = receiver.supportsHEVCSoftwareDecode
         if !sameReceiver { codecPreference = defaultCodecPreference ?? .automatic }
         return !sameReceiver
     }
@@ -2452,7 +2492,8 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         preset: TBDisplayCapturePreset,
         receiverSupportsHEVC: Bool,
         senderSupportsH264: Bool,
-        senderSupportsHEVC: Bool
+        senderSupportsHEVC: Bool,
+        receiverSupportsHEVCSoftware: Bool = false
     ) -> TBDisplayCodecDecision? {
         let h264Available = senderSupportsH264
         let hevcAvailable = receiverSupportsHEVC && senderSupportsHEVC
@@ -2483,6 +2524,10 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         if preferredCodec == kCMVideoCodecType_H264, hevcAvailable {
             return TBDisplayCodecDecision(codecType: kCMVideoCodecType_HEVC, usedFallback: true)
         }
+        // Software HEVC is a last resort, and requires an explicit receiver capability.
+        if receiverSupportsHEVCSoftware && senderSupportsHEVC {
+            return TBDisplayCodecDecision(codecType: kCMVideoCodecType_HEVC, usedFallback: true)
+        }
 
         return nil
     }
@@ -2508,7 +2553,9 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
                 codecType: kCMVideoCodecType_HEVC,
                 width: preset.width,
                 height: preset.height
-            )
+            ),
+            receiverSupportsHEVCSoftware: profile.map { $0.supportsHEVCSoftwareDecode ?? false }
+                ?? receiverSupportsHEVCSoftwareDecodeHint ?? false
         )
     }
 
@@ -2707,7 +2754,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
 
     private func performCableTest() async throws -> Double {
         guard let conn = connection else {
-            throw NSError(domain: "TBDisplaySenderService", code: -1, userInfo: [NSLocalizedDescriptionKey: "No connection"])
+            throw NSError(domain: "TBDisplaySenderService", code: -1, userInfo: [NSLocalizedDescriptionKey: TBDisplaySenderL10n.text("sender.error.no_connection", language)])
         }
 
         let totalBytes: Int64 = 20 * 1000 * 1000 * 1000
@@ -3575,6 +3622,8 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
             connectTimeoutWorkItem = nil
         }
         activeProfile = profile
+        // The connected peer is authoritative, including legacy profiles without this field.
+        receiverSupportsHEVCSoftwareDecodeHint = profile.supportsHEVCSoftwareDecode
         if let supportsHEVCDecode = profile.supportsHEVCDecode {
             receiverSupportsHEVCDecodeHint = supportsHEVCDecode
         }
@@ -3714,6 +3763,8 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
                 self.scheduleDesktopMirrorRecovery(for: self.session.displayID)
             }
 
+            // A first frame may arrive while startCapture() is suspended.
+            // Preserve its active state and do not restart the first-frame watchdog.
             if !self.sessionAckSent {
                 self.setStatus(.captureStartedWaitingFirstFrame)
                 self.startFirstFrameWatchdog()

@@ -64,6 +64,7 @@ static void tb_parser_free(int *p) {*p=0;}
 static void on_packet(uint8_t type,const uint8_t *payload,size_t len,void *ud) {(void)type;(void)payload;(void)len;(void)ud;}
 static void tb_parser_init(int *p,void (*cb)(uint8_t,const uint8_t *,size_t,void *),void *ud) {(void)cb;(void)ud;*p=1;}
 static void tb_dec_reset(void *d) {(void)d;}
+static void drop_pending_frame(struct app *a) {(void)a;}
 static int close(int fd) {assert(fd==7);++closed;return 0;}
 static int tb_disp_render_raw_rgb10(void *d,const uint8_t *p,int s,int w,int h) {(void)d;(void)p;assert(s==w*4&&h>0);return render_result;}
 static void tb_disp_render_nv12(void *d,const uint8_t *y,int ys,const uint8_t *uv,int us,int w,int h) {(void)d;(void)y;(void)ys;(void)uv;(void)us;assert(w>0&&h>0);}

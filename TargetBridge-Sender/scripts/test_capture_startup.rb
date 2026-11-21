@@ -6,8 +6,10 @@ require 'fileutils'
 root = File.expand_path('..', __dir__)
 source = File.read(File.join(root, 'TBDisplaySender/TBDisplaySenderService.swift'))
 tests = File.read(File.join(root, 'TBDisplaySenderTests/TBDisplayProfileTests.swift'))
-startup = source[/@MainActor\nenum TBCaptureStartup \{.*?(?=\n\/\/\/ Confined to the video pipeline queue)/m]
-startup_tests = tests[/final class TBCaptureStartupTests: XCTestCase \{.*/m]
+# Match the top-level declaration itself; the next helper differs between
+# transports and is not part of the startup contract.
+startup = source[/^@MainActor\nenum TBCaptureStartup \{.*?^\}/m]
+startup_tests = tests[/^final class TBCaptureStartupTests: XCTestCase \{.*?^\}/m]
 abort 'missing production startup or async tests' unless startup && startup_tests
 profile = source[/private func handleDisplayProfile\(.*?(?=    private func startCapture)/m]
 capture = source[/private func startCapture\(.*?(?=    \/\/\/ Waking a headless)/m]

@@ -2,7 +2,8 @@
 
 Everything on this page runs on one Mac with **no Thunderbolt cable, no
 second machine, and no Apple Silicon requirement** (except where noted).
-CI runs the first two suites on every push/PR.
+The CI workflow defines the first two suites. It only runs when GitHub Actions
+is enabled for the repository and the target branch is included in its triggers.
 
 ## 1. Sender unit tests (Swift)
 
@@ -33,6 +34,8 @@ make test
 ```
 
 Test sources live in `TargetBridge-Receiver/TBReceiverC/tests/`.
+The suite also checks idle-dashboard geometry from 640 x 480 to 5K, including
+the 980 x 620 launcher window, without SDL or a GUI session.
 
 ## 3. Mock sender (protocol-level fault injection)
 
@@ -99,6 +102,14 @@ so the portable test suite remains usable without a GUI. It does not replace
 live verification of notification suppression during a real stream.
 
 ## Debugging a live connection
+
+For the Receiver idle-sleep report (#132), build the Receiver and run
+`bash TargetBridge-Receiver/scripts/test_idle_display_sleep.sh` from the repo
+root in a GUI session. Disconnect real Senders first: automatic discovery can
+otherwise establish a session during the check. The test checks only its own
+Receiver process in `pmset -g assertions`, before a connection and after mock
+session teardown. Exit 2 means the test could not run in isolation, not a
+confirmed sleep regression. It does not change system sleep settings.
 
 The sender logs its connection lifecycle (dial target, interface, waiting/
 failed states, timeouts) to unified logging:
@@ -194,3 +205,22 @@ provides dimensions, the status page shows a waiting message. Requested
 resolution remains visible across language changes until a valid frame arrives;
 then received pixel dimensions take priority. Disconnect clears the previous
 session's dimensions. A fixed HiDPI desktop size is never used as stream metadata.
+
+### Maintenance integration regressions
+
+`make test` includes cooperative parser-yield coverage for fragmented and
+batched input, resume after yielding, discard-only test traffic, and transitions
+between feed and direct-read APIs. Run `ruby review-tools/drain_budget_probe.rb`
+for the production drain budget under AddressSanitizer and UndefinedBehaviorSanitizer.
+
+`python3 TargetBridge-Receiver/TBReceiverC/tests/test_pending_frames.py` uses
+real CoreVideo release callbacks and sanitizers to verify newest-frame
+presentation, retention after the decoder releases its reference, stale-frame
+release, teardown and reconnect. The synthetic HEVC startup suite also covers
+the actual deferred pixel-buffer callback after decoder destruction.
+
+On a development Mac, isolate application-hosted XCTest preferences by overriding
+the host and test `PRODUCT_BUNDLE_IDENTIFIER` with distinct validation identifiers.
+`CFFIXED_USER_HOME` alone does not reliably isolate CFPreferences through cfprefsd.
+Live application tests require scoped preference backups and structural readback
+after restoring the original applications.
