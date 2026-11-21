@@ -19,6 +19,7 @@ targets:
       - path: ../TargetBridge-Shared
         excludes:
           - "**/*.md"
+          - "**/*.o"
           - "scripts/**"
       - path: TargetBridgeSupport/Assets.xcassets
       - path: TargetBridgeSupport/Localizations

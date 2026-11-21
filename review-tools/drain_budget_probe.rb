@@ -18,24 +18,28 @@ fixture = <<~C
   struct app { int client_fd, close_requested; struct tb_parser parser; };
   static uint64_t clock_ms;
   static int reads, packets, mode;
+  static size_t stream_offset;
   static uint64_t now_ms(void) { return clock_ms; }
   static ssize_t fixture_read(int fd, void *output, size_t capacity) {
       (void)fd;
       ++reads;
       if (mode == 1 && reads == 1) { errno = EINTR; return -1; }
-      if (reads > (mode == 1 ? 2 : 1)) { errno = EAGAIN; return -1; }
+      if (stream_offset == 500) { errno = EAGAIN; return -1; }
       unsigned char bytes[500];
       for (int i = 0; i < 100; i++) {
-          const unsigned char packet[5] = {0, 0, 0, 1, (unsigned char)(0x20 + i)};
+          const unsigned char packet[5] = {0, 0, 0, 1, (unsigned char)(0x80 + i)};
           memcpy(bytes + i * 5, packet, 5);
       }
-      assert(capacity >= sizeof(bytes));
-      memcpy(output, bytes, sizeof(bytes));
-      return sizeof(bytes);
+      size_t n = sizeof(bytes) - stream_offset;
+      if (n > capacity) n = capacity;
+      assert(n > 0);
+      memcpy(output, bytes + stream_offset, n);
+      stream_offset += n;
+      return (ssize_t)n;
   }
   static void on_packet(uint8_t type, const uint8_t *payload, size_t len, void *ud) {
       (void)type; (void)payload; (void)len; (void)ud;
-      assert(type == (uint8_t)(0x20 + packets) && len == 0);
+      assert(type == (uint8_t)(0x80 + packets) && len == 0);
       packets++;
       clock_ms += 9;
       if (mode == 2) ((struct app *)ud)->close_requested = 1;
@@ -51,24 +55,25 @@ fixture = <<~C
       assert(packets == 1 && reads == 1);
       for (int i = 1; i < 100; i++) {
           assert(drain_socket(&a) == 1);
-          assert(packets == i + 1 && reads == 1);
+          assert(packets == i + 1 && reads == i + 1);
       }
       assert(a.parser.len == 0);
       puts("All 100 packets delivered in order across cooperative drain passes");
       tb_parser_free(&a.parser);
       for (mode = 1; mode <= 2; mode++) {
           reads = packets = 0;
+          stream_offset = 0;
           a.close_requested = 0;
           tb_parser_init(&a.parser, on_packet, &a);
           assert(drain_socket(&a) == 1 && packets == 1);
           assert(reads == (mode == 1 ? 2 : 1));
           if (mode == 2) {
-              assert(a.close_requested && a.parser.len == 495);
+              assert(a.close_requested && a.parser.len == 0 && stream_offset == 5);
               assert(drain_socket(&a) == 0 && packets == 1 && reads == 1);
           }
           tb_parser_free(&a.parser);
       }
-      puts("EINTR retried; teardown stops buffered callbacks; reset discards pending data");
+      puts("EINTR retried; teardown leaves subsequent packets unread; reset discards pending data");
       return 0;
   }
 C
@@ -81,5 +86,5 @@ Dir.mktmpdir('targetbridge-drain-review-') do |dir|
          '-framework', 'SystemConfiguration', '-o', binary, exception: true)
   output, status = Open3.capture2e(binary)
   puts output
-  exit status.exitstatus
+  exit(status.exitstatus || 128 + status.termsig)
 end

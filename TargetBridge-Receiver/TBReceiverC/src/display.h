@@ -48,6 +48,14 @@ void tb_disp_render_nv12(struct tb_display *d,
                          const uint8_t *uv, int uv_stride,
                          int w, int h);
 
+/* Uncompressed full-range l10r. Requires tightly packed rows and a working
+ * packed Metal renderer; never converts to an 8-bit SDL texture. */
+int tb_disp_render_raw_rgb10(struct tb_display *d, const uint8_t *pixels,
+                             int stride, int w, int h);
+int tb_disp_raw_rgb10_available(struct tb_display *d);
+
+
+
 /* Update low-latency local cursor overlay in source-frame coordinates. */
 void tb_disp_set_cursor(struct tb_display *d,
                         int x, int y,

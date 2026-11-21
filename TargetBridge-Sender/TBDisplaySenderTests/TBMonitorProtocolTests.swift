@@ -39,6 +39,26 @@ final class TBMonitorProtocolTests: XCTestCase {
         XCTAssertEqual([UInt8](packet), [0x00, 0x00, 0x00, 0x04, 0x30, 0xAA, 0xBB, 0xCC])
     }
 
+    func testDispatchPacketPreservesFramingAfterBorrowedSourceIsOverwrittenAndFreed() throws {
+        for size in [0, 1, 13, 4096, 1_048_577] {
+            let expectedPayload = Data((0..<size).map { UInt8(truncatingIfNeeded: $0 * 37) })
+            let source = UnsafeMutablePointer<UInt8>.allocate(capacity: max(1, size))
+            expectedPayload.copyBytes(to: source, count: size)
+            let packet = TBMonitorProtocol.makeDispatchPacket(type: .rawFrame,
+                payloadBytes: UnsafeBufferPointer(start: source, count: size))
+            // DispatchData must have made its own copy before returning.
+            source.update(repeating: 0xEF, count: size)
+            source.deallocate()
+            let expected = TBMonitorProtocol.makePacket(type: .rawFrame, payload: expectedPayload)
+            XCTAssertEqual(Data(packet), expected, "payload size \(size)")
+            var wire = Data(packet)
+            let (type, payload) = try XCTUnwrap(try TBMonitorProtocol.drainPacket(from: &wire))
+            XCTAssertEqual(type, .rawFrame)
+            XCTAssertEqual(payload, expectedPayload)
+            XCTAssertTrue(wire.isEmpty)
+        }
+    }
+
     func testRawNV12PacketTypeAndOlderDisplayProfilesRemainCompatible() throws {
         XCTAssertEqual(TBMonitorPacketType.rawFrame.rawValue, 0x22)
 
@@ -57,6 +77,19 @@ final class TBMonitorProtocolTests: XCTestCase {
         """.utf8)
         let profile = try JSONDecoder().decode(TBMonitorDisplayProfile.self, from: olderProfile)
         XCTAssertNil(profile.supportsRawNV12)
+        XCTAssertNil(profile.supportsRawRGB10)
+        XCTAssertEqual(TBMonitorPacketType.rawFrame.rawValue, 0x22)
+
+        var advertised = try XCTUnwrap(JSONSerialization.jsonObject(with: olderProfile) as? [String: Any])
+        for capability in [false, true] {
+            advertised["supportsRawRGB10"] = capability
+            let data = try JSONSerialization.data(withJSONObject: advertised)
+            let extended = try JSONDecoder().decode(TBMonitorDisplayProfile.self, from: data)
+            XCTAssertEqual(extended.supportsRawRGB10, capability)
+            let roundTrip = try JSONDecoder().decode(TBMonitorDisplayProfile.self,
+                                                    from: JSONEncoder().encode(extended))
+            XCTAssertEqual(roundTrip.supportsRawRGB10, capability)
+        }
     }
 
     func testDrainPacketRoundTrip() throws {

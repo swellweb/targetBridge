@@ -222,6 +222,231 @@ static void test_large_payload_roundtrip(void) {
     tb_parser_free(&p);
 }
 
+static void test_discarded_test_data_is_not_buffered(void) {
+    struct tb_parser p;
+    tb_parser_init(&p, capture_cb, NULL);
+    reset_capture();
+    const size_t plen = 4 * 1024 * 1024;
+    uint8_t header[5], chunk[65536];
+    memset(chunk, 0x5a, sizeof(chunk));
+    put_be32(header, (uint32_t)plen + 1);
+    header[4] = TB_PKT_TEST_DATA;
+    for (size_t i = 0; i < sizeof(header); ++i)
+        CHECK(tb_parser_feed(&p, header + i, 1) == 0, "split test header accepted");
+    for (size_t off = 0; off < plen; off += sizeof(chunk))
+        CHECK(tb_parser_feed(&p, chunk, sizeof(chunk)) == 0, "test payload discarded incrementally");
+    CHECK(g_captured_count == 0, "discard-only test packets do not invoke payload callback");
+    CHECK(p.len == 0, "no discarded payload is retained");
+    CHECK(p.cap <= sizeof(chunk), "test stream does not allocate a full payload buffer");
+    uint8_t heartbeat[5];
+    build_packet(heartbeat, TB_PKT_HEARTBEAT, NULL, 0);
+    CHECK(tb_parser_feed(&p, heartbeat, sizeof(heartbeat)) == 0, "packet after discard accepted");
+    CHECK(g_captured_count == 1 && g_captured[0].type == TB_PKT_HEARTBEAT,
+          "next packet begins at the exact discarded boundary");
+    tb_parser_free(&p);
+}
+
+static void test_discard_preserves_mixed_packet_boundaries(void) {
+    uint8_t stream[128], fake_teardown[5];
+    build_packet(fake_teardown, TB_PKT_TEARDOWN, NULL, 0);
+    size_t n = build_packet(stream, TB_PKT_HEARTBEAT, "before", 6);
+    n += build_packet(stream + n, TB_PKT_TEST_DATA, fake_teardown, sizeof(fake_teardown));
+    n += build_packet(stream + n, TB_PKT_TEST_DATA, NULL, 0);
+    n += build_packet(stream + n, 0x7e, "unknown", 7);
+    n += build_packet(stream + n, TB_PKT_TEARDOWN, NULL, 0);
+    for (size_t split = 0; split <= n; ++split) {
+        struct tb_parser p;
+        tb_parser_init(&p, capture_cb, NULL);
+        reset_capture();
+        CHECK(tb_parser_feed(&p, stream, split) == 0, "mixed first fragment");
+        CHECK(tb_parser_feed(&p, stream + split, n - split) == 0, "mixed second fragment");
+        CHECK(g_captured_count == 3, "only control and unknown packets are delivered");
+        CHECK(g_captured[0].type == TB_PKT_HEARTBEAT && g_captured[0].had_nul_sentinel,
+              "preceding control retains sentinel");
+        CHECK(g_captured[1].type == 0x7e && g_captured[1].len == 7 &&
+              memcmp(g_captured[1].payload, "unknown", 7) == 0 && g_captured[1].had_nul_sentinel,
+              "unknown packets retain bytes and sentinel");
+        CHECK(g_captured[2].type == TB_PKT_TEARDOWN && g_captured[2].len == 0,
+              "embedded fake packet is skipped, real teardown retained");
+        CHECK(p.len == 0, "mixed feed fully consumed");
+        tb_parser_free(&p);
+    }
+}
+
+static void test_discard_length_validation_and_reset(void) {
+    const uint32_t invalid[] = {0, 64u * 1024 * 1024 + 1, UINT32_MAX};
+    for (size_t i = 0; i < sizeof(invalid) / sizeof(invalid[0]); ++i) {
+        struct tb_parser p;
+        uint8_t header[5];
+        tb_parser_init(&p, capture_cb, NULL);
+        reset_capture();
+        put_be32(header, invalid[i]); header[4] = TB_PKT_TEST_DATA;
+        CHECK(tb_parser_feed(&p, header, sizeof(header)) == -1,
+              "discarded type still enforces length sanity");
+        CHECK(g_captured_count == 0, "invalid discarded packet has no callback");
+        tb_parser_free(&p);
+    }
+    struct tb_parser p;
+    uint8_t header[5], chunk[65536] = {0};
+    tb_parser_init(&p, capture_cb, NULL);
+    reset_capture();
+    put_be32(header, 64u * 1024 * 1024); header[4] = TB_PKT_TEST_DATA;
+    CHECK(tb_parser_feed(&p, header, sizeof(header)) == 0, "exact maximum length accepted");
+    size_t remaining = 64u * 1024 * 1024 - 1;
+    while (remaining) {
+        size_t n = remaining < sizeof(chunk) ? remaining : sizeof(chunk);
+        CHECK(tb_parser_feed(&p, chunk, n) == 0, "maximum test frame streams without retention");
+        remaining -= n;
+    }
+    CHECK(p.len == 0 && p.cap <= sizeof(chunk), "maximum test frame does not grow buffer");
+    put_be32(header, 0); header[4] = TB_PKT_HEARTBEAT;
+    CHECK(tb_parser_feed(&p, header, sizeof(header)) == -1,
+          "invalid following header remains fatal after a discarded frame");
+    tb_parser_free(&p);
+    tb_parser_init(&p, capture_cb, NULL);
+    put_be32(header, 1000); header[4] = TB_PKT_TEST_DATA;
+    CHECK(tb_parser_feed(&p, header, sizeof(header)) == 0, "incomplete discarded frame begins");
+    CHECK(tb_parser_feed(&p, chunk, 7) == 0, "incomplete discarded payload begins");
+    tb_parser_free(&p);
+    tb_parser_init(&p, capture_cb, NULL);
+    reset_capture();
+    build_packet(header, TB_PKT_HEARTBEAT, NULL, 0);
+    CHECK(tb_parser_feed(&p, header, sizeof(header)) == 0 && g_captured_count == 1,
+          "reconnect resets unfinished discard state");
+    tb_parser_free(&p);
+}
+
+/* Model a nonblocking read: the kernel writes directly into the offered tail,
+ * which remains borrowed only until commit (or a subsequent prepare/feed). */
+static int direct_feed(struct tb_parser *p, const uint8_t *src, size_t n,
+                       size_t read_limit) {
+    while (n) {
+        uint8_t *dst = NULL;
+        size_t capacity = 0;
+        if (tb_parser_prepare_write(p, read_limit, &dst, &capacity) < 0) return -1;
+        CHECK(dst != NULL && capacity > 0 && capacity <= read_limit,
+              "direct read offers a bounded destination");
+        if (!p->discard_remaining)
+            CHECK(dst == p->buf + p->len, "read destination is the parser tail");
+        size_t take = n < capacity ? n : capacity;
+        memcpy(dst, src, take);
+        if (tb_parser_commit_write(p, take) < 0) return -1;
+        src += take; n -= take;
+    }
+    return 0;
+}
+
+static void test_direct_fragmented_mixed_packets(void) {
+    uint8_t stream[128], fake_teardown[5];
+    build_packet(fake_teardown, TB_PKT_TEARDOWN, NULL, 0);
+    size_t n = build_packet(stream, TB_PKT_HEARTBEAT, "before", 6);
+    n += build_packet(stream + n, TB_PKT_TEST_DATA, fake_teardown, sizeof(fake_teardown));
+    n += build_packet(stream + n, TB_PKT_TEST_DATA, NULL, 0);
+    n += build_packet(stream + n, 0x7e, "unknown", 7);
+    n += build_packet(stream + n, TB_PKT_TEARDOWN, NULL, 0);
+    for (size_t split = 0; split <= n; ++split) {
+        struct tb_parser p;
+        tb_parser_init(&p, capture_cb, NULL); reset_capture();
+        CHECK(direct_feed(&p, stream, split, 3) == 0, "short direct first fragment");
+        CHECK(direct_feed(&p, stream + split, n - split, 1024) == 0,
+              "direct mixed fragment completes");
+        CHECK(g_captured_count == 3, "discard does not callback or parse embedded headers");
+        CHECK(g_captured[0].type == TB_PKT_HEARTBEAT && g_captured[0].had_nul_sentinel,
+              "direct control callback and sentinel");
+        CHECK(g_captured[1].type == 0x7e && g_captured[1].len == 7 &&
+              memcmp(g_captured[1].payload, "unknown", 7) == 0 &&
+              g_captured[1].had_nul_sentinel, "direct unknown payload is unchanged");
+        CHECK(g_captured[2].type == TB_PKT_TEARDOWN && g_captured[2].len == 0 &&
+              g_captured[2].had_nul_sentinel, "direct empty control packet");
+        CHECK(p.len == 0 && p.discard_remaining == 0, "direct fragments fully consumed");
+        tb_parser_free(&p);
+    }
+}
+
+static void test_direct_commit_contract_and_reset(void) {
+    struct tb_parser p;
+    uint8_t header[5], *dst = NULL;
+    size_t capacity = 0;
+    tb_parser_init(&p, capture_cb, NULL); reset_capture();
+    CHECK(tb_parser_commit_write(&p, 1) == -1, "commit without prepare rejected");
+    CHECK(tb_parser_prepare_write(&p, 0, &dst, &capacity) == -1, "zero read limit rejected");
+    CHECK(tb_parser_prepare_write(&p, SIZE_MAX, &dst, &capacity) == 0 && capacity == 5,
+          "untrusted read limit cannot exceed header boundary");
+    CHECK(tb_parser_commit_write(&p, capacity + 1) == -1 && p.len == 0,
+          "oversized commit cannot advance parser state");
+    CHECK(tb_parser_commit_write(&p, 1) == -1, "failed commit invalidates old offer");
+    CHECK(tb_parser_prepare_write(&p, 5, &dst, &capacity) == 0, "prepare after rejected commit");
+    CHECK(tb_parser_commit_write(&p, 0) == 0 && p.len == 0,
+          "zero-byte commit cancels read after EINTR/EAGAIN");
+    CHECK(tb_parser_commit_write(&p, 1) == -1, "cancelled offer cannot be committed again");
+    build_packet(header, TB_PKT_HEARTBEAT, NULL, 0);
+    CHECK(direct_feed(&p, header, 2, 5) == 0 && p.len == 2, "partial direct header");
+    CHECK(tb_parser_feed(&p, header + 2, 3) == 0 && g_captured_count == 1,
+          "legacy feed can finish a direct header");
+    CHECK(tb_parser_prepare_write(&p, 5, &dst, &capacity) == 0, "pending offer");
+    CHECK(tb_parser_feed(&p, header, 5) == 0 && g_captured_count == 2,
+          "feed invalidates a pending write offer");
+    CHECK(tb_parser_commit_write(&p, 1) == -1, "stale offer after feed rejected");
+    put_be32(header, 1000); header[4] = TB_PKT_TEST_DATA;
+    CHECK(direct_feed(&p, header, 5, 5) == 0 && p.discard_remaining == 999,
+          "direct discard starts after validated header");
+    CHECK(tb_parser_prepare_write(&p, 100, &dst, &capacity) == 0, "discard offer");
+    CHECK(tb_parser_commit_write(&p, capacity + 1) == -1 && p.discard_remaining == 999,
+          "discard overcommit also rejected");
+    CHECK(tb_parser_prepare_write(&p, 100, &dst, &capacity) == 0, "pending discard before reconnect");
+    tb_parser_free(&p); tb_parser_init(&p, capture_cb, NULL); reset_capture();
+    CHECK(tb_parser_commit_write(&p, 1) == -1 && p.discard_remaining == 0,
+          "reconnect resets write offers and discard state");
+    build_packet(header, TB_PKT_HEARTBEAT, NULL, 0);
+    CHECK(direct_feed(&p, header, 5, 1) == 0 && g_captured_count == 1,
+          "new session starts at its own header");
+    tb_parser_free(&p);
+}
+
+static void test_direct_length_bounds(void) {
+    const uint32_t invalid[] = {0, 64u * 1024 * 1024 + 1, UINT32_MAX};
+    for (int test = 0; test < 2; ++test) {
+        for (size_t i = 0; i < sizeof(invalid) / sizeof(invalid[0]); ++i) {
+            struct tb_parser p; uint8_t header[5];
+            tb_parser_init(&p, capture_cb, NULL); reset_capture();
+            put_be32(header, invalid[i]); header[4] = test ? TB_PKT_TEST_DATA : 0x7e;
+            CHECK(direct_feed(&p, header, 5, 1) == -1, "direct invalid length is fatal");
+            CHECK(g_captured_count == 0 && p.cap <= 65536, "bad length allocates no payload");
+            tb_parser_free(&p);
+        }
+        struct tb_parser p; uint8_t header[5];
+        tb_parser_init(&p, capture_cb, NULL); reset_capture();
+        put_be32(header, 64u * 1024 * 1024); header[4] = test ? TB_PKT_TEST_DATA : 0x7e;
+        CHECK(direct_feed(&p, header, 5, 5) == 0, "direct maximum length accepted");
+        CHECK(p.cap <= 65536, "header alone does not eagerly allocate a full frame");
+        size_t remaining = 64u * 1024 * 1024 - 1;
+        while (remaining) {
+            uint8_t *dst = NULL; size_t capacity = 0;
+            CHECK(tb_parser_prepare_write(&p, 1024 * 1024, &dst, &capacity) == 0,
+                  "maximum direct frame grows incrementally");
+            CHECK(capacity && capacity <= remaining && capacity <= 1024 * 1024,
+                  "direct write stays inside remaining packet");
+            if (!capacity || capacity > remaining) break;
+            memset(dst, 0x5a, capacity);
+            CHECK(tb_parser_commit_write(&p, capacity) == 0, "maximum direct frame commit");
+            remaining -= capacity;
+        }
+        CHECK(remaining == 0 && p.len == 0 && !p.discard_remaining,
+              "maximum direct frame completes exactly");
+        if (test) {
+            CHECK(g_captured_count == 0 && p.cap <= 1024 * 1024,
+                  "discard uses at most 1 MiB scratch, not a full frame");
+        } else {
+            CHECK(g_captured_count == 1 && g_captured[0].len == 64u * 1024 * 1024 - 1 &&
+                  g_captured[0].had_nul_sentinel, "maximum normal frame and sentinel delivered");
+        }
+        build_packet(header, TB_PKT_HEARTBEAT, NULL, 0);
+        CHECK(direct_feed(&p, header, 5, 5) == 0,
+              "maximum frame leaves next header aligned");
+        tb_parser_free(&p);
+    }
+}
+
 int main(void) {
     test_link_local_ipv4_classifier();
     test_single_packet_whole_feed();
@@ -231,6 +456,12 @@ int main(void) {
     test_zero_length_is_fatal();
     test_oversized_length_is_fatal();
     test_large_payload_roundtrip();
+    test_discarded_test_data_is_not_buffered();
+    test_discard_preserves_mixed_packet_boundaries();
+    test_discard_length_validation_and_reset();
+    test_direct_fragmented_mixed_packets();
+    test_direct_commit_contract_and_reset();
+    test_direct_length_bounds();
 
     if (g_failures == 0) {
         printf("net parser tests: %d checks passed\n", g_checks);

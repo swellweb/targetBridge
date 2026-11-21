@@ -7,7 +7,7 @@ method = source[/    static func chooseCodec\([\s\S]*?(?=\n    private func reso
 abort 'Production chooseCodec not found' unless method
 fixture = <<~SWIFT
   import CoreMedia
-  enum TBDisplayCodecPreference { case automatic, h264, hevc }
+  enum TBDisplayCodecPreference { case automatic, h264, hevc, rawRGB10 }
   struct TBDisplayCapturePreset {
       let codecType: CMVideoCodecType
   }
@@ -40,7 +40,23 @@ fixture = <<~SWIFT
       preference: .automatic, preset: preset, receiverSupportsHEVC: true,
       senderSupportsH264: false, senderSupportsHEVC: true)
   assert(available?.codecType == kCMVideoCodecType_HEVC)
-  print("unsupported selections: \\(unsupportedSelections); H264 and advertised HEVC controls passed")
+  var rawSelections = 0
+  for receiverHEVC in [false, true] {
+      for receiverSoftwareHEVC in [false, true] {
+          for senderH264 in [false, true] {
+              for senderHEVC in [false, true] {
+                  let raw = TBDisplaySenderSession.chooseCodec(
+                      preference: .rawRGB10, preset: preset,
+                      receiverSupportsHEVC: receiverHEVC,
+                      senderSupportsH264: senderH264, senderSupportsHEVC: senderHEVC,
+                      receiverSupportsHEVCSoftware: receiverSoftwareHEVC)
+                  assert(raw == nil, "Explicit RAW must not select an encoded fallback")
+                  rawSelections += 1
+              }
+          }
+      }
+  }
+  print("unsupported selections: \\(unsupportedSelections); H264 and advertised HEVC controls passed; \\(rawSelections) strict RAW selections passed")
   exit(unsupportedSelections == 0 ? 0 : 1)
 SWIFT
 Dir.mktmpdir('targetbridge-codec-review-') do |dir|

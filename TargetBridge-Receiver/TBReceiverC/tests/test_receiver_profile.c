@@ -39,6 +39,15 @@ static void test_non_retina_1080p(void) {
     CHECK(p.capture_w == 1920 && p.capture_h == 1080, "1080p capture uses native pixels");
 }
 
+static void test_retina_45k(void) {
+    struct tb_receiver_profile p;
+    CHECK(tb_receiver_profile_from_dimensions(2240, 1260, 4480, 2520, &p) == 0,
+          "4.5K profile builds");
+    CHECK(p.hi_dpi, "4.5K panel is HiDPI");
+    CHECK(p.mode_w == 2240 && p.mode_h == 1260, "4.5K uses logical mode");
+    CHECK(p.capture_w == 4480 && p.capture_h == 2520, "4.5K capture uses native pixels");
+}
+
 static void test_invalid_panel(void) {
     struct tb_receiver_profile p;
     CHECK(tb_receiver_profile_from_dimensions(1920, 1080, 0, 1080, &p) < 0,
@@ -50,6 +59,7 @@ static void test_invalid_panel(void) {
 int main(void) {
     test_retina_5k();
     test_retina_4k();
+    test_retina_45k();
     test_non_retina_1080p();
     test_invalid_panel();
     if (!failures) {

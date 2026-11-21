@@ -52,6 +52,29 @@ final class TBHEVCSoftwareCapabilityTests: XCTestCase {
         }
     }
 
+    func testDiscoveryRefreshUpdatesSoftwareCapabilityWithoutReplacingRAWSelection() {
+        let session = TBDisplaySenderSession(language: .english, largeCursor: false,
+            preventDisplaySleep: false, autoRestartOnWake: false, audioEnabled: false)
+        for software in [true, false, nil, true] as [Bool?] {
+            let receiver = TBDiscoveredReceiver(
+                serviceName: "Merge capability fixture", receiverName: "Fixture",
+                receiverID: "8D3FC604-AC90-4EB0-A090-2412B3CA9979",
+                preferredIP: "169.254.2.3", thunderboltIP: "169.254.2.3", networkIP: "",
+                panelSummary: "", version: "3.6.1", supportsHEVCDecode: false,
+                hostName: nil, supportsHEVCSoftwareDecode: software)
+            session.selectedReceiverID = receiver.stableIdentity
+            session.codecPreference = .rawRGB10
+            session.capturePreset = .retina4_5k60
+            XCTAssertFalse(session.updateDiscoveredReceiver(receiver, defaultCodecPreference: .automatic))
+            XCTAssertEqual(session.receiverSupportsHEVCSoftwareDecodeHint, software)
+            XCTAssertEqual(session.codecPreference, .rawRGB10)
+            XCTAssertEqual(session.capturePreset, .retina4_5k60)
+            // Software HEVC capability never substitutes for explicit RGB10 support.
+            XCTAssertNil(TBVideoTransport.resolve(preference: session.codecPreference,
+                preset: session.capturePreset, supportsRawNV12: true, supportsRawRGB10: false))
+        }
+    }
+
     func testChangingPeerClearsSoftwareHintEvenAtTheSameAddress() {
         let key = "fd.tbdisplaysender.receiverIP"
         let previousIP = UserDefaults.standard.object(forKey: key)
