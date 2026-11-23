@@ -3136,6 +3136,11 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
             )
         }
         guard wakeDisplay, preventDisplaySleep else { return }
+        // Declaring user activity on the way to sleep wakes the Mac straight back up.
+        guard !TBSystemSleepGate.isSleeping else {
+            TBLog.connection.info("capture: system going to sleep; not waking the graphical session")
+            return
+        }
 
         let result = IOPMAssertionDeclareUserActivity(
             "TargetBridge capture requested" as CFString,
