@@ -22,6 +22,7 @@
 #include "tb_gesture_bridge.h"
 #include "tb_display_tweaks.h"
 #include "tb_i18n.h"
+#include "tb_running_app.h"
 
 #include <SDL.h>
 #include <ApplicationServices/ApplicationServices.h>
@@ -2121,6 +2122,22 @@ int main(int argc, char **argv) {
     tb_gesture_bridge_install(tb_receiver_space_switch_callback, &a);
     tb_gesture_bridge_set_active(0);
 
+    /* Listen before opening the window or registering with Bonjour, so a second
+     * copy of the receiver leaves before it shows anything or advertises itself. */
+    a.server_fd = tb_net_listen(TB_PORT);
+    if (a.server_fd < 0) {
+        if (errno == EADDRINUSE) {
+            fprintf(stderr, "[net] port %d is in use: another receiver is already running; leaving\n",
+                    TB_PORT);
+            if (tb_running_app_activate("com.targetbridge.receiver")) {
+                fprintf(stderr, "[main] brought the running receiver to the front\n");
+            }
+            return 0;
+        }
+        fprintf(stderr, "tb_net_listen failed\n");
+        return 1;
+    }
+
     a.disp = tb_disp_create(fullscreen);
     if (!a.disp) { fprintf(stderr, "tb_disp_create failed\n"); return 1; }
 
@@ -2145,8 +2162,6 @@ int main(int argc, char **argv) {
 
     tb_parser_init(&a.parser, on_packet, &a);
 
-    a.server_fd = tb_net_listen(TB_PORT);
-    if (a.server_fd < 0) { fprintf(stderr, "tb_net_listen failed\n"); return 1; }
 
     a.last_fps_tick_ms = now_ms();
     a.last_ip_check_ms = 0;
