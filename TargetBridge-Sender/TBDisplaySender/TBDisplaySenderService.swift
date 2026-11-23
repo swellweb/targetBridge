@@ -1375,6 +1375,8 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     private var firstFrameTimer: Timer?
     private var cursorTimer: Timer?
     private var connectTimeoutWorkItem: DispatchWorkItem?
+    private var routeLossWorkItem: DispatchWorkItem?
+    private var routeLossGeneration: UInt64 = 0
     /// Name of the local interface the current connect attempt is bound to
     /// (e.g. "bridge0"), resolved when dialing. Diagnostic context only.
     private var connectInterfaceName: String?
@@ -1650,6 +1652,15 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
 
         let tcpOptions = NWProtocolTCP.Options()
         tcpOptions.noDelay = true
+        if transportKind == .thunderboltBridge {
+            // Backstop for the route watch below. A pulled cable was noticed
+            // only when TCP gave up retransmitting: 18.3-18.6 s after the unplug
+            // on an iMac18,3. A live bridge acknowledges within milliseconds, and
+            // the 2 s heartbeat keeps data in flight, so 5 s with nothing
+            // acknowledged means the link is gone. A receiver that stops reading
+            // (zero window) is not affected: that is TCP's persist state.
+            tcpOptions.connectionDropTime = 5
+        }
         let params = NWParameters(tls: nil, tcp: tcpOptions)
         params.allowLocalEndpointReuse = true
         params.serviceClass = .interactiveVideo
@@ -1717,7 +1728,12 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
                         lastNetworkState: nil
                     )
                     TBLog.connection.error("connect: failed — \(error.localizedDescription, privacy: .public); \(detail, privacy: .public)")
-                    self.setStatus(.connectionFailed("\(error.localizedDescription) — \(detail)"))
+                    if self.isConnected {
+                        // An established link that dropped, not a dial that failed.
+                        self.setStatus(.connectionClosed(error.localizedDescription))
+                    } else {
+                        self.setStatus(.connectionFailed("\(error.localizedDescription) — \(detail)"))
+                    }
                     self.stop(resetStatusTo: nil)
                 case .cancelled:
                     self.isConnected = false
@@ -1727,8 +1743,41 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
             }
         }
 
+        // Network.framework marks the flow non-viable within a fraction of a
+        // second when its interface loses the route (a pulled Thunderbolt
+        // cable: 0.18 s on an iMac18,3), long before TCP gives up.
+        conn.viabilityUpdateHandler = { [weak self, weak conn] isViable in
+            Task { @MainActor [weak self, weak conn] in
+                guard let self, let conn, self.connection === conn else { return }
+                self.connectionViabilityChanged(isViable)
+            }
+        }
+
         startConnectWatchdog()
         conn.start(queue: connectionQueue)
+    }
+
+    /// A route that stays away for 2 s ends the connection, so the retry loop can
+    /// dial again as soon as the cable is back. A shorter flap is ridden out.
+    private func connectionViabilityChanged(_ isViable: Bool) {
+        routeLossWorkItem?.cancel()
+        routeLossWorkItem = nil
+        routeLossGeneration &+= 1
+        let generation = routeLossGeneration
+        guard !isViable, isConnected, let watchedConnection = connection else { return }
+        TBLog.connection.warning("connect: no route to \(self.receiverIP, privacy: .public) via \(self.connectInterfaceName ?? "?", privacy: .public); closing in 2 s unless it returns")
+        let workItem = DispatchWorkItem { [weak self, weak watchedConnection] in
+            Task { @MainActor [weak self, weak watchedConnection] in
+                guard let self, let watchedConnection, self.isConnected,
+                      self.connection === watchedConnection,
+                      self.routeLossGeneration == generation else { return }
+                TBLog.connection.error("connect: route did not return; closing the connection")
+                self.setStatus(.connectionClosed(POSIXError(.ENETDOWN).localizedDescription))
+                self.stop(resetStatusTo: nil)
+            }
+        }
+        routeLossWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0, execute: workItem)
     }
 
     func startCableTest() {
@@ -1890,6 +1939,8 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         }
         connectTimeoutWorkItem?.cancel()
         connectTimeoutWorkItem = nil
+        routeLossWorkItem?.cancel()
+        routeLossWorkItem = nil
         heartbeatTimer?.invalidate()
         heartbeatTimer = nil
         firstFrameTimer?.invalidate()
