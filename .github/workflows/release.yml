@@ -83,7 +83,7 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          brew install ffmpeg sdl2 sdl3 dylibbundler
+          brew install dylibbundler pkgconf cmake nasm
 
       - name: Import release signing certificate
         if: ${{ env.TARGETBRIDGE_SIGNING_CONFIGURED == 'true' }}
@@ -92,7 +92,13 @@ jobs:
           certificate-base64: ${{ secrets.TARGETBRIDGE_CODESIGN_P12_BASE64 }}
           certificate-password: ${{ secrets.TARGETBRIDGE_CODESIGN_P12_PASSWORD }}
 
+      - name: Build Receiver Runtime (macOS 11+)
+        run: ./TargetBridge-Receiver/scripts/build_receiver_runtime.sh "$PWD/build/receiver-runtime"
+
       - name: Build Receiver App
+        env:
+          PKG_CONFIG_PATH: ${{ github.workspace }}/build/receiver-runtime/lib/pkgconfig
+          TARGETBRIDGE_RECEIVER_MAX_MIN_OS: "11.0"
         run: |
           cd TargetBridge-Receiver
           TB_BUILD="$(grep -m1 'CURRENT_PROJECT_VERSION:' ../TargetBridge-Sender/project.yml | sed -E 's/.*\"([^\"]+)\".*/\1/')"
@@ -150,6 +156,15 @@ jobs:
           name: TargetBridge-Receiver-arm64.app.zip
           path: ./artifacts
 
+      - name: Fetch FFmpeg Source (LGPL 2.1 s.4)
+        run: |
+          RUNTIME=TargetBridge-Receiver/scripts/build_receiver_runtime.sh
+          VERSION="$(sed -n 's/^FFMPEG_VERSION=//p' "$RUNTIME")"
+          SHA256="$(sed -n 's/^FFMPEG_SHA256=//p' "$RUNTIME")"
+          test -n "$VERSION" && test -n "$SHA256"
+          curl -fsSL --retry 3 -o "./artifacts/ffmpeg-${VERSION}.tar.xz" "https://ffmpeg.org/releases/ffmpeg-${VERSION}.tar.xz"
+          echo "${SHA256}  ./artifacts/ffmpeg-${VERSION}.tar.xz" | sha256sum -c -
+
       - name: Create Draft Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -159,6 +174,7 @@ jobs:
             ./artifacts/TargetBridge-arm64.app.zip \
             ./artifacts/TargetBridge-Receiver-x86_64.app.zip \
             ./artifacts/TargetBridge-Receiver-arm64.app.zip \
+            ./artifacts/ffmpeg-*.tar.xz \
             --title "TargetBridge ${{ github.ref_name }}" \
             --draft \
             --generate-notes
