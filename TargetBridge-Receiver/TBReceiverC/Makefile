@@ -51,7 +51,7 @@ $(BIN): $(OBJ)
 	$(CC) $(CFLAGS) -fobjc-arc -c -o $@ $<
 
 clean:
-	rm -f $(OBJ) $(BIN) $(TEST_BIN) $(TEST_INPUT_QUEUE_BIN) $(TEST_IDLE_WATCHDOG_BIN) $(TEST_RECEIVER_PROFILE_BIN) test_status_layout test_monitor_shield test_parser_yield test_listen_exclusive
+	rm -f $(OBJ) $(BIN) $(TEST_BIN) $(TEST_INPUT_QUEUE_BIN) $(TEST_IDLE_WATCHDOG_BIN) $(TEST_RECEIVER_PROFILE_BIN) test_status_layout test_monitor_shield test_parser_yield test_log_ratelimit test_keyframe_nal test_listen_exclusive
 
 # Unit tests for the packet parser. net.c is pure POSIX, so this needs no
 # ffmpeg/SDL/pkgconf — it runs anywhere, including CI, with no hardware.
@@ -85,16 +85,26 @@ src/display.o: src/status_layout.h
 test_parser_yield: tests/test_parser_yield.c src/net.c src/net.h src/proto.h
 	$(CC) $(TEST_CFLAGS) -Isrc tests/test_parser_yield.c src/net.c $(TEST_LDFLAGS) -o $@
 
+test_log_ratelimit: tests/test_log_ratelimit.c src/log_ratelimit.h
+	$(CC) $(TEST_CFLAGS) -Isrc tests/test_log_ratelimit.c -o $@
+
+test_keyframe_nal: tests/test_keyframe_nal.c src/keyframe_nal.h
+	$(CC) $(TEST_CFLAGS) -Isrc tests/test_keyframe_nal.c -o $@
+
+src/decoder.o: src/log_ratelimit.h src/keyframe_nal.h
+
 test_listen_exclusive: tests/test_listen_exclusive.c src/net.c src/net.h src/proto.h
 	$(CC) $(TEST_CFLAGS) -Isrc tests/test_listen_exclusive.c src/net.c $(TEST_LDFLAGS) -o $@
 
-test: $(TEST_BIN) $(TEST_INPUT_QUEUE_BIN) $(TEST_IDLE_WATCHDOG_BIN) $(TEST_RECEIVER_PROFILE_BIN) test_status_layout test_parser_yield test_listen_exclusive
+test: $(TEST_BIN) $(TEST_INPUT_QUEUE_BIN) $(TEST_IDLE_WATCHDOG_BIN) $(TEST_RECEIVER_PROFILE_BIN) test_status_layout test_parser_yield test_log_ratelimit test_keyframe_nal test_listen_exclusive
 	./$(TEST_BIN)
 	./$(TEST_INPUT_QUEUE_BIN)
 	./$(TEST_IDLE_WATCHDOG_BIN)
 	./$(TEST_RECEIVER_PROFILE_BIN)
 	./test_status_layout
 	./test_parser_yield
+	./test_log_ratelimit
+	./test_keyframe_nal
 	./test_listen_exclusive
 
 # AppKit lifecycle coverage requires a logged-in macOS GUI session.
