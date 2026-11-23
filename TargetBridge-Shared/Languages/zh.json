@@ -147,6 +147,8 @@
   "sender.profile.smooth_plus": "流畅+",
   "sender.profile.crisp": "清晰",
   "sender.profile.retina_4k": "Retina 4K",
+  "sender.profile.retina_16_10": "Retina 16:10",
+  "sender.profile.retina_16_10_more_space": "Retina 16:10 更多空间",
   "sender.profile.native_5k": "5K",
   "sender.profile.native_5k_60_experimental": "5K 60（实验性）",
   "sender.capture_display.na": "无",

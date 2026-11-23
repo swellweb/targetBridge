@@ -143,3 +143,49 @@ the session card, whether input remains responsive, and any capture or decoder
 errors. For a two-receiver experiment, start one session per receiver and
 record the FPS for each session separately. Include the sender model, macOS
 version, receiver model, cable type, and selected transport with the report.
+
+## Retina 16:10 Receiver profiles
+
+For an exact 16:10 Receiver panel, select **Extended Desktop**, enable
+**Render Matching Stream Resolution**, and choose one of these stream profiles:
+
+| Profile | Encoded frame | Logical HiDPI desktop | On a 3072 x 1920 panel |
+| --- | --- | --- | --- |
+| Retina 16:10 | 3072 x 1920 | 1536 x 960 | Pixel-matched backing |
+| Retina 16:10 More Space | 3584 x 2240 | 1792 x 1120 | Downsampled to the physical panel |
+
+The second profile requests a larger virtual framebuffer while retaining the
+Receiver's physical panel geometry. It processes about 36% more pixels than the
+first profile. Both request 60 fps; sustained frame rate depends on the encoder,
+decoder and link. Codec selection and hardware fallback follow the existing
+policies. These choices do not change the defaults or the existing 16:9 profiles.
+
+The larger-backing exception requires an explicit HiDPI render override and an
+exact 16:10 panel. It is bounded to 3584 x 2240. Other aspect ratios and existing
+profiles retain the previous panel limit. On smaller 16:10 panels, both profiles
+can involve downsampling. With render matching disabled, the receiver-advertised
+desktop mode is retained; the logical desktop sizes above are not forced.
+
+This targets the geometry/scaling part of #207. It does not establish that every
+reported black border has the same cause. A physical 16:10 end-to-end check is
+still required before claiming that report fully resolved. Mirror mode continues
+to follow the source display's aspect ratio and is not guaranteed to fill a
+different-shaped Receiver.
+
+The normal Sender XCTest suite includes profile, HiDPI geometry, bounded
+supersampling, 16:9 preservation, codec choice, localization and automation tests.
+To run the focused check without starting the app or creating a display:
+
+```bash
+python3 TargetBridge-Sender/scripts/test_retina_16x10.py . /tmp/tb-retina-check
+```
+
+For a negative control, run the same script against the unmodified source with
+`--presets-only`; it reports both missing 16:10 profiles. The script compiles the
+production declarations, not a parallel implementation of the geometry rules.
+
+Hardware validation should cover both profiles on a 16:10 Receiver: reported
+logical/pixel sizes, full-screen edge coverage, text sharpness, cursor and input
+at all corners, reconnect and saved profile selection. Recheck Full HD, Retina
+4K and 5K on 16:9 Receivers. Do not run the normal app-hosted tests alongside a
+live Sender; use an isolated command-line test host or a separate test machine.

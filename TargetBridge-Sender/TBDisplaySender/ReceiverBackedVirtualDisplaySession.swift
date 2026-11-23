@@ -28,6 +28,38 @@ struct TBVirtualDisplayModeSize: Equatable {
     var backingHeight: Int { isHiDPI ? height * 2 : height }
 }
 
+/// The physical panel and virtual framebuffer are different sizes when a
+/// Retina desktop is supersampled. Keep the legacy panel limit by default.
+struct TBVirtualDisplayGeometry {
+    let mode: TBVirtualDisplayModeSize
+    let maxPixelsWide: Int
+    let maxPixelsHigh: Int
+
+    init(profile: TBMonitorDisplayProfile,
+         modeOverride: TBVirtualDisplayModeSize?,
+         allow16x10Supersampling: Bool = false) {
+        let fallback = TBVirtualDisplayModeSize(
+            width: profile.modeWidth, height: profile.modeHeight, isHiDPI: profile.hiDPI
+        )
+        let requested = modeOverride ?? fallback
+        // Bound the exception to the two 16:10 presets (up to 1792 x 1120
+        // logical pixels). Never stretch a different panel aspect ratio, a 1x
+        // mode, or an implicit receiver default to bypass the existing limit.
+        let canSupersample = allow16x10Supersampling && modeOverride != nil &&
+            requested.isHiDPI && requested.width > 0 && requested.height > 0 &&
+            requested.width <= 1792 && requested.height <= 1120 &&
+            requested.width * 5 == requested.height * 8 &&
+            profile.panelWidth > 0 && profile.panelHeight > 0 &&
+            profile.panelWidth % 8 == 0 && profile.panelHeight % 5 == 0 &&
+            profile.panelWidth / 8 == profile.panelHeight / 5
+        let exceedsPanel = requested.backingWidth > profile.panelWidth ||
+            requested.backingHeight > profile.panelHeight
+        mode = exceedsPanel && !canSupersample ? fallback : requested
+        maxPixelsWide = canSupersample ? max(profile.panelWidth, mode.backingWidth) : profile.panelWidth
+        maxPixelsHigh = canSupersample ? max(profile.panelHeight, mode.backingHeight) : profile.panelHeight
+    }
+}
+
 struct TBVirtualDisplayIdentity {
     let productID: UInt32
     let serialNumber: UInt32
@@ -82,37 +114,20 @@ final class ReceiverBackedVirtualDisplaySession {
         from profile: TBMonitorDisplayProfile,
         refreshRate: Double? = nil,
         modeOverride: TBVirtualDisplayModeSize? = nil,
+        allow16x10Supersampling: Bool = false,
         identity: TBVirtualDisplayIdentity,
         receiverKey: String
     ) -> Bool {
         destroy()
         let preferredRefreshRate = refreshRate ?? profile.refreshRate
 
-        // The receiver hard-codes mode 2560x1440 + hiDPI, i.e. a 5120x2880 backing
-        // store, regardless of which capture preset the sender is running. Any preset
-        // below 5K therefore makes ScreenCaptureKit resample 5120x2880 down to the
-        // stream size, and the receiver resample back up to the panel: two non-integer
-        // passes. `modeOverride` lets the sender size the backing store to match the
-        // stream exactly, so capture is 1:1 and only the panel-side scale remains.
-        var resolvedMode = modeOverride ?? TBVirtualDisplayModeSize(
-            width: profile.modeWidth,
-            height: profile.modeHeight,
-            isHiDPI: profile.hiDPI
+        let geometry = TBVirtualDisplayGeometry(
+            profile: profile, modeOverride: modeOverride,
+            allow16x10Supersampling: allow16x10Supersampling
         )
-
-        // macOS refuses a HiDPI mode whose backing store exceeds the advertised panel.
-        if resolvedMode.backingWidth > profile.panelWidth || resolvedMode.backingHeight > profile.panelHeight {
-            NSLog(
-                "TargetBridge: mode override %dx%d needs a %dx%d backing store, exceeds panel %dx%d; falling back to receiver profile",
-                resolvedMode.width, resolvedMode.height,
-                resolvedMode.backingWidth, resolvedMode.backingHeight,
-                profile.panelWidth, profile.panelHeight
-            )
-            resolvedMode = TBVirtualDisplayModeSize(
-                width: profile.modeWidth,
-                height: profile.modeHeight,
-                isHiDPI: profile.hiDPI
-            )
+        let resolvedMode = geometry.mode
+        if let modeOverride, resolvedMode != modeOverride {
+            NSLog("TargetBridge: mode override exceeds panel; falling back to receiver profile")
         }
 
         let descriptor = CGVirtualDisplayDescriptor()
@@ -121,8 +136,8 @@ final class ReceiverBackedVirtualDisplaySession {
         descriptor.productID = identity.productID
         descriptor.serialNum = identity.serialNumber
         descriptor.serialNumber = identity.serialNumber
-        descriptor.maxPixelsWide = UInt32(profile.panelWidth)
-        descriptor.maxPixelsHigh = UInt32(profile.panelHeight)
+        descriptor.maxPixelsWide = UInt32(geometry.maxPixelsWide)
+        descriptor.maxPixelsHigh = UInt32(geometry.maxPixelsHigh)
 
         // A virtual display without chromaticity metadata can receive a generic
         // ColorSync profile. In mirror mode that makes macOS render the same
