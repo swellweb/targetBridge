@@ -1376,6 +1376,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     private var cursorTimer: Timer?
     private var connectTimeoutWorkItem: DispatchWorkItem?
     private var routeLossWorkItem: DispatchWorkItem?
+    private var routeLossGeneration: UInt64 = 0
     /// Name of the local interface the current connect attempt is bound to
     /// (e.g. "bridge0"), resolved when dialing. Diagnostic context only.
     private var connectInterfaceName: String?
@@ -1761,11 +1762,15 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     private func connectionViabilityChanged(_ isViable: Bool) {
         routeLossWorkItem?.cancel()
         routeLossWorkItem = nil
-        guard !isViable, isConnected else { return }
+        routeLossGeneration &+= 1
+        let generation = routeLossGeneration
+        guard !isViable, isConnected, let watchedConnection = connection else { return }
         TBLog.connection.warning("connect: no route to \(self.receiverIP, privacy: .public) via \(self.connectInterfaceName ?? "?", privacy: .public); closing in 2 s unless it returns")
-        let workItem = DispatchWorkItem { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self, self.isConnected else { return }
+        let workItem = DispatchWorkItem { [weak self, weak watchedConnection] in
+            Task { @MainActor [weak self, weak watchedConnection] in
+                guard let self, let watchedConnection, self.isConnected,
+                      self.connection === watchedConnection,
+                      self.routeLossGeneration == generation else { return }
                 TBLog.connection.error("connect: route did not return; closing the connection")
                 self.setStatus(.connectionClosed(POSIXError(.ENETDOWN).localizedDescription))
                 self.stop(resetStatusTo: nil)
