@@ -213,7 +213,10 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
         case .crisp2160p60, .retina4k60:
             return 60
         case .native5k:
-            return 48
+            // Same reasoning as the 5K60 profile below: a 5K IDR is several
+            // times the size of a P-frame and lands as a visible hitch when it
+            // is emitted every second.
+            return 192
         case .native5k60Experimental:
             // See maxKeyFrameIntervalDuration.
             return 240
@@ -233,7 +236,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
         case .smooth1800p60, .crisp2160p60, .retina4k60:
             return 1
         case .native5k:
-            return 1
+            return 4
         case .native5k60Experimental:
             // A 5K IDR is several times the size of a P-frame and costs the
             // receiver several frame budgets to transfer, decode and upload.
@@ -253,10 +256,13 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
     /// picture is busiest.
     var peakBitRate: Int? {
         switch self {
-        case .native5k60Experimental:
+        case .native5k, .native5k60Experimental:
+            // Average-only lets the hardware encoder overshoot for long
+            // stretches, which at 5K fills the socket queue faster than a
+            // receiver can drain it.
             return averageBitRate * 3 / 2
         case .standard1080p, .smooth1080p60, .standard1440p, .smooth1440p60, .smooth1800p60,
-             .crisp2160p60, .retina4k60, .native5k:
+             .crisp2160p60, .retina4k60:
             return nil
         }
     }
