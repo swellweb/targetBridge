@@ -173,6 +173,7 @@ If you build from source, app outputs go into `build/` folder.
 - Italian: [docs/QuickStart-IT.md](docs/QuickStart-IT.md)
 - English: [docs/QuickStart-EN.md](docs/QuickStart-EN.md)
 - 中文: [docs/QuickStart-ZH.md](docs/QuickStart-ZH.md)
+- 5K 低延迟与输入跟手说明（中文）: [docs/LowLatency-ZH.md](docs/LowLatency-ZH.md)
 - Translation guide: [docs/Translations.md](docs/Translations.md)
 
 ## Detailed Documentation
