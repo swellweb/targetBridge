@@ -45,6 +45,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/socket.h>
+#include <netinet/tcp.h>
 #include <stdarg.h>
 #include <time.h>
 #include <unistd.h>
@@ -71,6 +73,11 @@ struct app {
     uint64_t skipped_frames;
     uint64_t last_fps_decoded;
     uint64_t last_fps_skipped;
+    /* Video packets fully processed since this session started. Reported back
+     * to the sender as an application-level ACK so it paces itself instead of
+     * filling the whole socket send buffer. */
+    uint64_t frames_consumed;
+    uint64_t last_flow_stats_ms;
 
     int      server_fd;
     int      client_fd;
@@ -219,6 +226,7 @@ static int tb_receiver_get_clipboard_text(char *dest, size_t size);
 static void tb_receiver_send_clipboard_if_changed(struct app *a);
 static void write_be32(uint8_t *dst, uint32_t value);
 static void tb_receiver_send_display_tweaks_if_changed(struct app *a);
+static void tb_receiver_send_flow_stats(struct app *a);
 
 static int tb_receiver_is_valid_language_pref(const char *language_pref) {
     return language_pref &&
@@ -1249,10 +1257,16 @@ static void on_packet(uint8_t type, const uint8_t *payload, size_t len, void *ud
     case TB_PKT_FRAME:
         a->session_active = 1;
         tb_dec_feed_frame(a->dec, payload, len);
+        a->frames_consumed++;
+        /* ACK at frame cadence: the sender runs a 2-frame credit window, so a
+         * coarse timer would throttle the stream to a couple of frames per tick. */
+        tb_receiver_send_flow_stats(a);
         break;
     case TB_PKT_RAW_FRAME:
         a->session_active = 1;
         handle_raw_frame(a, payload, len);
+        a->frames_consumed++;
+        tb_receiver_send_flow_stats(a);
         break;
     case TB_PKT_CURSOR:
         {
@@ -1915,6 +1929,29 @@ static void tb_receiver_send_display_tweaks_if_changed(struct app *a) {
     (void)send_all(a->client_fd, pkt, 5 + (size_t)len);
 }
 
+/* Application-level frame ACK (TB_PKT_FLOW_STATS).
+ *
+ * The display stream is a single ordered TCP byte stream: cursor updates, input
+ * events and video frames are strictly ordered. When 5K decode cannot keep up
+ * with the sender, the kernel socket buffer fills (measured 1-4 MB on a direct
+ * Thunderbolt link) and every small latency-sensitive packet waits behind it.
+ * Telling the sender how many frames we have actually consumed lets it keep
+ * only a small credit window in flight. */
+static void tb_receiver_send_flow_stats(struct app *a) {
+    if (!a || a->client_fd < 0) return;
+
+    char json[96];
+    int len = snprintf(json, sizeof(json), "{\"consumed\":%llu}",
+                       (unsigned long long)a->frames_consumed);
+    if (len <= 0 || (size_t)len >= sizeof(json)) return;
+
+    uint8_t pkt[5 + sizeof(json)];
+    write_be32(pkt, (uint32_t)(1 + len));
+    pkt[4] = TB_PKT_FLOW_STATS;
+    memcpy(pkt + 5, json, (size_t)len);
+    (void)send_all(a->client_fd, pkt, 5 + (size_t)len);
+}
+
 static void send_receiver_info(struct app *a) {
     struct tb_display_info info;
     if (tb_disp_get_info(a->disp, &info) < 0) return;
@@ -1987,6 +2024,8 @@ static void close_client(struct app *a) {
     a->session_active = 0;
     a->close_requested = 0;
     a->have_video_frame = 0;
+    a->frames_consumed = 0;
+    a->last_flow_stats_ms = 0;
     snprintf(a->input_control_mode, sizeof(a->input_control_mode), "off");
     SDL_EnableScreenSaver();
     tb_receiver_refresh_input_capture(a);
@@ -2148,6 +2187,14 @@ int main(int argc, char **argv) {
     a.server_fd = tb_net_listen(TB_PORT);
     if (a.server_fd < 0) { fprintf(stderr, "tb_net_listen failed\n"); return 1; }
 
+    /* Safety net for the flow-control ACK: accepted sockets inherit this bound,
+     * so even a stalled present cannot let the sender build more than ~66 ms of
+     * 5K video in the receive queue. */
+    {
+        int rcvbuf = 1 << 20;   /* 1 MiB */
+        (void)setsockopt(a.server_fd, SOL_SOCKET, SO_RCVBUF, &rcvbuf, sizeof(rcvbuf));
+    }
+
     a.last_fps_tick_ms = now_ms();
     a.last_ip_check_ms = 0;
 
@@ -2217,12 +2264,21 @@ int main(int argc, char **argv) {
         if (a.client_fd < 0) {
             int c = tb_net_accept(a.server_fd);
             if (c >= 0) {
+                /* The per-frame ACK is ~40 bytes and must not be held back by
+                 * Nagle: delayed ACKs on the reverse path would add up to 40 ms
+                 * of jitter to the sender's credit window. */
+                {
+                    int one = 1;
+                    (void)setsockopt(c, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
+                }
                 a.client_fd = c;
                 a.have_video_frame = 0;
                 a.session_active = 0;
                 a.reported_night_shift = -1;   /* force one report per session */
                 a.reported_true_tone = -1;
                 a.last_recv_ms = t;
+                a.frames_consumed = 0;
+                a.last_flow_stats_ms = 0;
                 SDL_DisableScreenSaver();
                 fprintf(stderr, "[main] client connected\n");
                 tb_parser_free(&a.parser);
@@ -2282,6 +2338,14 @@ int main(int argc, char **argv) {
         if (t - a.last_tweak_poll_ms >= 500) {
             a.last_tweak_poll_ms = t;
             tb_receiver_send_display_tweaks_if_changed(&a);
+        }
+
+        /* Keepalive ACK while the stream is idle. Frames ACK themselves in
+         * on_packet(); this only keeps the sender's feedback timestamp fresh so
+         * an idle session does not look like a receiver that fell off the wire. */
+        if (a.client_fd >= 0 && a.session_active && t - a.last_flow_stats_ms >= 500) {
+            a.last_flow_stats_ms = t;
+            tb_receiver_send_flow_stats(&a);
         }
 
         if (a.client_fd < 0 || !a.session_active) {

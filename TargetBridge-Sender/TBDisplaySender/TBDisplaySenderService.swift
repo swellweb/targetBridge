@@ -552,6 +552,68 @@ private final class TBDirectDisplayStreamCapture {
     }
 }
 
+/// Application-level frame pacing.
+///
+/// The receiver reports how many frames it has consumed (`0x39`). Because the
+/// display stream is a single ordered TCP connection, anything the sender
+/// writes runs ahead of every later cursor/input/keystroke echo. Without a
+/// bound the kernel send buffer grows to its autotuning ceiling (measured
+/// 1-4 MB on a 5K session), which is 100-300 ms of latency whenever the
+/// receiver decodes slower than the sender captures.
+///
+/// Keeping at most `credit` frames unacknowledged turns TCP backpressure into
+/// an explicit, small queue: the sender drops captured frames instead of
+/// queueing them, so the picture may run at the receiver's sustainable rate
+/// but the pointer and typing stay within ~2 frames of the input.
+private final class TBFrameFlowControl: @unchecked Sendable {
+    private let lock = NSLock()
+    private var submitted: UInt64 = 0
+    private var consumed: UInt64 = 0
+    private var lastStatsUptime: TimeInterval = 0
+
+    /// 0 disables gating entirely. Two frames of wire queue keeps the pipeline
+    /// full at 48-60 fps while capping queueing at ~42 ms instead of the
+    /// 100-300 ms the kernel socket buffer used to introduce.
+    let credit: UInt64
+
+    init() {
+        let env = ProcessInfo.processInfo.environment
+        let configured = UInt64(env["TB_FLOW_CREDIT"] ?? "") ?? 2
+        credit = env["TB_FLOW_GATE"] == "0" ? 0 : max(1, configured)
+    }
+
+    func noteSubmitted() {
+        lock.lock()
+        submitted &+= 1
+        lock.unlock()
+    }
+
+    func noteConsumed(_ value: UInt64) {
+        lock.lock()
+        if value > consumed { consumed = value }
+        lastStatsUptime = ProcessInfo.processInfo.systemUptime
+        lock.unlock()
+    }
+
+    /// True when another video frame may be put on the wire.
+    ///
+    /// A receiver that never sends feedback (older build) is never gated. Once
+    /// feedback has been seen, silence means the receiver stopped consuming:
+    /// keep blocking instead of flooding its socket again - the receiver's own
+    /// idle watchdog restarts the session if it never recovers.
+    func maySubmit(encodeInFlight: Int = 0) -> Bool {
+        guard credit > 0 else { return true }
+        lock.lock()
+        defer { lock.unlock() }
+        guard lastStatsUptime > 0 else { return true }
+        if ProcessInfo.processInfo.systemUptime - lastStatsUptime > 1.5 {
+            return false
+        }
+        let outstanding = submitted > consumed ? submitted - consumed : 0
+        return outstanding + UInt64(max(0, encodeInFlight)) < credit
+    }
+}
+
 /// Owns the capture→encode→send video pipeline and runs it entirely on a
 /// dedicated serial queue, off the main thread. SwiftUI layout (or any other
 /// main-thread work) therefore cannot stall frame delivery. All mutable encode
@@ -560,6 +622,9 @@ private final class TBDirectDisplayStreamCapture {
 /// a per-frame hop back to main.
 private final class TBVideoPipeline: @unchecked Sendable {
     let queue = DispatchQueue(label: "fd.tbmonitor.sender.pipeline", qos: .userInteractive)
+
+    /// Cross-thread pacing state; the receive loop feeds it, this queue reads it.
+    let flow = TBFrameFlowControl()
 
     private let preset: TBDisplayCapturePreset
     private let codecType: CMVideoCodecType
@@ -763,6 +828,12 @@ private final class TBVideoPipeline: @unchecked Sendable {
             droppedByFrameRatePacer += 1
             return
         }
+        guard flow.maySubmit(encodeInFlight: inFlightEncodeFrames) else {
+            // The receiver has not consumed the frames already on the wire.
+            // Drop at capture so the socket queue cannot turn into latency.
+            droppedBeforeEncodeFrames += 1
+            return
+        }
         if usesRawNV12 {
             sendRawFrame(sampleBuffer)
             return
@@ -793,6 +864,10 @@ private final class TBVideoPipeline: @unchecked Sendable {
         }
         guard frameRatePacer.shouldEmit(presentationTime: pts) else {
             droppedByFrameRatePacer += 1
+            return
+        }
+        guard flow.maySubmit(encodeInFlight: inFlightEncodeFrames) else {
+            droppedBeforeEncodeFrames += 1
             return
         }
         if !TBVideoQueueBudget.canEncode(pending: pendingVideoPackets,
@@ -884,6 +959,7 @@ private final class TBVideoPipeline: @unchecked Sendable {
                 }
             }))
             lock.lock(); _sentFrames += 1; lock.unlock()
+            flow.noteSubmitted()
         }
     }
 
@@ -897,6 +973,10 @@ private final class TBVideoPipeline: @unchecked Sendable {
         else { return }
         // Backpressure: never pile frames on top of a network that can't keep up.
         if pendingVideoPackets >= preset.maxPendingVideoPackets {
+            droppedBeforeEncodeFrames += 1
+            return
+        }
+        guard flow.maySubmit() else {
             droppedBeforeEncodeFrames += 1
             return
         }
@@ -948,6 +1028,7 @@ private final class TBVideoPipeline: @unchecked Sendable {
             }
         }))
         lock.lock(); _sentFrames += 1; lock.unlock()
+        flow.noteSubmitted()
     }
 
     private func buildParamSetsPacket(from format: CMVideoFormatDescription, codecType: CMVideoCodecType) -> Data? {
@@ -2246,6 +2327,10 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
                     } else {
                         applyIncomingInputEvent(event, payload: payload)
                     }
+                }
+            case .flowStats:
+                if let stats = TBMonitorProtocol.decodeJSON(TBMonitorFlowStats.self, from: payload) {
+                    pipeline?.flow.noteConsumed(stats.consumed)
                 }
             case .heartbeat:
                 break
