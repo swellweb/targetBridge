@@ -55,6 +55,12 @@
 #define TB_PKT_BRIGHTNESS       0x35
 #define TB_PKT_CLIPBOARD        0x36
 #define TB_PKT_VOLUME           0x37
+/* Receiver -> Sender frame-consumption feedback (JSON {"consumed":N}), sent
+ * over the same bidirectional TCP connection. The Sender uses it as an
+ * application-level ACK so it keeps only a couple of frames in flight instead
+ * of letting the kernel socket buffer grow to megabytes, which added
+ * 100-300 ms of input latency at 5K on slower receivers. */
+#define TB_PKT_FLOW_STATS       0x39
 /* Display tweaks on the receiver's panel: JSON {"nightShift":bool,"trueTone":bool}.
  * Both are private CoreBrightness features, so the receiver reports whether it
  * can honour them in its display profile. */

@@ -19,6 +19,8 @@ enum TBMonitorPacketType: UInt8 {
     case volume = 0x37
     /// Night Shift / True Tone on the receiver's panel.
     case displayTweaks = 0x38
+    /// Receiver -> sender frame-consumption ACK, used to bound in-flight frames.
+    case flowStats = 0x39
     case testData = 0x40
 }
 
@@ -113,6 +115,14 @@ struct TBMonitorDisplayTweaks: Codable {
 
 struct TBMonitorClipboard: Codable {
     var text: String
+}
+
+/// Receiver -> sender progress report. `consumed` counts video packets the
+/// receiver has fully processed since the session started. Because TCP is
+/// ordered and reliable, `sent - consumed` is a dependable in-flight frame
+/// count even across the two directions of the connection.
+struct TBMonitorFlowStats: Codable {
+    var consumed: UInt64
 }
 
 /// Framing-level corruption that cannot be recovered by waiting for more
