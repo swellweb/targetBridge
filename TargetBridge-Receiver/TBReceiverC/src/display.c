@@ -626,6 +626,11 @@ struct tb_display *tb_disp_create(int fullscreen) {
         fprintf(stderr, "[disp] CreateRenderer: %s\n", SDL_GetError());
         SDL_DestroyWindow(d->win); free(d); return NULL;
     }
+    /* The receiver is meant to present as fast as decode produces frames (see
+     * the comment above), but SDL still paces presents to the panel refresh
+     * unless vsync is disabled explicitly. At 5K that wait alone measured
+     * ~16 ms per frame and capped the pipeline near 30 fps. */
+    SDL_RenderSetVSync(d->ren, 0);
     SDL_SetYUVConversionMode(SDL_YUV_CONVERSION_BT709);
     SDL_RenderSetLogicalSize(d->ren, 0, 0);
 
